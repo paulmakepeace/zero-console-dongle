@@ -20,6 +20,9 @@ picocom -b 115200 --omap crcrlf /dev/ttyUSB0
 Press Enter twice. Console changes generally need `login` (passwords not
 public). `config` does not.
 
+On macOS the CP2102N appears as `/dev/cu.usbserial-XXXX`. Use the `cu.` device,
+not `tty.`: the `tty.` side waits for carrier detect and picocom hangs on open.
+
 ## Capturing logs
 
 Record the whole session rather than copying from the terminal:
