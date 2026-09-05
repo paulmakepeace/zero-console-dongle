@@ -78,6 +78,10 @@ board set to 3.3 V. Verify TX idles at about 3.3 V before connecting. A 5 V-only
 adapter does not talk to the MBB and risks the RX pin.
 
 On hand: DSD TECH SH-U09B3 (CP2102N, USB-C, header pins), enumerates as cp210x.
+Its bottom header reads 5V0, GND, TXD, RXD, RTS, CTS; the side header 3V3, RI,
+DCD, DTR, DSR ([photo](img/sh-u09b3-back.jpg)). For the bike: GND to OBD 5,
+TXD to OBD 9, RXD to OBD 8, nothing on 5V0 or 3V3. No level jumper is visible
+on the back, so confirm TXD idles near 3.3 V with a meter before connecting.
 
 Cheap OBD male plugs often omit pins 8 and 9 entirely. The one bought has all
 16.
