@@ -1,2 +1,13 @@
 firmware/secrets.yaml
 firmware/.esphome/
+
+# Bike log captures. Console dumps are plain text (picocom --logfile, PuTTY
+# session logs); the Zero app exports binary .bin; the parsers write
+# .txt/.csv/.tsv/.json/.html beside them. Captures can carry serial numbers.
+logs/*
+!logs/.gitkeep
+*.bin
+*.log
+*.txt
+*.csv
+*.tsv

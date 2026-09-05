@@ -20,6 +20,35 @@ picocom -b 115200 --omap crcrlf /dev/ttyUSB0
 Press Enter twice. Console changes generally need `login` (passwords not
 public). `config` does not.
 
+## Capturing logs
+
+Record the whole session rather than copying from the terminal:
+
+```bash
+picocom -b 115200 --omap crcrlf --logfile logs/mbb-$(date +%F).log /dev/ttyUSB0
+```
+
+Gen3 dump commands at the prompt: `eld` or `eventlogdump` for the event log,
+`elde` or `eventlogdumpexhaustive` for the most complete text export, `eldd`
+for a dump from a given date, `faults` for error information. Each takes an
+optional entry count after it. Output is decoded plain text and begins with
+"Printing N of M log entries", which says how much was captured.
+
+File types to expect:
+
+| Source                          | Extension                       |
+|---------------------------------|---------------------------------|
+| Console session capture         | `.log` or `.txt`, plain text    |
+| Zero app "Email bike logs"      | `.bin`, binary, MBB and BMS     |
+| zero-log-parser output          | `.txt`, `.csv`, `.tsv`, `.json`, `.html` |
+
+Everything under `logs/` and all of those extensions are ignored by git.
+Console captures do not reliably carry the VIN, but a dump can include serial
+numbers, so treat any capture as private until read.
+
+Parsers: zero-log-parser (zero-motorcycle-community on GitHub) for `.bin` and
+console text; zerologs.bike decodes a `.bin` in the browser without upload.
+
 ## Pinout
 
 Measured 2026-09-05 on the MY2020 SR/S, all voltages relative to pin 5.
