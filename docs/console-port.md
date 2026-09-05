@@ -81,7 +81,8 @@ On hand: DSD TECH SH-U09B3 (CP2102N, USB-C, header pins), enumerates as cp210x.
 Its bottom header reads 5V0, GND, TXD, RXD, RTS, CTS; the side header 3V3, RI,
 DCD, DTR, DSR ([back](img/sh-u09b3-back.jpg), [front](img/sh-u09b3-front.jpg)).
 For the bike: GND to OBD 5, TXD to OBD 9, RXD to OBD 8, nothing on 5V0 or 3V3.
-Wire colours in use: black GND, orange RXD to OBD 8, yellow TXD to OBD 9.
+Wire colours in use: black GND, orange RXD to OBD 8, yellow TXD to OBD 9
+([plug end, numbers visible](img/obd-plug-back-wired.jpg)).
 There is no level switch or jumper; the only option is an unpopulated solder
 pad near the top left, so the I/O runs at the CP2102N's internal 3.3 V. A meter
 on TXD confirms it.
