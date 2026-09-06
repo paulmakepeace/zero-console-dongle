@@ -33,6 +33,28 @@ unproven.
 - `logs/`: session captures, ignored by git because they carry the VIN and
   serial numbers.
 
+## Where this stands
+
+Done: console access proven with the interim cable, LED mode on and the
+bulb-out fault gone, the console catalogue and the bike's state captured, the
+app logs characterised, the dongle's parts list settled.
+
+Next, in order:
+
+1. Leave the console logging with the bike asleep for an hour or more. That
+   captures a full hourly wake cycle and measures how long pin 8 stays live
+   after the MBB stops talking, which decides the power design.
+2. Decide the power source: the frunk USB (key-switched 5 V, no electronics)
+   or pin 16 through the fused P-FET switch in [docs/hardware.md](docs/hardware.md).
+3. When the DevKits arrive, bench-test CAN first: DevKit on USB, SN65HVD230
+   with its termination removed and its TX pin left unconnected, listen-only
+   at 500 kbit/s, then 250k and 125k. That identifies the bus on pins 6 and 14.
+4. Fit the front LEDs, indicate with the console open, and read the current.
+   Fit the 80 ohm resistors only if the fault returns.
+5. Firmware: log the console stream continuously, poll a small command set,
+   keep an interactive TCP console with priority, ship CAN frames raw. See
+   [docs/firmware.md](docs/firmware.md).
+
 ## Talking to the console today
 
 With a 3.3 V USB-UART on OBD pins 5 (GND), 8 (MBB TX) and 9 (MBB RX):
