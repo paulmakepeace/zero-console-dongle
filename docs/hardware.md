@@ -52,6 +52,13 @@ console up while it shuts down, and reads 0 V once the MBB has gone to sleep.
 So the dongle gets a shutdown window of that length rather than an instant
 cut, and can log the shutdown sequence. The full duration is not yet measured.
 
+The MBB also wakes itself every hour: every hibernate entry in the app logs
+says "Hibernating for 3600 sec", and each wake tops up the 12 V battery from
+the pack, prints a few dozen lines, and sleeps again. A pin-8-sensed dongle
+will therefore power up hourly for the length of that cycle, which is not yet
+measured either. It is a feature for logging and a cost of a few tens of
+milliamp-seconds against a battery the wake is charging anyway.
+
 Switch: the RC node drives a 2N7000 gate; its drain pulls a P-channel MOSFET's
 gate low through the 100k gate pull-up to +13 V; the P-FET switches the fused
 13 V into the buck. Key on: node high, 2N7000 on, gate low, P-FET on. Key off:

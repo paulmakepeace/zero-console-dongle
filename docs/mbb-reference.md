@@ -152,10 +152,14 @@ Read raw, the MBB file is a ring of the same narration the console prints,
 charge`, `Fault cleared: HVIL_OPEN`, `Blinker cancelled`, plus binary
 telemetry records for vehicle state and sensors. Two things follow:
 
-- The ring is dominated by the periodic hibernation wakes. In one pull, the
-  wake, 12 V top-up, save-stats and hibernate sequence appears 55 times and
+- The ring is dominated by the hourly hibernation wakes. Every hibernate
+  entry reads "Hibernating for 3600 sec"; the wake reason is the RTC about
+  five times out of six and the wake pin otherwise. Each wake tops up the 12 V
+  battery, whose voltage sits between 12.95 and 13.02 V in the entries, and
+  logs a few dozen lines. In one pull that sequence appears 55 times and
   accounts for most of the roughly 2,200 entries, so ride and fault history is
-  squeezed into what is left.
+  squeezed into what is left, and a pull reaches back only about two days of
+  parked time.
 - Detail is dropped. The blinker fault appears, but the `blinker current` line
   that follows it on the console does not, and none of the command outputs
   (`pdu`, `in`, `bms`) exist in the log at all.
