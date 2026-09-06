@@ -41,7 +41,10 @@ Point-in-time readings, kept so a later session can see what moved.
 | Total 12 V load (key on, grips on) | 4.94 A            |
 
 Stored OBD state: MIL off, one active DTC `B1A0F`, first seen at key cycle
-1471 with the freeze frame kept. Its meaning is not known.
+1471 with the freeze frame kept. The freeze frame's odometer field matches the
+odometer at the time of the capture (about 9000 mi, 14,480 km), so the code
+was refreshed in this session, and the blinker bulb-out fault is the likely
+subject. Not confirmed.
 
 Faults seen at key-on in this session, all transient: CONTROLLER_WARNING
 (code 200) for three seconds, and HIGH_THROTTLE twice. The blinker faults are

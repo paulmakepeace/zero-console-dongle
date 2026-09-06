@@ -47,6 +47,11 @@ Goal: no parasitic drain with the key off.
 Sense: pin 8 through 100k to an RC node, 10 uF from the node to GND. The
 roughly 1 s hold stops MBB chatter toggling it.
 
+Pin 8 stays live for at least 20 s after key-off, because the MBB keeps its
+console up while it shuts down, and reads 0 V once the MBB has gone to sleep.
+So the dongle gets a shutdown window of that length rather than an instant
+cut, and can log the shutdown sequence. The full duration is not yet measured.
+
 - Option A: RC node drives the buck's EN. Needs a buck with an exposed
   active-high EN.
 - Option B: RC node drives a 2N7000 gate; its drain pulls a P-FET (AO3401 or
