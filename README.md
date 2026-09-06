@@ -6,9 +6,9 @@ the MBB serial console, takes key-switched power from the bike, and carries a
 passive CAN sniffer. The immediate motivation is clearing the "bulb out" fault
 from aftermarket LED turn signals without a dealer visit.
 
-Status: the console is reachable with an interim USB-UART cable and the LED
-mode is switched on; the dongle itself is waiting on parts, nothing built or
-flashed. See [docs/open-questions.md](docs/open-questions.md) for what is
+Status: the console is reachable with an interim USB-UART cable, LED mode is
+on, and the bulb-out fault is gone with rear LEDs and front incandescents; the
+dongle itself is waiting on parts, nothing built or flashed. See [docs/open-questions.md](docs/open-questions.md) for what is
 unproven.
 
 ## Layout

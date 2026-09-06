@@ -87,8 +87,9 @@ key-off as `Config old: 3351 new: 3383 changed: 32`, and 3351 decodes to bits
 grips and LED indicators, which is this bike's set once item 5 is on. That
 supports, without proving, the two being the same field.
 
-The change is written to non-volatile storage at key-off, so key off before
-disconnecting if a toggle is meant to stick.
+The change is written to non-volatile storage at key-off and applied at the
+next boot. A toggle has no effect on the running bike until the key has been
+cycled, and it is lost if power is pulled before key-off.
 
 ## PDU channels
 
