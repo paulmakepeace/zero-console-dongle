@@ -30,24 +30,30 @@ whole. Everything else is layered on top.
 
 ## Implementation choice
 
-Recommended: a small custom firmware in ESP-IDF or Arduino, four tasks (UART
+Direction: a small custom firmware in Arduino or ESP-IDF, four tasks (UART
 reader and line framer, TCP console, MQTT publisher with the poll scheduler,
-TWAI listener). ESPHome's `stream_server` gives item 3 on day one, but items
-2 and 3 together are a custom component anyway, at which point ESPHome is a
-wrapper around code being written regardless. Not decided.
+TWAI listener). ESPHome is being left behind: its `stream_server` gives item
+3 on day one, but items 2 and 3 together are a custom component anyway, at
+which point ESPHome is a wrapper around code being written regardless, and
+its logger and CAN component both get in the way of items 3 and 4.
 
-The draft ESPHome configuration in [../firmware/](../firmware/) stays as the
-quickest way to prove the hardware when the boards arrive: UART2 on GPIO16 and
-GPIO17, `stream_server` on port 6638, a 500 kbit/s CAN listener logging frame
-IDs. It has not been compiled or flashed.
+The draft ESPHome configuration in [../firmware/](../firmware/) stays only as
+the quickest way to prove the hardware when the boards arrive: UART2 on
+GPIO16 and GPIO17, `stream_server` on port 6638, a 500 kbit/s CAN listener
+logging frame IDs. It has not been compiled or flashed, and it goes once the
+custom build does the same.
+
+Development serial access: `idf.py monitor` under ESP-IDF, or tio, on the
+DevKit's own USB port. See [console-port.md](console-port.md) for the tio
+flags.
 
 ## Open design points
 
-- ESPHome's logger owns UART0 by default. A USB passthrough under ESPHome
-  means moving the logger and adding a component to copy bytes both ways.
-- Whether ESPHome's `esp32_can` exposes TWAI listen-only mode. The sniffer must
-  never ACK or transmit on the bike's bus; leaving the transceiver's TX pin
-  unconnected enforces that in hardware for the first tests.
+- The sniffer must never ACK or transmit on the bike's bus. ESP-IDF's TWAI
+  driver has a listen-only mode, and Arduino-ESP32 exposes the same driver;
+  leaving the transceiver's TX pin unconnected enforces it in hardware for the
+  first tests.
 - CAN bitrate is unknown. Try 500k, then 250k, then 125k.
-- Flash writes must happen at safe points, because the key-switched power
-  design cuts the supply without warning once the MBB stops talking.
+- Flash writes must happen at safe points. The frunk USB dies at key-off
+  without warning, and the deferred pin 16 switch would cut the supply once
+  the MBB stops talking.

@@ -42,6 +42,39 @@ picocom -b 115200 --omap crcrlf,delbs --imap lfcrlf --logfile logs/mbb-$(date +%
 Unsolicited `DEBUG:` lines interleave with what you type; that is the MBB, not
 the terminal. Quit with Ctrl-A then Ctrl-X.
 
+## A timestamped capture
+
+For measuring gaps, such as how long the console runs after key-off or how
+long an hourly wake lasts, the picocom log is not enough: it has no
+timestamps, and the MBB's own `DEBUG:` stamps do not cover the bare state
+lines. `tools/capture.py` reads the port, sends nothing, stamps each line
+with the local time at its first byte, drops the NULs, and flushes per line:
+
+```bash
+tools/capture.py
+```
+
+It writes `logs/mbb-capture-DATE_TIME.log`, echoes to the screen, and
+reconnects if the adapter goes away. Stop it with Ctrl-C.
+
+tio also works and allows typing:
+
+```bash
+tio -b 115200 -t --timestamp-format iso8601 -L --log-file logs/mbb-DATE.log \
+    -m INLCRNL,OCRNL,ONLCRNL,ODELBS /dev/cu.usbserial-0001
+```
+
+The map flags give the same line endings and backspace as `console.sh`, and
+the log file carries the stamps. One catch: tio stamps a line on its first
+byte, and the MBB sends its NUL right after the previous line's LF, so each
+stamp is really the previous line's end. Across a long silence the first
+line after the gap is stamped before the gap, not after. Read gaps from the
+next line down, or use `capture.py`, which skips the NULs before stamping.
+
+Other terminals: `idf.py monitor` comes with ESP-IDF and is a good fit for
+the DevKit's own USB port once that toolchain is installed. CoolTerm is no
+longer in Homebrew, which dropped it for lack of Apple-signed builds.
+
 ## Captures
 
 The raw log carries a NUL after most lines. Clean it before reading:
@@ -80,7 +113,7 @@ Measured 2026-09-05 on the MY2020 SR/S, all voltages relative to pin 5.
 | 4   | Chassis GND               | continuity to pin 5                   |
 | 5   | Signal GND                | continuity to frame                   |
 | 6   | CAN-H                     | 3.1 V (live traffic)                  |
-| 8   | MBB TX, to adapter RX     | 3.33 V key on, 0 V key off            |
+| 8   | MBB TX, to adapter RX     | 3.33 V key on, 0 V key off (delay not recorded) |
 | 9   | MBB RX, from adapter TX   | 0 V (no pull-up; the adapter drives)  |
 | 14  | CAN-L                     | 1.85 V (live traffic)                 |
 | 16  | +12 V battery             | 13.0 V key off, 13.2 V key on         |
@@ -91,7 +124,8 @@ plug viewed the same way has the same layout. Trust the moulded numbers on the
 plug over any diagram.
 
 Pin 8 is a logic output. It is usable as a key-on sense at microamp load, never
-as a supply.
+as a supply. The key-off reading was taken some unrecorded time after the key
+turned; how long the pin stays high after key-off is not known.
 
 ## Adapters
 
