@@ -138,6 +138,33 @@ SHORT.
     PARK_MODE CONTROLLER_MISMATCH SIGNIFICANT_PWR_LIMIT BMS_12V_OUT_OF_RANGE
     CHARGER_FAN KEY_OFF_WHILE_MOVING KEY_OFF_WHILE_MOVING_LIMP
 
+## App logs versus the console
+
+The Zero app's "Email bike logs" delivers two 131 KB files per pull, one for
+the MBB and one for the BMS, named with the date, the VIN and the ECU id
+(6 for the MBB, 10 for the BMS). On this firmware they are the newer compact
+format that zero-log-parser documents as "2025+" and only partly decodes:
+the header is not recognised, most entries come out as single characters, and
+the odometer fields are unreliable.
+
+Read raw, the MBB file is a ring of the same narration the console prints,
+`Control flags changed`, `State change from STRT to PWSU`, `Requesting 12v
+charge`, `Fault cleared: HVIL_OPEN`, `Blinker cancelled`, plus binary
+telemetry records for vehicle state and sensors. Two things follow:
+
+- The ring is dominated by the periodic hibernation wakes. In one pull, the
+  wake, 12 V top-up, save-stats and hibernate sequence appears 55 times and
+  accounts for most of the roughly 2,200 entries, so ride and fault history is
+  squeezed into what is left.
+- Detail is dropped. The blinker fault appears, but the `blinker current` line
+  that follows it on the console does not, and none of the command outputs
+  (`pdu`, `in`, `bms`) exist in the log at all.
+
+So a dongle that logs the console stream continuously holds a superset of the
+MBB log for every period pin 8 is live, with the currents kept and no ring
+crowding. The BMS file is the one thing the console does not replace; its
+content is the module's own record and the console's `bms` view is a summary.
+
 ## CAN networks
 
 Four are named in the fault list: POWERTRAIN_CAN, MSC_CAN, OBD_CCM_CAN and

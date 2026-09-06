@@ -52,26 +52,52 @@ console up while it shuts down, and reads 0 V once the MBB has gone to sleep.
 So the dongle gets a shutdown window of that length rather than an instant
 cut, and can log the shutdown sequence. The full duration is not yet measured.
 
-- Option A: RC node drives the buck's EN. Needs a buck with an exposed
-  active-high EN.
-- Option B: RC node drives a 2N7000 gate; its drain pulls a P-FET (AO3401 or
-  FQP27P06) gate low; the P-FET switches 13 V to any buck. 100k pull-up on the
-  P-FET gate.
+Switch: the RC node drives a 2N7000 gate; its drain pulls a P-channel MOSFET's
+gate low through the 100k gate pull-up to +13 V; the P-FET switches the fused
+13 V into the buck. Key on: node high, 2N7000 on, gate low, P-FET on. Key off:
+node decays, 2N7000 off, gate rises to 13 V, P-FET off, and the only drain is
+FET leakage. A 1M bleed from the RC node to GND guarantees the decay if pin 8
+goes high-impedance rather than low.
+
+The P-FET must tolerate the full 13 V gate swing: pick one rated for at least
+20 V gate-to-source. The AO3401 is rated 12 V and needs a 100k/100k divider or
+a 10 V zener on its gate if used. Driving a buck's own enable pin instead does
+not work with common modules, whose enable is pulled up internally and needs
+pulling low to switch off, the opposite polarity to the key sense.
 
 The frunk USB is key-switched 5 V and would also work. Rejected so phone and
 watch chargers can stay plugged in there.
 
 ## Parts
 
+Power budget on the 5 V rail: the ESP32 averages 150 to 250 mA with WiFi up
+and peaks near 500 mA on transmit, the onboard CP2102 and the CAN transceiver
+add about 20 mA between them. Size the buck for 1 A or more so the peaks do not
+brown it out; low quiescent current does not matter because the P-FET removes
+the whole circuit at key-off.
+
 - [x] OBD-II male plug with all 16 pins and shell
 - [x] 4x AITRIP ESP32 DevKit V1 USB-C (due 2026-09-12)
 - [x] SH-U09B3 CP2102N (backup and interim adapter)
-- [ ] Buck 13 V to 5 V, 500 mA or more, low quiescent current, EN exposed (or
-      the FET switch parts)
-- [ ] Inline fuse holder and 0.5 to 1 A fuse
-- [ ] TVS about 24 V (SMBJ24A), optional
-- [ ] SN65HVD230 breakout
-- [ ] 2N7000, P-FET, 100k (option B only)
-- [ ] R and C for key sense (have)
-- [ ] JST-XH 3-pin (optional)
-- [ ] 2x about 80 ohm 5 to 10 W resistors (only if needed after measuring)
+- [x] 2x 80 ohm ceramic power resistors (for the all-LED phase if the fault
+      returns)
+- [ ] Buck, 5 V out, 1 A or more, input rated 30 V or better. Pololu D24V22F5
+      class, or an MP1584EN module set to 5.0 V on the bench before it goes
+      near the DevKit
+- [ ] P-channel MOSFET, 30 V or more drain-source, 20 V or more gate-source,
+      logic level: FQP27P06 or IRF9540N through-hole, DMG2305UX or SI2319 SMD
+- [ ] 2N7000
+- [ ] Resistors: 100k x2 (gate pull-up, key-sense series), 1M (bleed), 1k x2
+      (series in the UART lines as cheap insurance)
+- [ ] 10 uF for the key sense (have); 100 uF 25 V electrolytic and 100 nF at
+      the buck input
+- [ ] Inline fuse holder, mini blade or 5x20, with a 1 A fuse, first thing
+      after pin 16
+- [ ] TVS diode SMBJ24A or 1.5KE24A across the fused 13 V, before the P-FET
+- [ ] SS34 Schottky in series for reverse polarity, optional; the connector is
+      keyed and the diode costs 0.3 V
+- [ ] SN65HVD230 breakout, 3.3 V supply, RS strapped to GND; desolder the
+      120 ohm termination the breakouts ship with
+- [ ] JST-XH 2.5 mm 3-pin header and housing for bare TTL access, optional
+- [ ] Perfboard offcut about 20 x 30 mm for the power switch parts, 24 AWG
+      silicone wire, heat shrink, Kapton, an M3 nylon washer for the post mount
