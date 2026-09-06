@@ -21,8 +21,15 @@ Testing on this bike: a parallel load of 28 ohms or less per side passes, about
 The console has an LED mode that needs no login. `config` lists a 14-item
 install table; item 5 is "LED Indicators" (Detected: N/A, a pure flag).
 `config 5` toggles it to Installed and it persists across a key cycle. It works
-on this MY2020 SR/S and owners report it on MY2020 and MY2023 SR/F. It is
-likely the same bitfield dealers set as `accessory_configuration` 0x36.
+on this MY2020 SR/S on firmware revision 44, and owners report it on MY2020
+and MY2023 SR/F. The table is a bitfield with item N on bit N, so the LED flag
+is bit 5 (value 32), and the change is written at key-off. The dealer value
+`accessory_configuration` 0x36 decodes to items 1, 2, 4 and 5, which matches
+this bike's set, so it is likely the same field
+([details](mbb-reference.md#config-table)).
+
+`pdu` shows the two blinker channels with live current, so a side's draw can
+be read while indicating without waiting for a fault.
 
 Be careful with `config N`: items 8 to 14 include Charger Upgrade, Range
 Upgrade and similar.

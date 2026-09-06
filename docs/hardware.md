@@ -31,6 +31,13 @@ CAN transceiver: 3V3 from the DevKit, RS to GND, CTX/CRX to two GPIOs. Remove
 any 120 ohm termination jumper on the breakout. Drive the TWAI peripheral in
 listen-only mode.
 
+The bike has at least four CAN networks (see the CAN section of
+[mbb-reference.md](mbb-reference.md)). The pair on OBD pins 6 and 14 is
+probably the OBD/CCM bus rather than the powertrain bus, so the sniffer may
+see diagnostics and telematics traffic rather than motor and BMS frames. If
+that bus follows the OBD-II convention it runs at 500 kbit/s, which is the
+first rate to try.
+
 Optional: a JST-XH 3-pin (GND/TX/RX) for bare TTL access.
 
 ## Key-switched power

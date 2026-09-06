@@ -23,31 +23,50 @@ public). `config` does not.
 On macOS the CP2102N appears as `/dev/cu.usbserial-XXXX`. Use the `cu.` device,
 not `tty.`: the `tty.` side waits for carrier detect and picocom hangs on open.
 
-## Capturing logs
+## A legible session
 
-Record the whole session rather than copying from the terminal:
+The MBB ends lines with a bare LF, so unmapped output staircases across the
+screen, and it wants backspace rather than delete. `tools/console.sh` sets the
+mappings, finds the adapter, and logs the raw session under `logs/`:
 
 ```bash
-picocom -b 115200 --omap crcrlf --logfile logs/mbb-$(date +%F).log /dev/ttyUSB0
+tools/console.sh
 ```
 
-Gen3 dump commands at the prompt: `eld` or `eventlogdump` for the event log,
-`elde` or `eventlogdumpexhaustive` for the most complete text export, `eldd`
-for a dump from a given date, `faults` for error information. Each takes an
-optional entry count after it. Output is decoded plain text and begins with
-"Printing N of M log entries", which says how much was captured.
+By hand, the same thing is:
+
+```bash
+picocom -b 115200 --omap crcrlf,delbs --imap lfcrlf --logfile logs/mbb-$(date +%F).log /dev/cu.usbserial-0001
+```
+
+Unsolicited `DEBUG:` lines interleave with what you type; that is the MBB, not
+the terminal. Quit with Ctrl-A then Ctrl-X.
+
+## Captures
+
+The raw log carries a NUL after most lines. Clean it before reading:
+
+```bash
+tools/log-clean.sh logs/mbb-DATE.log > logs/mbb-DATE.txt
+```
+
+There is no event-log export from the console on firmware revision 44: the
+text dump commands published for other revisions are rejected, and the hex
+dump answers "log printing not supported". Bike logs come from the Zero app
+(Support, Email bike logs), which sends `.bin` files for the MBB and BMS.
+Read-only snapshot commands still work; see [mbb-reference.md](mbb-reference.md).
 
 File types to expect:
 
 | Source                          | Extension                       |
 |---------------------------------|---------------------------------|
-| Console session capture         | `.log` or `.txt`, plain text    |
+| Console session capture         | `.log` raw, `.txt` cleaned      |
 | Zero app "Email bike logs"      | `.bin`, binary, MBB and BMS     |
 | zero-log-parser output          | `.txt`, `.csv`, `.tsv`, `.json`, `.html` |
 
-Everything under `logs/` and all of those extensions are ignored by git.
-Console captures do not reliably carry the VIN, but a dump can include serial
-numbers, so treat any capture as private until read.
+Everything under `logs/` and all of those extensions are ignored by git. The
+`version` header and the `bms` snapshot print the VIN and serial numbers, so
+treat any capture as private.
 
 Parsers: zero-log-parser (zero-motorcycle-community on GitHub) for `.bin` and
 console text; zerologs.bike decodes a `.bin` in the browser without upload.
