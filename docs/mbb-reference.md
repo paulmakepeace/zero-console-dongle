@@ -61,6 +61,15 @@ banner, `Reset Source: Hib Wake Pin`, `State change from STRT to WAIT`, then
 STOP and HIB about 30 s later. A reset that lands during the hourly wake
 abandons the top-up.
 
+Key-on from deep sleep is the same reset with the same wake-pin source,
+then `Key Sw = ON`, immobiliser unlocked, STRT to WAIT, the BMS assigned,
+WAIT to STOP, `Kill Sw = RUN`, precharge and contactor closed about 5 s
+after the key, a transient CONTROLLER_WARNING, the two chargers assigned.
+With the key on the cellular module answers in 6 s, `CCM RTC verified OK`,
+and corrects the MBB's clock. Key-off is `Key Sw = OFF`, STOP to HIB within
+100 ms, `MBB will hibernate in under 30 seconds`, and the `Hibernating`
+line 30 s later; the console drops about 5 s after that.
+
 The `Disch limits` and `Ch limits` pair, printed on state changes and in the
 heartbeat, is the pack's discharge and charge limit: `curr` in tenths of an
 amp, `pow` in tenths of a watt, `cap` repeating `curr`, `act` at INT32_MAX
