@@ -27,6 +27,7 @@ static uint32_t lastRotateMs = 0;
 // the interrupt cannot be moved into IRAM under the precompiled core.
 static String pending;
 static uint32_t pendingSinceMs = 0;
+static String pendingFirstStamp;   // the header carries the first line's time, not the commit's
 static String lastLines[LAST_LINES];
 static int lastHead = 0, lastCount = 0;
 static uint32_t droppedLines = 0;
@@ -157,7 +158,8 @@ void storeSessionOpen() {
         activeName = "";
         return;
     }
-    writeLine(clockStamp() + " dongle: session start, boot " + String(bootCount) +
+    writeLine((pendingFirstStamp.length() ? pendingFirstStamp : clockStamp()) +
+              " dongle: session start, boot " + String(bootCount) +
               ", time " + clockSourceName() + ", fw " FW_VERSION);
     Serial.printf("store: session %s\n", activeName.c_str());
 }
@@ -210,7 +212,7 @@ void storeAppend(const String& line) {
     lastLines[lastHead] = line;
     lastHead = (lastHead + 1) % LAST_LINES;
     if (lastCount < LAST_LINES) lastCount++;
-    if (pending.length() == 0) pendingSinceMs = millis();
+    if (pending.length() == 0) { pendingSinceMs = millis(); pendingFirstStamp = clockStamp(); }
     pending += line;
     pending += '\n';
     if (pending.length() >= PENDING_MAX) commitPending();
