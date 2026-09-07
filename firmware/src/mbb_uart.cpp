@@ -84,6 +84,7 @@ void mbbBegin(LineHandler onLine, RawHandler onRaw, StateHandler onState) {
     gpio_set_pull_mode((gpio_num_t)PIN_MBB_RX, GPIO_PULLDOWN_ONLY);   // uart_set_pin leaves a pull-up
     uart_driver_install(UART_NUM_2, UART_RX_BUF, 1024, 0, nullptr, 0);
     txDetach();
+    lastActivityMs = millis() - SLEEP_AFTER_MS - 1;   // start asleep until pin 8 is seen high
 
     xTaskCreatePinnedToCore(captureTask, "mbb", 8192, nullptr, 3, nullptr, 1);
 }

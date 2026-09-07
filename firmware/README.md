@@ -25,8 +25,11 @@ Power from USB-C for the bench and the frunk socket.
 ```
 
 ```bash
-~/.platformio/penv/bin/pio device monitor -d firmware
+cd firmware && ~/.platformio/penv/bin/pio device monitor
 ```
+
+The monitor has to run from inside `firmware/`; with `-d` its exception
+decoder looks for the project in the wrong place.
 
 Later builds can go over the air: `pio run -d firmware -t upload --upload-port zero-dongle.local`,
 or the form at `http://zero-dongle.local/update`.
