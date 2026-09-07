@@ -1,6 +1,6 @@
 #pragma once
 
-#define FW_VERSION      "0.2.1"
+#define FW_VERSION      "0.2.2"
 #define DONGLE_NAME     "zero-dongle"      // hostname, mDNS name, setup AP name
 #define SETUP_AP_PASS   "zerodongle"       // password of the setup AP
 
@@ -25,7 +25,9 @@
 #define AWAKE_SAMPLES   3      // consecutive 20 ms samples of pin 8 high before it counts as awake
 #define TX_HOLD_MS      2000   // TX stays attached this long after the last byte sent
 #define RECLAIM_GAP_MS  10000  // a failed write retries reclamation at most this often
-#define FILE_FLUSH_MS   1000
+#define IDLE_COMMIT_MS  300    // lines reach flash once the MBB has been quiet this long
+#define MAX_PENDING_MS  5000   // or after this long regardless
+#define PENDING_MAX     12288  // or when this much is waiting in RAM
 
 #define TZ_DEFAULT      "PST8PDT,M3.2.0,M11.1.0"
 #define NTP_SERVER      "pool.ntp.org"

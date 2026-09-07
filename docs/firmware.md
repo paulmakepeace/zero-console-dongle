@@ -73,9 +73,12 @@ flags.
   sends anything goes through the same gate.
 - The loop task never blocks on a network client. Console output to a client
   that cannot take it is dropped.
-- Flash writes happen at safe points, one flush per second and at session
-  end. Frunk USB dies at key-off without warning, and the phase 2 supply is
-  cut by a switch.
+- Flash writes happen only while the MBB is quiet, plus at session end,
+  with a 5 s bound. A flash erase holds the UART interrupt off for longer
+  than the receive FIFO covers, and the precompiled core keeps that
+  interrupt out of IRAM. Frunk USB dies at key-off without warning, and the
+  phase 2 supply is cut by a switch, so the bound is also the most a power
+  cut can lose.
 - The sniffer never ACKs or transmits on the bike's bus. TWAI listen-only in
   the driver, and the transceiver's driver input tied recessive in hardware.
 - CAN bitrate is unknown. Try 500k, then 250k, then 125k.

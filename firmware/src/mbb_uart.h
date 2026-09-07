@@ -10,4 +10,5 @@ void mbbBegin(LineHandler onLine, RawHandler onRaw, StateHandler onState);
 bool mbbAwake();
 bool mbbTxAttached();
 uint32_t mbbOverflows();
+uint32_t mbbLastByteMs();
 size_t mbbWrite(const uint8_t* data, size_t len);   // 0 while the MBB is asleep

@@ -148,6 +148,7 @@ void mbbBegin(LineHandler onLine, RawHandler onRaw, StateHandler onState) {
 bool mbbAwake() { return awake; }
 bool mbbTxAttached() { return txAttached; }
 uint32_t mbbOverflows() { return overflows; }
+uint32_t mbbLastByteMs() { return lastByteMs; }
 
 size_t mbbWrite(const uint8_t* data, size_t len) {
     if (!awake || len == 0) return 0;

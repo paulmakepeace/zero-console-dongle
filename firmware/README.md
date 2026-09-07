@@ -76,8 +76,12 @@ that vanish without closing are found by TCP keepalive within a minute.
 
 ## Files
 
-One file per MBB session, `YYYYMMDD-HHMMSS.log`, opened on the first line
-received and closed five seconds after pin 8 goes low. Pin 8 has to read high
+One file per MBB session, `YYYYMMDD-HHMMSS.log`, created when the first
+lines are committed and closed five seconds after pin 8 goes low. Lines wait
+in RAM and reach the flash once the MBB has been quiet for 300 ms, or after
+5 s or 12 KB regardless, because a flash erase holds the UART interrupt off
+long enough to overrun the chip's receive FIFO. A power cut loses at most
+that much. Pin 8 has to read high
 for three consecutive 20 ms samples, or deliver a byte, before the MBB counts
 as awake. Each line carries the dongle's
 stamp then the MBB text, the same format as `tools/capture.py`. A session that

@@ -5,6 +5,7 @@
 #include "store.h"
 #include "config.h"
 #include "clock.h"
+#include "mbb_uart.h"
 #include <LittleFS.h>
 #include <Preferences.h>
 #include <vector>
@@ -20,7 +21,12 @@ static uint32_t activeOpenMs = 0;
 static int seq = 0;
 static uint32_t bootCount = 0;
 static bool dirty = false;
-static uint32_t lastFlushMs = 0, lastRotateMs = 0;
+static uint32_t lastRotateMs = 0;
+// Lines wait here and reach the flash only while the MBB is quiet: a flash
+// erase holds the UART interrupt off long enough to overrun its FIFO, and
+// the interrupt cannot be moved into IRAM under the precompiled core.
+static String pending;
+static uint32_t pendingSinceMs = 0;
 static String lastLines[LAST_LINES];
 static int lastHead = 0, lastCount = 0;
 static uint32_t droppedLines = 0;
@@ -36,6 +42,7 @@ struct Lock {
 };
 
 static String pathOf(const String& name) { return String(LOG_DIR) + "/" + name; }
+static void commitPending();
 
 static std::vector<Entry> listEntries() {
     std::vector<Entry> out;
@@ -173,6 +180,7 @@ static void renameIfSynced() {
 
 void storeSessionClose() {
     Lock l;
+    commitPending();   // the MBB has been quiet for SLEEP_AFTER_MS, so this is a safe time
     if (!active) return;
     writeLine(clockStamp() + " dongle: session end");
     active.close();
@@ -181,28 +189,41 @@ void storeSessionClose() {
     dirty = false;
 }
 
+static void commitPending() {
+    if (pending.length() == 0) return;
+    if (!ok) { droppedLines += 1; pending = ""; return; }
+    if (!active) storeSessionOpen();
+    if (!active) { droppedLines += 1; pending = ""; return; }
+    renameIfSynced();
+    if (!writeAll(pending.c_str(), pending.length())) {
+        droppedLines++;
+        if (droppedLines == 1 || droppedLines % 100 == 0)
+            Serial.printf("store: %lu write(s) lost, flash full\n", (unsigned long)droppedLines);
+    }
+    pending = "";
+    active.flush();
+    dirty = false;
+}
+
 void storeAppend(const String& line) {
     Lock l;
     lastLines[lastHead] = line;
     lastHead = (lastHead + 1) % LAST_LINES;
     if (lastCount < LAST_LINES) lastCount++;
-    if (!ok) { droppedLines++; return; }
-    if (!active) storeSessionOpen();
-    if (!active) { droppedLines++; return; }
-    renameIfSynced();
-    writeLine(line);
+    if (pending.length() == 0) pendingSinceMs = millis();
+    pending += line;
+    pending += '\n';
+    if (pending.length() >= PENDING_MAX) commitPending();
 }
 
 void storeTick() {
     Lock l;
     uint32_t now = millis();
-    renameIfSynced();   // a quiet session still gets its real name once the clock is known
-    if (active && dirty && now - lastFlushMs > FILE_FLUSH_MS) {
-        active.flush();
-        dirty = false;
-        lastFlushMs = now;
-    }
-    if (now - lastRotateMs > 60000) {
+    bool quiet = now - mbbLastByteMs() > IDLE_COMMIT_MS;
+    if (pending.length() && (quiet || now - pendingSinceMs > MAX_PENDING_MS)) commitPending();
+    if (quiet) renameIfSynced();   // a quiet session still gets its real name once the clock is known
+    if (quiet && active && dirty) { active.flush(); dirty = false; }
+    if (quiet && now - lastRotateMs > 60000) {
         lastRotateMs = now;
         ensureSpace();
     }
