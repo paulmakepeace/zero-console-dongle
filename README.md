@@ -6,10 +6,11 @@ the MBB serial console, takes power from the bike, and carries a passive CAN
 sniffer. The immediate motivation is clearing the "bulb out" fault
 from aftermarket LED turn signals without a dealer visit.
 
-Status: the console is reachable with a USB-UART cable, LED mode is on, and
-the bulb-out fault is gone with rear LEDs and front incandescents. The MBB's
-sleep, wake and console-pin behaviour is characterised, the DevKits are here,
-the phase 1 firmware is written and the CAN and buck parts are on order. See
+Status: LED mode is on and the bulb-out fault is gone with rear LEDs and
+front incandescents. The phase 1 firmware runs on a DevKit wired to pins 5
+and 8 of the bike, has captured an hourly wake from deep sleep end to end,
+and serves the files over WiFi. The MBB's sleep, wake and console-pin
+behaviour is characterised and the CAN and buck parts are on order. See
 [docs/open-questions.md](docs/open-questions.md) for what is unproven.
 
 ## Layout
@@ -43,16 +44,16 @@ Done: console access proven, LED mode on and the bulb-out fault gone, the
 console catalogue and the bike's state captured, the app logs characterised,
 the hourly wake and the console pins characterised, the power design settled
 as always-on from pin 16 with the dongle sleeping on pin 8, the phase 1
-firmware written.
+firmware written, bench-tested, reviewed, and proven on the bike across a
+wake from deep sleep with pin 9 open.
 
 Next, in order:
 
-1. Flash a DevKit and bench it on a powerbank with pins 5 and 8 connected
-   and pin 9 open across one hourly wake. That proves the GPIO33 path and
-   answers whether the MBB raises pin 8 on its own wake, the open question
-   that sizes what a sleeping dongle captures.
+1. Leave the dongle on pins 5 and 8 across more hourly wakes to see whether
+   a deep-sleep wake ever runs the 12 V top-up.
 2. Connect pin 9, ride on frunk USB, and pull the files with
-   `tools/pull-logs.py`.
+   `tools/pull-logs.py`. The console over `nc` is then usable from the
+   house.
 3. When the CAN and buck parts land, build the second shell with the phase 2
    wiring in [docs/hardware.md](docs/hardware.md), and bench-test CAN first:
    termination removed, driver input tied recessive, listen-only at

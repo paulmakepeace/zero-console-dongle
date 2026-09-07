@@ -13,14 +13,18 @@
 #include <Update.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/stream_buffer.h"
+#include "lwip/sockets.h"
 
 static WiFiManager wm;
 static WebServer http(HTTP_PORT);
 static WiFiServer console(CONSOLE_PORT);
 static WiFiClient clients[CONSOLE_CLIENTS];
 static StreamBufferHandle_t rawBuf;
-static bool servicesUp = false;
+static bool servicesStarted = false;
 static uint32_t lastAsleepNoteMs = 0;
+static uint8_t prevByte[CONSOLE_CLIENTS];
+static uint32_t lastConnectedMs = 0;
+static uint32_t lastRetryMs = 0;
 
 static const char PAGE[] PROGMEM = R"HTML(<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>zero-dongle</title>
@@ -45,6 +49,18 @@ static const char UPDATE_FORM[] PROGMEM =
     "<form method=POST action=/update enctype=multipart/form-data>"
     "<input type=file name=firmware accept=.bin> <input type=submit value=Flash></form>";
 
+static String jsonEscape(const String& in) {
+    String out;
+    out.reserve(in.length() + 8);
+    for (size_t i = 0; i < in.length(); i++) {
+        char c = in[i];
+        if (c == '"' || c == '\\') { out += '\\'; out += c; }
+        else if ((uint8_t)c < 0x20) { char b[8]; snprintf(b, sizeof b, "\\u%04x", c); out += b; }
+        else out += c;
+    }
+    return out;
+}
+
 static String statusJson() {
     size_t total, used;
     storeStats(total, used);
@@ -53,12 +69,13 @@ static String statusJson() {
     s += ",\"uptime_s\":" + String(millis() / 1000);
     s += ",\"boot\":" + String(storeBootCount());
     s += ",\"mbb_awake\":" + String(mbbAwake() ? "true" : "false");
-    s += ",\"tx_enabled\":" + String(mbbTxEnabled() ? "true" : "false");
+    s += ",\"tx_attached\":" + String(mbbTxAttached() ? "true" : "false");
     s += ",\"time\":\"" + clockStamp() + "\",\"time_source\":\"" + clockSourceName() + "\"";
-    s += ",\"wifi\":{\"ssid\":\"" + WiFi.SSID() + "\",\"rssi\":" + String(WiFi.RSSI()) +
+    s += ",\"wifi\":{\"ssid\":\"" + jsonEscape(WiFi.SSID()) + "\",\"rssi\":" + String(WiFi.RSSI()) +
          ",\"ip\":\"" + WiFi.localIP().toString() + "\"}";
     s += ",\"fs\":{\"total\":" + String(total) + ",\"used\":" + String(used) + "}";
     s += ",\"active\":\"" + storeActiveName() + "\"";
+    s += ",\"dropped_lines\":" + String(storeDroppedLines());
     s += ",\"heap_free\":" + String(ESP.getFreeHeap());
     s += "}";
     return s;
@@ -76,6 +93,10 @@ static void handleFile() {
         return;
     }
     if (http.method() == HTTP_GET) {
+        if (name == storeActiveName()) {
+            http.send(409, "text/plain", "file is active; see /live");
+            return;
+        }
         File f = storeOpenRead(name);
         if (!f) {
             http.send(404, "text/plain", "no such file");
@@ -122,11 +143,16 @@ static void setupHttp() {
             HTTPUpload& up = http.upload();
             if (up.status == UPLOAD_FILE_START) {
                 Serial.printf("ota: %s\n", up.filename.c_str());
-                Update.begin(UPDATE_SIZE_UNKNOWN);
+                if (Update.isRunning()) Update.abort();
+                if (!Update.begin(UPDATE_SIZE_UNKNOWN)) Serial.printf("ota: %s\n", Update.errorString());
             } else if (up.status == UPLOAD_FILE_WRITE) {
-                Update.write(up.buf, up.currentSize);
+                if (Update.isRunning() && Update.write(up.buf, up.currentSize) != up.currentSize)
+                    Serial.printf("ota: %s\n", Update.errorString());
             } else if (up.status == UPLOAD_FILE_END) {
-                Update.end(true);
+                if (!Update.end(true)) Serial.printf("ota: %s\n", Update.errorString());
+            } else if (up.status == UPLOAD_FILE_ABORTED) {
+                Update.abort();
+                Serial.println("ota: upload aborted");
             }
         });
     http.onNotFound(handleFile);
@@ -134,8 +160,8 @@ static void setupHttp() {
 }
 
 static void startServices() {
-    if (servicesUp) return;
-    servicesUp = true;
+    if (servicesStarted) return;   // mDNS and OTA survive a reconnect
+    servicesStarted = true;
     Serial.printf("net: connected to %s, %s\n", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
     MDNS.begin(DONGLE_NAME);
     MDNS.addService("http", "tcp", HTTP_PORT);
@@ -198,15 +224,20 @@ static void pumpConsole() {
     size_t n;
     while ((n = xStreamBufferReceive(rawBuf, buf, sizeof buf, 0)) > 0) {
         for (auto& slot : clients) {
-            if (slot && slot.connected()) slot.write(buf, n);
+            if (!slot || !slot.connected()) continue;
+            // Non-blocking: a client that cannot take the bytes loses them
+            // rather than stalling the loop for seconds per chunk.
+            int sent = ::send(slot.fd(), buf, n, MSG_DONTWAIT);
+            if (sent < 0 && errno != EAGAIN && errno != EWOULDBLOCK) slot.stop();
         }
     }
-    for (auto& slot : clients) {
+    for (size_t ci = 0; ci < CONSOLE_CLIENTS; ci++) {
+        WiFiClient& slot = clients[ci];
         if (!slot || !slot.connected() || !slot.available()) continue;
         uint8_t in[128], out[256];
         int got = slot.read(in, sizeof in);
         size_t k = 0;
-        static uint8_t prev = 0;
+        uint8_t prev = prevByte[ci];
         for (int i = 0; i < got; i++) {
             uint8_t b = in[i];
             if (b == 0x7f) b = 0x08;                            // delete to backspace
@@ -214,6 +245,7 @@ static void pumpConsole() {
             out[k++] = b;
             prev = b;
         }
+        prevByte[ci] = prev;
         if (mbbAwake()) {
             mbbWrite(out, k);
         } else if (millis() - lastAsleepNoteMs > 1000) {
@@ -229,8 +261,15 @@ void netTick() {
     if (WiFi.status() == WL_CONNECTED) {
         startServices();
         ArduinoOTA.handle();
+        lastConnectedMs = millis();
     } else {
-        servicesUp = false;
+        // A failed join at boot leaves the setup AP up and nothing retrying the
+        // saved network. Retry it ourselves every 30 s; the setup AP stays up.
+        if (wm.getWiFiIsSaved() && millis() - lastConnectedMs > 30000 && millis() - lastRetryMs > 30000) {
+            lastRetryMs = millis();
+            Serial.println("net: retrying saved WiFi");
+            WiFi.begin();
+        }
     }
     http.handleClient();
     pumpConsole();

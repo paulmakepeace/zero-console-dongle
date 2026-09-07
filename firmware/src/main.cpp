@@ -18,10 +18,11 @@ static void onRaw(const uint8_t* data, size_t len) {
 
 static void onState(bool awake) {
     Serial.printf("mbb: %s\n", awake ? "awake" : "asleep");
-    if (awake) storeSessionOpen(); else storeSessionClose();
+    if (!awake) storeSessionClose();   // a session opens on its first line, not on the edge
 }
 
 void setup() {
+    mbbPinsSafe();   // before anything slow: pin 9 is the MBB's wake pin
     Serial.begin(115200);
     delay(100);
     Serial.println("zero-dongle fw " FW_VERSION);

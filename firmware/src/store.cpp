@@ -23,6 +23,7 @@ static bool dirty = false;
 static uint32_t lastFlushMs = 0, lastRotateMs = 0;
 static String lastLines[LAST_LINES];
 static int lastHead = 0, lastCount = 0;
+static uint32_t droppedLines = 0;
 
 struct Lock {
     Lock() { xSemaphoreTakeRecursive(mtx, portMAX_DELAY); }
@@ -62,7 +63,10 @@ static void ensureSpace() {
         bool deleted = false;
         for (auto& e : listEntries()) {
             if (e.name == activeName) continue;
-            LittleFS.remove(pathOf(e.name));
+            if (!LittleFS.remove(pathOf(e.name))) {
+                Serial.printf("store: cannot delete %s\n", e.name.c_str());
+                return;
+            }
             Serial.printf("store: deleted %s for space\n", e.name.c_str());
             deleted = true;
             break;
@@ -88,9 +92,21 @@ bool storeBegin() {
     return true;
 }
 
-static void writeLine(const String& line) {
-    active.println(line);
+static bool writeOnce(const String& line) {
+    size_t want = line.length() + 1;
+    size_t got = active.write((const uint8_t*)line.c_str(), line.length());
+    if (got == line.length()) got += active.write('\n');
     dirty = true;
+    return got == want;
+}
+
+static void writeLine(const String& line) {
+    if (writeOnce(line)) return;
+    ensureSpace();   // full: make room and try once more
+    if (writeOnce(line)) return;
+    droppedLines++;
+    if (droppedLines == 1 || droppedLines % 100 == 0)
+        Serial.printf("store: %lu line(s) dropped, flash full\n", (unsigned long)droppedLines);
 }
 
 void storeSessionOpen() {
@@ -215,3 +231,4 @@ String storeLastLines() {
 }
 
 uint32_t storeBootCount() { return bootCount; }
+uint32_t storeDroppedLines() { return droppedLines; }

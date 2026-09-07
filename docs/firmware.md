@@ -22,8 +22,10 @@ its [README](../firmware/README.md):
    schedule and deletes each one after the size checks.
 4. **A raw TCP console** on port 6638, tee'd into the capture. Transmit is
    allowed only while pin 8 is high, because pin 9 is the MBB's wake pin and
-   a high level reboots a sleeping bike. Input arriving while the MBB sleeps
-   is dropped, not queued.
+   a high level reboots a sleeping bike, and the transmit pin is attached to
+   the UART only while bytes are going out, because a UART idles high and a
+   held-high pin 9 keeps the MBB out of deep sleep. Input arriving while the
+   MBB sleeps is dropped, not queued.
 5. **Time without a battery.** NTP when WiFi is up; otherwise the MBB's own
    stamps, which it prints on most lines, set the clock. Lines carry both.
 6. **WiFi by provisioning.** No credentials in the build. With none stored,
@@ -32,9 +34,9 @@ its [README](../firmware/README.md):
 Phase 2, in likely order:
 
 - **Deep sleep between sessions**, woken by pin 8 rising. Pin 8 is wired to
-  an RTC-capable GPIO for this. Whether the MBB raises pin 8 on its own
-  hourly wake with pin 9 low is the open question that decides how much this
-  captures; see [open-questions.md](open-questions.md).
+  an RTC-capable GPIO for this. The MBB raises pin 8 on its own hourly wake
+  with pin 9 left low, so this captures every wake; see the sleep and wake
+  section of [mbb-reference.md](mbb-reference.md).
 - **CAN as a second stream.** TWAI in listen-only mode, frames stamped and
   written raw in a candump-style line format for SavvyCAN or a script. Which
   bus is on pins 6 and 14, and at what rate, is the first thing it tells us.
@@ -64,10 +66,13 @@ flags.
 
 ## Design rules
 
-- The transmit pin is attached to the UART only while the MBB is awake, and
-  is an input with a pull-down otherwise. This is the one rule that keeps the
-  dongle from waking the bike. Every future feature that sends anything goes
-  through the same gate.
+- The transmit pin is attached to the UART only while bytes are being sent,
+  only while the MBB is awake, and is an input with a pull-down otherwise,
+  from the first instruction of boot. This is the one rule that keeps the
+  dongle from waking the bike or holding it awake. Every future feature that
+  sends anything goes through the same gate.
+- The loop task never blocks on a network client. Console output to a client
+  that cannot take it is dropped.
 - Flash writes happen at safe points, one flush per second and at session
   end. Frunk USB dies at key-off without warning, and the phase 2 supply is
   cut by a switch.

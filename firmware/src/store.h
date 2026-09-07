@@ -14,3 +14,4 @@ File storeOpenRead(const String& name);
 void storeStats(size_t& total, size_t& used);
 String storeLastLines();
 uint32_t storeBootCount();
+uint32_t storeDroppedLines();

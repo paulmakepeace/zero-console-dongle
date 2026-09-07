@@ -35,10 +35,14 @@ This decides the wiring and the power design.
   About 25 s after pin 9 drops, pin 8 drops. A reset that lands during the
   hourly wake abandons the 12 V top-up.
 
-So a dongle must never drive pin 9 while the MBB sleeps. The firmware drives
-TX only while pin 8 is high, and a sleeping MBB cannot be commanded without
-booting it. Whether pin 8 rises on the MBB's own hourly wake with pin 9 left
-low is not yet verified; see [open-questions.md](open-questions.md).
+So a dongle must never drive pin 9 while the MBB sleeps, and must not hold
+it high while the MBB is awake either, because a UART idles high and that
+level is what keeps the MBB in its shallow hibernation after key-off. The
+firmware attaches the transmit pin only while bytes are being sent, only
+while pin 8 is high, and a sleeping MBB cannot be commanded without booting
+it. Pin 8 does rise on the MBB's own hourly wake with pin 9 left low, from
+the first byte of the boot banner, and drops again about 5 s after the MBB
+announces its hibernation, so a dongle sleeping on pin 8 sees every wake.
 
 ## Wiring
 
@@ -88,9 +92,11 @@ first rate to try.
 
 ## Power
 
-Phase 1: 5 V into the DevKit's USB-C, from the frunk socket on the bike and a
-powerbank on the bench. The frunk socket is key-switched, so nothing runs
-while the bike sleeps.
+Phase 1: 5 V into the DevKit's USB-C, from the frunk socket on the bike or
+a wall supply. The frunk socket is key-switched, so nothing runs while the
+bike sleeps. Powerbanks are no good: at the dongle's 50 mA they decide
+nothing is connected and switch off, and one that pulses its output to check
+resets the dongle.
 
 Phase 2: always-on 13 V from pin 16, in this order: inline mini blade fuse
 holder with a 1 A fuse, a master cut switch, a 1.5KE18A TVS across the rail

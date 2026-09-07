@@ -18,23 +18,37 @@ blinker fault is followed by `blinker current N ma`.
 
 ## Sleep and wake
 
-Key-off takes the MBB from STOP to HIB within 100 ms. The console keeps
-answering in HIB, so long as pin 9 is held high; see the console-pin section
-of [hardware.md](hardware.md) for why an attached adapter does that.
+Key-off takes the MBB from STOP to HIB within 100 ms. HIB has two depths.
+With pin 9 held high the MBB stays in a shallow hibernation with its console
+up and pin 8 high; see the console-pin section of [hardware.md](hardware.md)
+for why an attached adapter does that. With pin 9 low it prints `INFO: MBB
+will hibernate in under 30 seconds`, then `Saving Stats, Hibernating for
+3600 sec` 30 s later, and pin 8 drops within about 5 s of that line: deep
+sleep, console off.
 
-Every hour, counted from the HIB entry to the second, the MBB wakes itself
-by RTC timer, without a reset: `State change from HIB to PWSU`, RTC check,
-LSS assigns the BMS node 0x0A and the two charger nodes 0x10 and 0x11,
-precharge from the module, contactor closed, `State change from PWSU to
-WAKE`. It charges the 12 V battery from the pack for 30 minutes, prints
-`12V successfully charged` and `State change from WAKE to HIB`, and the hour
-starts again. Halfway between, at the 30-minute mark, it prints a three-line
-heartbeat: the discharge and charge limits and a zero torque line.
+Every hour, counted from the HIB entry to the second, the MBB wakes itself by
+RTC timer. From deep sleep that is a full boot: the banner with `Reset
+Source: Hib Wake RTC`, self-test, `State change from STRT to PWSU`, LSS
+assigning the BMS node 0x0A, module registered. From the shallow hibernation
+it is `State change from HIB to PWSU` with no banner. What follows differs
+between the two wakes seen so far:
 
-A high level on pin 9 wakes it differently: a full reset with the boot
-banner, `Reset Source: Hib Wake Pin`, self-test, `State change from STRT to
-WAIT`, then STOP and HIB about 30 s later. A reset that lands during the
-hourly wake abandons the top-up.
+- Shallow, adapter attached: PWSU to WAKE in 5 s, the two charger nodes 0x10
+  and 0x11 assigned, precharge, contactor closed, 30 minutes charging the
+  12 V battery from the pack, `12V successfully charged`, WAKE to HIB. A
+  three-line heartbeat of the limits and a zero torque line at the 30-minute
+  mark between wakes.
+- Deep sleep, pin 9 open: `ccm RTC not ready in 31 sec`, `Timed out in PW
+  Startup` at 60 s, PWSU to HIB, the 30-second countdown, deep sleep again.
+  No contactor, no top-up, 96 s awake in total.
+
+Whether a deep-sleep wake ever tops up, or the morning's top-ups were an
+artefact of the shallow state, is open.
+
+A high level on pin 9 wakes the MBB from either depth with a full reset:
+banner, `Reset Source: Hib Wake Pin`, `State change from STRT to WAIT`, then
+STOP and HIB about 30 s later. A reset that lands during the hourly wake
+abandons the top-up.
 
 The `Disch limits` and `Ch limits` pair, printed on state changes and in the
 heartbeat, is the pack's discharge and charge limit: `curr` in tenths of an

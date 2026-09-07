@@ -71,9 +71,9 @@ static bool parseMbbTime(const char* s, size_t len, struct timeval* out) {
         tm.tm_min = num(p + 14, 2);
         tm.tm_sec = num(p + 17, 2);
         tm.tm_isdst = -1;
-        if (tm.tm_year < 2024 - 1900 || tm.tm_mon < 0 || tm.tm_mon > 11) return false;
+        if (tm.tm_year < 2024 - 1900 || tm.tm_mon < 0 || tm.tm_mon > 11) continue;
         time_t t = mktime(&tm);
-        if (t < 1700000000) return false;
+        if (t < 1700000000) continue;
         out->tv_sec = t;
         out->tv_usec = num(p + 20, 3) * 1000;
         return true;

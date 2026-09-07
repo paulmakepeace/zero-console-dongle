@@ -1,16 +1,17 @@
 # Open questions
 
-- Does pin 8 rise on the MBB's own hourly wake with nothing driving pin 9?
-  Everything so far was observed with pin 9 held high by the adapter, which
-  keeps the console up. If the console block also powers up for an RTC wake,
-  a dongle sleeping on pin 8 captures every wake and top-up; if not, it
-  captures rides and key-on only. One hourly wake with the DevKit or the
-  adapter connected on pins 5 and 8 only answers it.
-- The same capture shows whether the half-hour heartbeat, the limits and
-  torque lines at 30-minute marks, happens at all without pin 9 held.
+- Does a wake from deep sleep ever run the 12 V top-up? The one captured so
+  far timed out in PWSU after 60 s and went back to sleep; the two top-ups
+  seen were both from the shallow hibernation the adapter holds the MBB in.
+  More deep-sleep wakes with the dongle on pins 5 and 8 only answer it, and
+  whether the choice depends on the 12 V battery's voltage.
+- Does the half-hour heartbeat happen from deep sleep, or only in the
+  shallow state? The first deep-sleep cycle showed none in its 96 s awake.
 - Does the hourly cycle count from every HIB entry, including one that
   follows a wake-pin reset? The entry after the observed reset was not
   captured.
+- One line in the first captured wake arrived corrupted at the PWSU to HIB
+  transition. One in seventy; watch whether it recurs at the same point.
 - Is the CAN bus on pins 6 and 14 active while the MBB hibernates?
 - Which of the bike's CAN networks is on OBD pins 6 and 14, and at what
   bitrate. Try 500k, then 250k, then 125k, listen-only.

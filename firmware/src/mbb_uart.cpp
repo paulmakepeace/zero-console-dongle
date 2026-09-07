@@ -1,7 +1,10 @@
 // UART2 to the MBB console through the IDF driver. The receive side never
-// stops. The transmit pin is attached only while the MBB is awake, because
-// pin 9 is the MBB's hibernation wake pin and a high level reboots a sleeping
-// bike; when detached it is an input with the internal pull-down.
+// stops. The transmit pin is attached to the UART only while something is
+// being sent, and only while the MBB is awake, then returns to an input with
+// the internal pull-down. Pin 9 is the MBB's hibernation wake pin: a high
+// level reboots a sleeping bike, and a UART idles high, so leaving TX
+// attached would hold the MBB out of deep sleep for as long as the dongle
+// is powered.
 #include "mbb_uart.h"
 #include "config.h"
 #include "driver/uart.h"
@@ -11,20 +14,39 @@ static LineHandler lineHandler;
 static RawHandler rawHandler;
 static StateHandler stateHandler;
 static volatile bool awake = false;
-static volatile bool txEnabled = false;
+static volatile bool txAttached = false;
 static volatile uint32_t lastActivityMs = 0;
 static volatile uint32_t lastByteMs = 0;
+static volatile uint32_t txHoldUntilMs = 0;
+static SemaphoreHandle_t txMtx;
 
+static void inputPulldown(int pin) {
+    gpio_config_t c = {};
+    c.pin_bit_mask = 1ULL << pin;
+    c.mode = GPIO_MODE_INPUT;
+    c.pull_up_en = GPIO_PULLUP_DISABLE;
+    c.pull_down_en = GPIO_PULLDOWN_ENABLE;
+    c.intr_type = GPIO_INTR_DISABLE;
+    gpio_config(&c);   // also disconnects any matrix output from the pin
+}
+
+void mbbPinsSafe() {
+    inputPulldown(PIN_MBB_TX);
+    inputPulldown(PIN_MBB_RX);
+}
+
+// Callers hold txMtx.
 static void txAttach() {
+    if (txAttached) return;
     uart_set_pin(UART_NUM_2, PIN_MBB_TX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-    txEnabled = true;
+    txAttached = true;
 }
 
 static void txDetach() {
-    txEnabled = false;
-    gpio_reset_pin((gpio_num_t)PIN_MBB_TX);
-    gpio_set_direction((gpio_num_t)PIN_MBB_TX, GPIO_MODE_INPUT);
-    gpio_set_pull_mode((gpio_num_t)PIN_MBB_TX, GPIO_PULLDOWN_ONLY);
+    if (!txAttached) return;
+    uart_wait_tx_done(UART_NUM_2, pdMS_TO_TICKS(200));
+    inputPulldown(PIN_MBB_TX);
+    txAttached = false;
 }
 
 static void emit(char* line, size_t len) {
@@ -36,20 +58,33 @@ static void captureTask(void*) {
     static uint8_t buf[512];
     static char line[1024];
     size_t llen = 0;
+    int highRun = 0;
     for (;;) {
         int n = uart_read_bytes(UART_NUM_2, buf, sizeof buf, pdMS_TO_TICKS(20));
         uint32_t now = millis();
         if (n > 0) {
             lastByteMs = now;
             lastActivityMs = now;
+            highRun = 0;
         } else if (gpio_get_level((gpio_num_t)PIN_MBB_RX)) {
-            lastActivityMs = now;   // idle mark: the MBB's UART is powered
+            if (++highRun >= AWAKE_SAMPLES) lastActivityMs = now;   // sustained idle mark
+        } else {
+            highRun = 0;
         }
         bool nowAwake = (now - lastActivityMs) < SLEEP_AFTER_MS;
         if (nowAwake != awake) {
             awake = nowAwake;
-            if (awake) txAttach(); else txDetach();
+            if (!awake) {
+                xSemaphoreTake(txMtx, portMAX_DELAY);
+                txDetach();
+                xSemaphoreGive(txMtx);
+            }
             if (stateHandler) stateHandler(awake);
+        }
+        if (txAttached && (int32_t)(now - txHoldUntilMs) > 0) {
+            xSemaphoreTake(txMtx, portMAX_DELAY);
+            if (txAttached && (int32_t)(millis() - txHoldUntilMs) > 0) txDetach();
+            xSemaphoreGive(txMtx);
         }
         if (n > 0) {
             if (rawHandler) rawHandler(buf, n);
@@ -71,6 +106,7 @@ void mbbBegin(LineHandler onLine, RawHandler onRaw, StateHandler onState) {
     lineHandler = onLine;
     rawHandler = onRaw;
     stateHandler = onState;
+    txMtx = xSemaphoreCreateMutex();
 
     uart_config_t cfg = {};
     cfg.baud_rate = MBB_BAUD;
@@ -83,18 +119,20 @@ void mbbBegin(LineHandler onLine, RawHandler onRaw, StateHandler onState) {
     uart_set_pin(UART_NUM_2, UART_PIN_NO_CHANGE, PIN_MBB_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
     gpio_set_pull_mode((gpio_num_t)PIN_MBB_RX, GPIO_PULLDOWN_ONLY);   // uart_set_pin leaves a pull-up
     uart_driver_install(UART_NUM_2, UART_RX_BUF, 1024, 0, nullptr, 0);
-    txDetach();
     lastActivityMs = millis() - SLEEP_AFTER_MS - 1;   // start asleep until pin 8 is seen high
 
     xTaskCreatePinnedToCore(captureTask, "mbb", 8192, nullptr, 3, nullptr, 1);
 }
 
 bool mbbAwake() { return awake; }
-bool mbbTxEnabled() { return txEnabled; }
-uint32_t mbbLastByteMs() { return lastByteMs; }
+bool mbbTxAttached() { return txAttached; }
 
 size_t mbbWrite(const uint8_t* data, size_t len) {
-    if (!txEnabled) return 0;
+    if (!awake || len == 0) return 0;
+    xSemaphoreTake(txMtx, portMAX_DELAY);
+    txHoldUntilMs = millis() + TX_HOLD_MS;
+    txAttach();
     int n = uart_write_bytes(UART_NUM_2, (const char*)data, len);
+    xSemaphoreGive(txMtx);
     return n < 0 ? 0 : (size_t)n;
 }

@@ -12,9 +12,11 @@ be reached or any file failed.
 import argparse
 import json
 import os
+import re
 import sys
-import urllib.error
 import urllib.request
+
+NAME_OK = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
 
 
 def fetch(url, method="GET", timeout=60):
@@ -35,20 +37,24 @@ def main():
 
     try:
         files = json.loads(fetch(base + "/logs", timeout=15))
-    except (urllib.error.URLError, OSError, ValueError) as exc:
+    except Exception as exc:
         sys.exit("pull-logs: cannot list %s: %s" % (base, exc))
 
     failed = 0
     got = 0
     for f in sorted(files, key=lambda x: x["name"]):
-        name, size = f["name"], int(f["size"])
+        name, size = str(f.get("name", "")), int(f.get("size", -1))
+        if not NAME_OK.match(name) or ".." in name:
+            print("FAIL  %r: name rejected" % name)
+            failed += 1
+            continue
         if f.get("active"):
             print("skip  %s (active)" % name)
             continue
         dest = os.path.join(args.dest, name)
         try:
             data = fetch("%s/logs/%s" % (base, name))
-        except (urllib.error.URLError, OSError) as exc:
+        except Exception as exc:
             print("FAIL  %s: %s" % (name, exc))
             failed += 1
             continue
@@ -73,7 +79,7 @@ def main():
         try:
             fetch("%s/logs/%s" % (base, name), method="DELETE", timeout=15)
             print("moved %s, %d bytes" % (name, size))
-        except (urllib.error.URLError, OSError) as exc:
+        except Exception as exc:
             print("saved %s but delete failed: %s" % (name, exc))
             failed += 1
     print("pull-logs: %d file(s) fetched, %d failed" % (got, failed))

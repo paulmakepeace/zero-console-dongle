@@ -1,6 +1,6 @@
 #pragma once
 
-#define FW_VERSION      "0.1.1"
+#define FW_VERSION      "0.2.0"
 #define DONGLE_NAME     "zero-dongle"      // hostname, mDNS name, setup AP name
 #define SETUP_AP_PASS   "zerodongle"       // password of the setup AP
 
@@ -20,6 +20,8 @@
 
 #define IDLE_FLUSH_MS   2000   // a partial line (the prompt) is written after this much silence
 #define SLEEP_AFTER_MS  5000   // MBB counted asleep after this long with pin 8 low and no bytes
+#define AWAKE_SAMPLES   3      // consecutive 20 ms samples of pin 8 high before it counts as awake
+#define TX_HOLD_MS      500    // TX stays attached this long after the last byte sent
 #define FILE_FLUSH_MS   1000
 
 #define TZ_DEFAULT      "PST8PDT,M3.2.0,M11.1.0"
