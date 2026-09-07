@@ -26,26 +26,35 @@ will hibernate in under 30 seconds`, then `Saving Stats, Hibernating for
 3600 sec` 30 s later, and pin 8 drops within about 5 s of that line: deep
 sleep, console off.
 
-Every hour, counted from the HIB entry to the second, the MBB wakes itself by
-RTC timer. From deep sleep that is a full boot: the banner with `Reset
-Source: Hib Wake RTC`, self-test, `State change from STRT to PWSU`, LSS
-assigning the BMS node 0x0A, module registered. From the shallow hibernation
-it is `State change from HIB to PWSU` with no banner. What follows differs
-between the two wakes seen so far:
+Every hour of sleep, counted from the `Hibernating` line to the second, the
+MBB wakes itself by RTC timer. From deep sleep that is a full boot: the
+banner with `Reset Source: Hib Wake RTC`, self-test, `State change from STRT
+to PWSU`, LSS assigning the BMS node 0x0A, module registered. From the
+shallow hibernation it is `State change from HIB to PWSU` with no banner.
+Then one of two things happens, and the app's own logs say the first is the
+normal one by about forty to one:
 
-- Shallow, adapter attached: PWSU to WAKE in 5 s, the two charger nodes 0x10
-  and 0x11 assigned, precharge, contactor closed, 30 minutes charging the
-  12 V battery from the pack, `12V successfully charged`, WAKE to HIB. A
-  three-line heartbeat of the limits and a zero torque line at the 30-minute
-  mark between wakes.
-- Deep sleep, pin 9 open, two wakes an hour apart, identical to the second:
-  `ccm RTC not ready in 31 sec`, `Timed out in PW Startup` at 60 s, PWSU to
-  HIB, the 30-second countdown, deep sleep again. No contactor, no top-up,
-  96 s awake in total.
+- **Timeout.** `ccm RTC not ready in 31 sec`, `Timed out in PW Startup` at
+  60 s, PWSU to HIB, the 30-second countdown, deep sleep again. No
+  contactor, no charge, 96 s awake. The app log records a `Requesting 12v
+  charge` and a `Stopping 12v charge` around this with the DC-DC at a
+  fraction of a volt, so the request is made and never served. Twelve
+  consecutive overnight wakes with the dongle on pins 5 and 8 went this way
+  except one.
+- **Charge.** `CCM RTC verified OK`, PWSU to WAKE in 5 s, the two charger
+  nodes 0x10 and 0x11 assigned, precharge, contactor closed, about 30
+  minutes of charging the 12 V battery from the pack, `12V successfully
+  charged`, WAKE to HIB. The MBB's clock, which loses a few tenths of a
+  second an hour, is corrected from the CCM in this wake. A three-line
+  heartbeat of the limits and a zero torque line prints at the 30-minute
+  mark while awake.
 
-Whether a deep-sleep wake ever tops up, or the morning's top-ups were an
-artefact of the shallow state, is open. Two samples say the deep-sleep wake
-waits a minute for something, the CCM by the message, and gives up.
+So the wake-to-wake interval is an hour of sleep plus however long the wake
+took: 96 s for a timeout, half an hour or so for a charge. The 12 V battery
+sits near 12.95 to 13.0 V through the timeouts, so it is not starved; the
+charge appears to ride on the cellular module being up rather than on the
+battery asking for it, and the module is up for roughly one wake in a dozen
+to fifty. What sets the module's schedule is not known.
 
 A high level on pin 9 wakes the MBB from either depth with a full reset:
 banner, `Reset Source: Hib Wake Pin`, `State change from STRT to WAIT`, then
@@ -195,20 +204,27 @@ telemetry records for vehicle state and sensors. Two things follow:
 
 - The ring is dominated by the hourly hibernation wakes. Every hibernate
   entry reads "Hibernating for 3600 sec"; the wake reason is the RTC about
-  five times out of six and the wake pin otherwise. Each wake tops up the 12 V
-  battery, whose voltage sits between 12.95 and 13.02 V in the entries, and
-  logs a few dozen lines. In one pull that sequence appears 55 times and
-  accounts for most of the roughly 2,200 entries, so ride and fault history is
-  squeezed into what is left, and a pull reaches back only about two days of
-  parked time.
+  five times out of six and the wake pin otherwise. Each wake requests a
+  12 V charge, and in 41 of 49 entries in one pull, 47 of 55 in another,
+  the request times out in PW Startup with the DC-DC never running; the
+  entries that reach `12V successfully charged` number zero to two per pull.
+  The 12 V battery reads 12.95 to 13.02 V through all of it. That sequence
+  accounts for most of the roughly 2,200 entries, so ride and fault history
+  is squeezed into what is left, and a pull reaches back only about two days
+  of parked time.
 - Detail is dropped. The blinker fault appears, but the `blinker current` line
   that follows it on the console does not, and none of the command outputs
   (`pdu`, `in`, `bms`) exist in the log at all.
+- The app log has one thing the console does not: the `Requesting 12v
+  charge` and `Stopping 12v charge` entries carry the DC-DC, 12 V battery
+  and combined voltages at each wake. The console prints no 12 V figures
+  unless asked with `in`.
 
-So a dongle that logs the console stream continuously holds a superset of the
-MBB log for every period pin 8 is live, with the currents kept and no ring
-crowding. The BMS file is the one thing the console does not replace; its
-content is the module's own record and the console's `bms` view is a summary.
+So a dongle that logs the console stream continuously holds nearly all of
+the MBB log for every period pin 8 is live, with the currents kept and no
+ring crowding, and misses the 12 V voltages at each wake. The BMS file is the
+other thing the console does not replace; its content is the module's own
+record and the console's `bms` view is a summary.
 
 ## CAN networks
 

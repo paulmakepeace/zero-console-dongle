@@ -112,7 +112,8 @@ not distinguish key on from off. Instead the dongle gates its own activity on
 pin 8 and sleeps between MBB sessions. Drain: a DevKit V1 in deep sleep draws
 about 10 mA through its linear regulator, about 4 mA from the 13 V side or
 100 mAh a day, and an always-awake ESP32 with WiFi idling about 20 mA from
-13 V. The MBB tops the 12 V battery up from the pack every hour, so either is
+13 V. The MBB checks the 12 V battery every hour and charges it from the
+pack for half an hour when it can, about once a day, so either is
 affordable; the master switch covers long-term storage. The 5 V rail sees
 150 to 250 mA average with WiFi up and peaks near 500 mA on transmit, plus
 about 20 mA for the CP2102 and the transceiver, which the frunk socket and

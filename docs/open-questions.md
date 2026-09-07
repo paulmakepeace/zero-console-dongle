@@ -1,13 +1,14 @@
 # Open questions
 
-- Does a wake from deep sleep ever run the 12 V top-up? Two captured so far
-  both timed out in PWSU after 60 s waiting on the CCM and went back to
-  sleep; the two top-ups seen were both from the shallow hibernation the
-  adapter holds the MBB in. A night of deep-sleep wakes with the dongle on
-  pins 5 and 8 only answers it, and whether the choice depends on the 12 V
-  battery's voltage or the CCM.
-- Does the half-hour heartbeat happen from deep sleep, or only in the
-  shallow state? The first deep-sleep cycle showed none in its 96 s awake.
+- What sets the cellular module's schedule. The hourly wake charges the
+  12 V battery only when the module answers, roughly one wake in a dozen to
+  fifty by the console captures and the app logs alike, and the rest time
+  out. Whether the module wakes on its own clock, on signal, or on a server
+  check-in is not known; the cover was on for both a charge and a timeout,
+  so signal alone does not explain it.
+- Does the half-hour heartbeat happen from deep sleep? None appeared in
+  eleven 96-second timeout wakes; the one charge wake printed it at its
+  30-minute mark.
 - Does the hourly cycle count from every HIB entry, including one that
   follows a wake-pin reset? The entry after the observed reset was not
   captured.

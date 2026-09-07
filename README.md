@@ -49,8 +49,9 @@ wake from deep sleep with pin 9 open.
 
 Next, in order:
 
-1. Leave the dongle on pins 5 and 8 across more hourly wakes to see whether
-   a deep-sleep wake ever runs the 12 V top-up.
+1. Leave the dongle on pins 5 and 8 collecting wakes; the question now is
+   what sets the cellular module's schedule, since the 12 V charge rides on
+   it.
 2. Connect pin 9, ride on frunk USB, and pull the files with
    `tools/pull-logs.py`. The console over `nc` is then usable from the
    house.
