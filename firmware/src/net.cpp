@@ -186,8 +186,8 @@ static void startServices() {
     if (servicesStarted) return;   // mDNS and OTA survive a reconnect
     servicesStarted = true;
     Serial.printf("net: connected to %s, %s\n", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
-    wm.stopConfigPortal();   // a portal left over from a failed join at boot; frees port 80
-    http.begin();            // after the portal, which holds port 80 while it is up
+    if (wm.getConfigPortalActive()) wm.stopConfigPortal();   // left over from a failed join; frees port 80
+    http.begin();   // after the portal, which holds port 80 while it is up
     MDNS.begin(DONGLE_NAME);
     MDNS.addService("http", "tcp", HTTP_PORT);
     MDNS.addService("zero-console", "tcp", CONSOLE_PORT);
