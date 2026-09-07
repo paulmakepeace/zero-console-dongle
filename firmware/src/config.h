@@ -1,6 +1,6 @@
 #pragma once
 
-#define FW_VERSION      "0.1.0"
+#define FW_VERSION      "0.1.1"
 #define DONGLE_NAME     "zero-dongle"      // hostname, mDNS name, setup AP name
 #define SETUP_AP_PASS   "zerodongle"       // password of the setup AP
 

@@ -154,6 +154,7 @@ void storeAppend(const String& line) {
 void storeTick() {
     Lock l;
     uint32_t now = millis();
+    renameIfSynced();   // a quiet session still gets its real name once the clock is known
     if (active && dirty && now - lastFlushMs > FILE_FLUSH_MS) {
         active.flush();
         dirty = false;

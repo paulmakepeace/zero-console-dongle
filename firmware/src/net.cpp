@@ -113,7 +113,10 @@ static void setupHttp() {
             http.sendHeader("Connection", "close");
             http.send(200, "text/plain", Update.hasError() ? "update failed" : "ok, rebooting");
             delay(300);
-            if (!Update.hasError()) ESP.restart();
+            if (!Update.hasError()) {
+                storeSessionClose();   // end the file cleanly rather than mid-line
+                ESP.restart();
+            }
         },
         []() {
             HTTPUpload& up = http.upload();
