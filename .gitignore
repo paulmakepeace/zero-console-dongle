@@ -14,3 +14,7 @@ logs/*
 
 # PlatformIO build output
 firmware/.pio/
+firmware/managed_components/
+firmware/.dummy/
+firmware/sdkconfig.*
+firmware/dependencies.lock
