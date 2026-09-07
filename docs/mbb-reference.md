@@ -197,6 +197,19 @@ SHORT.
     PARK_MODE CONTROLLER_MISMATCH SIGNIFICANT_PWR_LIMIT BMS_12V_OUT_OF_RANGE
     CHARGER_FAN KEY_OFF_WHILE_MOVING KEY_OFF_WHILE_MOVING_LIMP
 
+## While riding
+
+The console is nearly silent on the move. A `Torque:` line every 120 s
+with five numbers, for example `Torque: 19800000 4557 9448 32 0` on a
+freeway stretch near the limiter and `Torque: 0 0 0 0 0` at rest, whose
+fields are not yet decoded; `Reached yaw angle 451` or `-452` each time the
+self-cancelling indicator logic trips and `Cancelled blinker at 200 revs`
+when it cancels; `State change from STOP to RUN` and back, REV for reverse;
+the transient CONTROLLER_WARNING at key-on and occasional HIGH_THROTTLE and
+QUEUE_SEND_FAIL faults that clear within seconds. Two rides of twenty and
+sixteen minutes produced 123 and 77 lines. Speed, current and cell data are
+not on the console while riding; they are on the CAN bus.
+
 ## App logs versus the console
 
 The Zero app's "Email bike logs" delivers two 131 KB files per pull, one for

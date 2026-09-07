@@ -73,8 +73,8 @@ flags.
   sends anything goes through the same gate.
 - The loop task never blocks on a network client. Console output to a client
   that cannot take it is dropped.
-- Flash writes happen only while the MBB is quiet, plus at session end,
-  with a 5 s bound. A flash erase holds the UART interrupt off for longer
+- Flash writes happen only after the MBB has been quiet for 3 s, plus at
+  session end, with a 15 s bound. A flash erase holds the UART interrupt off for longer
   than the receive FIFO covers, and the precompiled core keeps that
   interrupt out of IRAM. Frunk USB dies at key-off without warning, and the
   phase 2 supply is cut by a switch, so the bound is also the most a power
