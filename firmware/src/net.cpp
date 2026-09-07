@@ -22,7 +22,15 @@ static WiFiClient clients[CONSOLE_CLIENTS];
 static StreamBufferHandle_t rawBuf;
 static bool servicesStarted = false;
 static uint32_t lastAsleepNoteMs = 0;
-static uint8_t prevByte[CONSOLE_CLIENTS];
+
+// Per console client: CR-LF state and output that did not fit its socket yet.
+struct ConsoleState {
+    uint8_t prev = 0;
+    uint8_t pend[512];
+    size_t pendLen = 0;
+    uint32_t lost = 0;
+};
+static ConsoleState cstate[CONSOLE_CLIENTS];
 static uint32_t lastConnectedMs = 0;
 static uint32_t lastRetryMs = 0;
 
@@ -39,7 +47,7 @@ async function refresh(){
  const s=await j('/api/status');
  document.getElementById('s').innerHTML=Object.entries(s).map(([k,v])=>`<tr><td>${k}</td><td>${typeof v=='object'?JSON.stringify(v):v}</td></tr>`).join('');
  const f=await j('/logs');
- document.getElementById('f').innerHTML=f.map(x=>`<div><a href="/logs/${x.name}">${x.name}</a>${x.size} bytes${x.active?' (active)':''}</div>`).join('')||'none';
+ document.getElementById('f').innerHTML=f.map(x=>x.active?`<div>${x.name} ${x.size} bytes (active, see last lines)</div>`:`<div><a href="/logs/${x.name}">${x.name}</a> ${x.size} bytes</div>`).join('')||'none';
  document.getElementById('l').textContent=await (await fetch('/live')).text();
 }
 refresh();setInterval(refresh,5000);
@@ -75,10 +83,21 @@ static String statusJson() {
          ",\"ip\":\"" + WiFi.localIP().toString() + "\"}";
     s += ",\"fs\":{\"total\":" + String(total) + ",\"used\":" + String(used) + "}";
     s += ",\"active\":\"" + storeActiveName() + "\"";
+    s += "," + storeEdges();
     s += ",\"dropped_lines\":" + String(storeDroppedLines());
+    s += ",\"uart_overflows\":" + String(mbbOverflows());
+    s += ",\"fs_ok\":" + String(storeOk() ? "true" : "false");
+    s += ",\"fs_formats\":" + String(storeFormats());
     s += ",\"heap_free\":" + String(ESP.getFreeHeap());
     s += "}";
     return s;
+}
+
+// A cross-site form on another origin can POST here from the owner's browser.
+// Requiring our own name or address in the Host header shuts that door.
+static bool hostOk() {
+    String h = http.header("Host");
+    return h.startsWith(DONGLE_NAME) || h.startsWith(WiFi.localIP().toString());
 }
 
 static void handleFile() {
@@ -123,6 +142,7 @@ static void setupHttp() {
     http.on("/logs", HTTP_GET, []() { http.send(200, "application/json", storeListJson()); });
     http.on("/live", HTTP_GET, []() { http.send(200, "text/plain", storeLastLines()); });
     http.on("/api/wifi/reset", HTTP_POST, []() {
+        if (!hostOk()) { http.send(403, "text/plain", "host"); return; }
         http.send(200, "text/plain", "credentials cleared, rebooting into setup");
         delay(300);
         wm.resetSettings();
@@ -132,6 +152,7 @@ static void setupHttp() {
     http.on("/update", HTTP_POST,
         []() {
             http.sendHeader("Connection", "close");
+            if (!hostOk()) { http.send(403, "text/plain", "host"); return; }
             http.send(200, "text/plain", Update.hasError() ? "update failed" : "ok, rebooting");
             delay(300);
             if (!Update.hasError()) {
@@ -141,6 +162,7 @@ static void setupHttp() {
         },
         []() {
             HTTPUpload& up = http.upload();
+            if (!hostOk()) return;
             if (up.status == UPLOAD_FILE_START) {
                 Serial.printf("ota: %s\n", up.filename.c_str());
                 if (Update.isRunning()) Update.abort();
@@ -155,14 +177,17 @@ static void setupHttp() {
                 Serial.println("ota: upload aborted");
             }
         });
+    const char* headers[] = {"Host"};
+    http.collectHeaders(headers, 1);
     http.onNotFound(handleFile);
-    http.begin();
 }
 
 static void startServices() {
     if (servicesStarted) return;   // mDNS and OTA survive a reconnect
     servicesStarted = true;
     Serial.printf("net: connected to %s, %s\n", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
+    wm.stopConfigPortal();   // a portal left over from a failed join at boot; frees port 80
+    http.begin();            // after the portal, which holds port 80 while it is up
     MDNS.begin(DONGLE_NAME);
     MDNS.addService("http", "tcp", HTTP_PORT);
     MDNS.addService("zero-console", "tcp", CONSOLE_PORT);
@@ -178,12 +203,12 @@ void netBegin() {
     wm.setConfigPortalBlocking(false);
     wm.setConnectTimeout(20);
     wm.setHostname(DONGLE_NAME);
+    setupHttp();   // routes only; the server starts once WiFi is up
     if (wm.autoConnect(DONGLE_NAME, SETUP_AP_PASS)) {
         startServices();
     } else {
         Serial.println("net: no WiFi yet; setup AP " DONGLE_NAME " is up");
     }
-    setupHttp();
     console.begin();
     console.setNoDelay(true);
 }
@@ -200,6 +225,46 @@ void netPushRaw(const uint8_t* data, size_t len) {
     if (k) xStreamBufferSend(rawBuf, tmp, k, 0);
 }
 
+static void consoleSend(size_t ci, const uint8_t* data, size_t len) {
+    WiFiClient& slot = clients[ci];
+    ConsoleState& st = cstate[ci];
+    // First whatever is still pending from last time.
+    if (st.pendLen) {
+        int sent = ::send(slot.fd(), st.pend, st.pendLen, MSG_DONTWAIT);
+        if (sent < 0) {
+            if (errno != EAGAIN && errno != EWOULDBLOCK) slot.stop();
+            st.lost += len;
+            return;
+        }
+        if ((size_t)sent < st.pendLen) {
+            memmove(st.pend, st.pend + sent, st.pendLen - sent);
+            st.pendLen -= sent;
+            st.lost += len;
+            return;
+        }
+        st.pendLen = 0;
+        if (st.lost) {   // the client is taking data again: say what it missed
+            st.pendLen = snprintf((char*)st.pend, sizeof st.pend,
+                                  "\n[dongle: %lu console bytes dropped]\n", (unsigned long)st.lost);
+            st.lost = 0;
+            consoleSend(ci, data, len);
+            return;
+        }
+    }
+    if (len == 0) return;
+    int sent = ::send(slot.fd(), data, len, MSG_DONTWAIT);
+    if (sent < 0) {
+        if (errno != EAGAIN && errno != EWOULDBLOCK) { slot.stop(); return; }
+        sent = 0;
+    }
+    if ((size_t)sent < len) {   // keep the rest for the next pass
+        size_t rest = len - sent;
+        if (rest > sizeof st.pend) { st.lost += rest - sizeof st.pend; rest = sizeof st.pend; }
+        memcpy(st.pend, data + sent, rest);
+        st.pendLen = rest;
+    }
+}
+
 static void pumpConsole() {
     if (console.hasClient()) {
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
@@ -208,36 +273,41 @@ static void pumpConsole() {
         WiFiClient c = console.available();
 #endif
         bool placed = false;
-        for (auto& slot : clients) {
-            if (!slot || !slot.connected()) {
-                slot = c;
-                slot.setNoDelay(true);
-                slot.printf("zero-dongle console. MBB %s. Enter twice for the prompt.\n",
-                            mbbAwake() ? "awake" : "asleep, input dropped until it wakes");
-                placed = true;
-                break;
-            }
+        for (size_t ci = 0; ci < CONSOLE_CLIENTS; ci++) {
+            WiFiClient& slot = clients[ci];
+            if (slot && slot.connected()) continue;
+            slot = c;
+            slot.setNoDelay(true);
+            // A peer that vanishes without a FIN still looks connected; keepalive finds out.
+            int one = 1, idle = 30, interval = 5, count = 3;
+            slot.setSocketOption(SOL_SOCKET, SO_KEEPALIVE, &one, sizeof one);
+            slot.setOption(TCP_KEEPIDLE, &idle);
+            slot.setOption(TCP_KEEPINTVL, &interval);
+            slot.setOption(TCP_KEEPCNT, &count);
+            cstate[ci] = ConsoleState();
+            slot.printf("zero-dongle console. MBB %s. Enter twice for the prompt.\n",
+                        mbbAwake() ? "awake" : "asleep, input dropped until it wakes");
+            placed = true;
+            break;
         }
         if (!placed) c.stop();
     }
     uint8_t buf[512];
     size_t n;
     while ((n = xStreamBufferReceive(rawBuf, buf, sizeof buf, 0)) > 0) {
-        for (auto& slot : clients) {
-            if (!slot || !slot.connected()) continue;
-            // Non-blocking: a client that cannot take the bytes loses them
-            // rather than stalling the loop for seconds per chunk.
-            int sent = ::send(slot.fd(), buf, n, MSG_DONTWAIT);
-            if (sent < 0 && errno != EAGAIN && errno != EWOULDBLOCK) slot.stop();
+        for (size_t ci = 0; ci < CONSOLE_CLIENTS; ci++) {
+            if (clients[ci] && clients[ci].connected()) consoleSend(ci, buf, n);
         }
     }
     for (size_t ci = 0; ci < CONSOLE_CLIENTS; ci++) {
         WiFiClient& slot = clients[ci];
-        if (!slot || !slot.connected() || !slot.available()) continue;
+        if (!slot || !slot.connected()) continue;
+        if (cstate[ci].pendLen) consoleSend(ci, nullptr, 0);   // keep draining
+        if (!slot.available()) continue;
         uint8_t in[128], out[256];
         int got = slot.read(in, sizeof in);
         size_t k = 0;
-        uint8_t prev = prevByte[ci];
+        uint8_t prev = cstate[ci].prev;
         for (int i = 0; i < got; i++) {
             uint8_t b = in[i];
             if (b == 0x7f) b = 0x08;                            // delete to backspace
@@ -245,7 +315,7 @@ static void pumpConsole() {
             out[k++] = b;
             prev = b;
         }
-        prevByte[ci] = prev;
+        cstate[ci].prev = prev;
         if (mbbAwake()) {
             mbbWrite(out, k);
         } else if (millis() - lastAsleepNoteMs > 1000) {
@@ -265,7 +335,9 @@ void netTick() {
     } else {
         // A failed join at boot leaves the setup AP up and nothing retrying the
         // saved network. Retry it ourselves every 30 s; the setup AP stays up.
-        if (wm.getWiFiIsSaved() && millis() - lastConnectedMs > 30000 && millis() - lastRetryMs > 30000) {
+        // Not while someone is on the setup AP: a station join would drag the AP's channel with it.
+        if (wm.getWiFiIsSaved() && WiFi.softAPgetStationNum() == 0 &&
+            millis() - lastConnectedMs > 30000 && millis() - lastRetryMs > 30000) {
             lastRetryMs = millis();
             Serial.println("net: retrying saved WiFi");
             WiFi.begin();

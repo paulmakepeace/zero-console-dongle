@@ -37,14 +37,20 @@ def main():
 
     try:
         files = json.loads(fetch(base + "/logs", timeout=15))
+        if not isinstance(files, list) or not all(isinstance(f, dict) for f in files):
+            raise ValueError("listing is not a list of objects")
     except Exception as exc:
         sys.exit("pull-logs: cannot list %s: %s" % (base, exc))
 
     failed = 0
     got = 0
-    for f in sorted(files, key=lambda x: x["name"]):
-        name, size = str(f.get("name", "")), int(f.get("size", -1))
-        if not NAME_OK.match(name) or ".." in name:
+    for f in sorted(files, key=lambda x: str(x.get("name", ""))):
+        name = str(f.get("name", ""))
+        try:
+            size = int(f.get("size"))
+        except (TypeError, ValueError):
+            size = -1
+        if not NAME_OK.match(name) or ".." in name or size < 0:
             print("FAIL  %r: name rejected" % name)
             failed += 1
             continue
@@ -62,16 +68,21 @@ def main():
             print("FAIL  %s: got %d bytes, dongle reports %d" % (name, len(data), size))
             failed += 1
             continue
-        if os.path.exists(dest) and os.path.getsize(dest) != len(data):
+        def same(path):
+            return os.path.exists(path) and open(path, "rb").read() == data
+        if os.path.exists(dest) and not same(dest):
             stem, ext = os.path.splitext(dest)
             n = 2
-            while os.path.exists("%s-%d%s" % (stem, n, ext)):
+            while os.path.exists("%s-%d%s" % (stem, n, ext)) and not same("%s-%d%s" % (stem, n, ext)):
                 n += 1
             dest = "%s-%d%s" % (stem, n, ext)
-        tmp = dest + ".part"
-        with open(tmp, "wb") as out:
-            out.write(data)
-        os.replace(tmp, dest)
+        if not same(dest):
+            tmp = dest + ".part"
+            with open(tmp, "wb") as out:
+                out.write(data)
+                out.flush()
+                os.fsync(out.fileno())
+            os.replace(tmp, dest)
         got += 1
         if args.keep:
             print("saved %s, %d bytes" % (name, size))

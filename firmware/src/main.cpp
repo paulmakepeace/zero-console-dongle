@@ -18,6 +18,7 @@ static void onRaw(const uint8_t* data, size_t len) {
 
 static void onState(bool awake) {
     Serial.printf("mbb: %s\n", awake ? "awake" : "asleep");
+    storeNoteEdge(awake);
     if (!awake) storeSessionClose();   // a session opens on its first line, not on the edge
 }
 

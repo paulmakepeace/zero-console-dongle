@@ -9,4 +9,5 @@ void mbbPinsSafe();   // both console pins as inputs with pull-downs; call first
 void mbbBegin(LineHandler onLine, RawHandler onRaw, StateHandler onState);
 bool mbbAwake();
 bool mbbTxAttached();
+uint32_t mbbOverflows();
 size_t mbbWrite(const uint8_t* data, size_t len);   // 0 while the MBB is asleep

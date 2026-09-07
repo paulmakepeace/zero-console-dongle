@@ -38,12 +38,14 @@ between the two wakes seen so far:
   12 V battery from the pack, `12V successfully charged`, WAKE to HIB. A
   three-line heartbeat of the limits and a zero torque line at the 30-minute
   mark between wakes.
-- Deep sleep, pin 9 open: `ccm RTC not ready in 31 sec`, `Timed out in PW
-  Startup` at 60 s, PWSU to HIB, the 30-second countdown, deep sleep again.
-  No contactor, no top-up, 96 s awake in total.
+- Deep sleep, pin 9 open, two wakes an hour apart, identical to the second:
+  `ccm RTC not ready in 31 sec`, `Timed out in PW Startup` at 60 s, PWSU to
+  HIB, the 30-second countdown, deep sleep again. No contactor, no top-up,
+  96 s awake in total.
 
 Whether a deep-sleep wake ever tops up, or the morning's top-ups were an
-artefact of the shallow state, is open.
+artefact of the shallow state, is open. Two samples say the deep-sleep wake
+waits a minute for something, the CCM by the message, and gives up.
 
 A high level on pin 9 wakes the MBB from either depth with a full reset:
 banner, `Reset Source: Hib Wake Pin`, `State change from STRT to WAIT`, then

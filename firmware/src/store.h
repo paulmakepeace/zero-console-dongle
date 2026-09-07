@@ -15,3 +15,7 @@ void storeStats(size_t& total, size_t& used);
 String storeLastLines();
 uint32_t storeBootCount();
 uint32_t storeDroppedLines();
+bool storeOk();
+uint32_t storeFormats();
+void storeNoteEdge(bool awake);
+String storeEdges();   // JSON fragment: last awake and asleep stamps, count

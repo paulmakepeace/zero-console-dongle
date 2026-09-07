@@ -24,6 +24,11 @@ static uint32_t lastFlushMs = 0, lastRotateMs = 0;
 static String lastLines[LAST_LINES];
 static int lastHead = 0, lastCount = 0;
 static uint32_t droppedLines = 0;
+static uint32_t lastReclaimMs = 0;
+static uint32_t formats = 0;
+static bool ok = false;
+static String lastAwake, lastAsleep;
+static uint32_t awakeCount = 0;
 
 struct Lock {
     Lock() { xSemaphoreTakeRecursive(mtx, portMAX_DELAY); }
@@ -57,53 +62,67 @@ static String timeName(uint32_t openedMs) {
 }
 
 static void ensureSpace() {
-    for (;;) {
-        size_t total = LittleFS.totalBytes(), used = LittleFS.usedBytes();
-        if (total - used >= FS_MIN_FREE) return;
-        bool deleted = false;
-        for (auto& e : listEntries()) {
-            if (e.name == activeName) continue;
-            if (!LittleFS.remove(pathOf(e.name))) {
-                Serial.printf("store: cannot delete %s\n", e.name.c_str());
-                return;
-            }
-            Serial.printf("store: deleted %s for space\n", e.name.c_str());
-            deleted = true;
-            break;
+    size_t total = LittleFS.totalBytes(), used = LittleFS.usedBytes();
+    if (total - used >= FS_MIN_FREE) return;
+    for (auto& e : listEntries()) {   // oldest first; skip what cannot go
+        if (e.name == activeName) continue;
+        if (!LittleFS.remove(pathOf(e.name))) {
+            Serial.printf("store: cannot delete %s\n", e.name.c_str());
+            continue;
         }
-        if (!deleted) return;
+        Serial.printf("store: deleted %s for space\n", e.name.c_str());
+        used = used > e.size ? used - e.size : 0;
+        if (total - used >= FS_MIN_FREE) return;
     }
 }
 
 bool storeBegin() {
     mtx = xSemaphoreCreateRecursiveMutex();
-    if (!LittleFS.begin(true)) {
-        Serial.println("store: LittleFS mount failed");
-        return false;
-    }
-    if (!LittleFS.exists(LOG_DIR)) LittleFS.mkdir(LOG_DIR);
     Preferences p;
     p.begin("dongle", false);
     bootCount = p.getUInt("boots", 0) + 1;
     p.putUInt("boots", bootCount);
+    formats = p.getUInt("formats", 0);
+    if (!LittleFS.begin(false)) {
+        // Do not lose the logs quietly: count every format and say so.
+        formats++;
+        p.putUInt("formats", formats);
+        Serial.printf("store: LittleFS mount failed, formatting (format %lu)\n", (unsigned long)formats);
+        ok = LittleFS.begin(true);
+    } else {
+        ok = true;
+    }
     p.end();
+    if (!ok) {
+        Serial.println("store: no filesystem; capture will count dropped lines");
+        return false;
+    }
+    if (!LittleFS.exists(LOG_DIR)) LittleFS.mkdir(LOG_DIR);
     Serial.printf("store: boot %lu, %u of %u bytes used\n", (unsigned long)bootCount,
                   (unsigned)LittleFS.usedBytes(), (unsigned)LittleFS.totalBytes());
     return true;
 }
 
-static bool writeOnce(const String& line) {
-    size_t want = line.length() + 1;
-    size_t got = active.write((const uint8_t*)line.c_str(), line.length());
-    if (got == line.length()) got += active.write('\n');
-    dirty = true;
-    return got == want;
+// Write all of buf, retrying the unwritten remainder once after reclaiming
+// space, so a partial first attempt is never duplicated.
+static bool writeAll(const char* buf, size_t len) {
+    size_t done = 0;
+    for (int attempt = 0; attempt < 2 && done < len; attempt++) {
+        done += active.write((const uint8_t*)buf + done, len - done);
+        dirty = true;
+        if (done < len && attempt == 0) {
+            uint32_t now = millis();
+            if (now - lastReclaimMs > RECLAIM_GAP_MS) {
+                lastReclaimMs = now;
+                ensureSpace();
+            }
+        }
+    }
+    return done == len;
 }
 
 static void writeLine(const String& line) {
-    if (writeOnce(line)) return;
-    ensureSpace();   // full: make room and try once more
-    if (writeOnce(line)) return;
+    if (writeAll(line.c_str(), line.length()) && writeAll("\n", 1)) return;
     droppedLines++;
     if (droppedLines == 1 || droppedLines % 100 == 0)
         Serial.printf("store: %lu line(s) dropped, flash full\n", (unsigned long)droppedLines);
@@ -119,8 +138,9 @@ void storeSessionOpen() {
         activeName = timeName(activeOpenMs) + ".log";
         activeUnsynced = false;
     } else {
-        char b[32];
-        snprintf(b, sizeof b, "0000-b%lu-%d.log", (unsigned long)bootCount, seq);
+        char b[40];
+        snprintf(b, sizeof b, "0000-b%lu-%d-u%lu.log", (unsigned long)bootCount, seq,
+                 (unsigned long)(activeOpenMs / 1000));
         activeName = b;
         activeUnsynced = true;
     }
@@ -142,7 +162,12 @@ static void renameIfSynced() {
     writeLine(clockStamp() + " dongle: clock set from " + clockSourceName() + ", was " + oldName);
     active.close();
     if (LittleFS.rename(pathOf(oldName), pathOf(newName))) activeName = newName;
+    else Serial.printf("store: rename %s failed, keeping the name\n", oldName.c_str());
     active = LittleFS.open(pathOf(activeName), FILE_APPEND);
+    if (!active) {
+        Serial.printf("store: reopen %s failed\n", activeName.c_str());
+        activeName = "";   // the next line starts a new file
+    }
     activeUnsynced = false;
 }
 
@@ -161,8 +186,9 @@ void storeAppend(const String& line) {
     lastLines[lastHead] = line;
     lastHead = (lastHead + 1) % LAST_LINES;
     if (lastCount < LAST_LINES) lastCount++;
+    if (!ok) { droppedLines++; return; }
     if (!active) storeSessionOpen();
-    if (!active) return;
+    if (!active) { droppedLines++; return; }
     renameIfSynced();
     writeLine(line);
 }
@@ -232,3 +258,17 @@ String storeLastLines() {
 
 uint32_t storeBootCount() { return bootCount; }
 uint32_t storeDroppedLines() { return droppedLines; }
+bool storeOk() { return ok; }
+uint32_t storeFormats() { return formats; }
+
+void storeNoteEdge(bool awake) {
+    Lock l;
+    if (awake) { lastAwake = clockStamp(); awakeCount++; }
+    else lastAsleep = clockStamp();
+}
+
+String storeEdges() {
+    Lock l;
+    return "\"last_awake\":\"" + lastAwake + "\",\"last_asleep\":\"" + lastAsleep +
+           "\",\"awake_count\":" + String(awakeCount);
+}
