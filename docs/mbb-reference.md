@@ -16,8 +16,33 @@ as `State change from STOP to HIB`. They interleave with whatever you are
 typing. Faults arrive as `Fault set: NAME` and `Fault cleared: NAME`, and the
 blinker fault is followed by `blinker current N ma`.
 
-The console keeps answering commands after the key is turned off, at least
-for a while. How long is not yet measured.
+## Sleep and wake
+
+Key-off takes the MBB from STOP to HIB within 100 ms. The console keeps
+answering in HIB, so long as pin 9 is held high; see the console-pin section
+of [hardware.md](hardware.md) for why an attached adapter does that.
+
+Every hour, counted from the HIB entry to the second, the MBB wakes itself
+by RTC timer, without a reset: `State change from HIB to PWSU`, RTC check,
+LSS assigns the BMS node 0x0A and the two charger nodes 0x10 and 0x11,
+precharge from the module, contactor closed, `State change from PWSU to
+WAKE`. It charges the 12 V battery from the pack for 30 minutes, prints
+`12V successfully charged` and `State change from WAKE to HIB`, and the hour
+starts again. Halfway between, at the 30-minute mark, it prints a three-line
+heartbeat: the discharge and charge limits and a zero torque line.
+
+A high level on pin 9 wakes it differently: a full reset with the boot
+banner, `Reset Source: Hib Wake Pin`, self-test, `State change from STRT to
+WAIT`, then STOP and HIB about 30 s later. A reset that lands during the
+hourly wake abandons the top-up.
+
+The `Disch limits` and `Ch limits` pair, printed on state changes and in the
+heartbeat, is the pack's discharge and charge limit: `curr` in tenths of an
+amp, `pow` in tenths of a watt, `cap` repeating `curr`, `act` at INT32_MAX
+for no active limit. Key on this bike reads 113.1 A and 12.1 kW discharge,
+12.7 A and 1.36 kW charge, both matching the pack voltage to three figures.
+Asleep both read zero; during the top-up the charge limit sits near 11 A
+with `pow` at zero because the pack is not connected to a load.
 
 ## Commands
 

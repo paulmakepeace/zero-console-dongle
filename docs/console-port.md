@@ -113,8 +113,8 @@ Measured 2026-09-05 on the MY2020 SR/S, all voltages relative to pin 5.
 | 4   | Chassis GND               | continuity to pin 5                   |
 | 5   | Signal GND                | continuity to frame                   |
 | 6   | CAN-H                     | 3.1 V (live traffic)                  |
-| 8   | MBB TX, to adapter RX     | 3.33 V key on, 0 V key off (delay not recorded) |
-| 9   | MBB RX, from adapter TX   | 0 V (no pull-up; the adapter drives)  |
+| 8   | MBB TX, to adapter RX     | 3.33 V while the console is up, 0 V asleep |
+| 9   | MBB RX, from adapter TX; also the hibernation wake pin | 0 V (no pull-up; the adapter drives) |
 | 14  | CAN-L                     | 1.85 V (live traffic)                 |
 | 16  | +12 V battery             | 13.0 V key off, 13.2 V key on         |
 
@@ -123,15 +123,23 @@ is top-left, 8 top-right, 9 bottom-left, 16 bottom-right. The back of a male
 plug viewed the same way has the same layout. Trust the moulded numbers on the
 plug over any diagram.
 
-Pin 8 is a logic output. It is usable as a key-on sense at microamp load, never
-as a supply. The key-off reading was taken some unrecorded time after the key
-turned; how long the pin stays high after key-off is not known.
+Pin 8 is a logic output, never a supply, and not a key sense: it is high
+whenever the MBB's console block is powered, which includes hibernation for
+as long as pin 9 is held high. Pin 9 high resets a sleeping MBB and keeps it
+out of deep sleep. The details and what they mean for a dongle are in
+[hardware.md](hardware.md).
 
 ## Adapters
 
 Any 3.3 V-logic USB-UART works: CP2102/CP2102N (native 3.3 V), or an FT232
 board set to 3.3 V. Verify TX idles at about 3.3 V before connecting. A 5 V-only
 adapter does not talk to the MBB and risks the RX pin.
+
+A powered adapter's TX idles high, and that level on pin 9 reboots a sleeping
+MBB and holds it in hibernation with the console up, hourly wakes counted
+from the moment of connection. Plugging in during a wake abandons the 12 V
+top-up. Connect with the key on if the natural cycle matters, and unplug the
+adapter, or at least pin 9, when done.
 
 On hand: DSD TECH SH-U09B3 (CP2102N, USB-C, header pins), enumerates as cp210x.
 Its bottom header reads 5V0, GND, TXD, RXD, RTS, CTS; the side header 3V3, RI,

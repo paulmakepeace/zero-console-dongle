@@ -62,16 +62,25 @@ def main():
         emit("%s capture.py: start %s" % (stamp(), dev))
         buf = bytearray()
         started = None
+        waiting_since = None
         try:
             while True:
                 try:
                     port = serial.Serial(dev, BAUD, timeout=0.2)
                 except serial.SerialException as exc:
-                    emit("%s capture.py: cannot open %s (%s), retrying" % (stamp(), dev, exc))
+                    if waiting_since is None:
+                        waiting_since = time.monotonic()
+                        emit("%s capture.py: cannot open %s (%s), retrying every 5 s"
+                             % (stamp(), dev, exc))
                     time.sleep(5)
                     continue
                 with port:
-                    emit("%s capture.py: open %s" % (stamp(), dev))
+                    if waiting_since is None:
+                        emit("%s capture.py: open %s" % (stamp(), dev))
+                    else:
+                        emit("%s capture.py: open %s after %.0f s away"
+                             % (stamp(), dev, time.monotonic() - waiting_since))
+                        waiting_since = None
                     try:
                         while True:
                             data = port.read(port.in_waiting or 1)

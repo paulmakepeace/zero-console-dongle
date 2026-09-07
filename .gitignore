@@ -11,3 +11,6 @@ logs/*
 *.txt
 *.csv
 *.tsv
+
+# PlatformIO build output
+firmware/.pio/
