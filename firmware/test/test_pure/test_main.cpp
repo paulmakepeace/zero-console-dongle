@@ -218,6 +218,8 @@ void test_storage_mode_lines() {
     TEST_ASSERT_EQUAL(-1, sm("09/06/2026 20:54:29.513 - LTSM state: INIT to DIS"));
     TEST_ASSERT_EQUAL(-1, sm(" - LTSM state: DIS"));
     TEST_ASSERT_EQUAL(1, sm(" - LTSM state: EN"));            // the bms row with the mode on
+    TEST_ASSERT_EQUAL(1, sm("09/08/2026 15:01:14.204 - LTSM state: EN to DIS_PEND"));   // on its way out, still on
+    TEST_ASSERT_EQUAL(-1, sm("09/08/2026 15:01:14.345 - LTSM state: DIS_PEND to DIS"));
     TEST_ASSERT_EQUAL(1, sm("LTSM state: INIT to ENA"));     // any state but DIS counts
     TEST_ASSERT_EQUAL(1, sm("LTSM state: DIS to ARM \r"));
     TEST_ASSERT_EQUAL(0, sm("LTSM state: INIT"));

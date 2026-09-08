@@ -52,8 +52,11 @@ own statement of whether it has been put into storage. Switching it on
 from the app reaches the MBB as the command `ltsm en mod 2`, which the MBB
 logs with a stamp like a line of its own; `bms` then shows `LTSM state:
 EN` and `storage mode Active`, the two rows taking the new state a
-fraction of a second apart. The wake-time line with the mode on, and the
-switch-off, are not captured yet.
+fraction of a second apart. The mode ends when the bike moves: side
+stand up and a touch of throttle takes the MBB from STOP to RUN, and it
+prints `LTSM state: EN to DIS_PEND`, its own `ltsm dis mod 2`, and `LTSM
+state: DIS_PEND to DIS` a tenth of a second later. The wake-time line
+with the mode on is not captured yet.
 
 - **Timeout.** `ccm RTC not ready in 31 sec`, `Timed out in PW Startup` at
   60 s, PWSU to HIB, the 30-second countdown, deep sleep again. No

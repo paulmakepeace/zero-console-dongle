@@ -65,7 +65,8 @@ its [README](../firmware/README.md):
    that it is parked: the MBB prints its long-term storage mode's state at
    every wake, `LTSM state: INIT to DIS` while it is off, and `bms`, which
    the poller runs, reports it as `storage mode Inactive`. Any state but
-   DIS, EN as the bike spells it, or `storage mode Active`, arms the sleep at once whatever the
+   DIS, EN as the bike spells it and DIS_PEND on the way out, or
+   `storage mode Active`, arms the sleep at once whatever the
    days count, and a key-on forgets it until the MBB restates it at its
    next wake, so the dongle stays reachable for the hour after a ride.
    Nothing about storage mode is kept in flash: the MBB says it again

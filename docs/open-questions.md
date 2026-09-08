@@ -23,9 +23,8 @@
 - Which of the bike's CAN networks is on OBD pins 6 and 14, and at what
   bitrate. The bench plan is in hardware.md.
 - What the console prints at a wake with long-term storage mode on,
-  presumably `LTSM state: INIT to EN` since EN is the state `bms` shows,
-  and what switching it off from the app looks like. The firmware takes
-  any state but DIS as on.
+  presumably `LTSM state: INIT to EN` since EN is the state `bms` shows.
+  The firmware takes any state but DIS as on.
 - What DTC `B1A0F` means.
 - Current available on pin 16 and the fuse size upstream of it.
 - Rear LED draw on its own. Indicate with the rear signal unplugged and
