@@ -9,6 +9,7 @@
 #include "config.h"
 #include "driver/uart.h"
 #include "driver/gpio.h"
+#include "esp_task_wdt.h"
 
 static LineHandler lineHandler;
 static RawHandler rawHandler;
@@ -79,7 +80,9 @@ static void captureTask(void*) {
     static char line[1024];
     size_t llen = 0;
     int highRun = 0;
+    esp_task_wdt_add(NULL);
     for (;;) {
+        esp_task_wdt_reset();
         int n = uart_read_bytes(UART_NUM_2, buf, sizeof buf, pdMS_TO_TICKS(20));
         uint32_t now = millis();
         drainEvents();

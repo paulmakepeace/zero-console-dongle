@@ -1,6 +1,6 @@
 #pragma once
 
-#define FW_VERSION      "0.2.6"
+#define FW_VERSION      "0.2.7"
 #define DONGLE_NAME     "zero-dongle"      // base of the hostname, mDNS name and setup AP name; the last four hex digits of the MAC are appended
 #define SETUP_AP_PASS   "zerodongle"       // password of the setup AP
 
@@ -28,6 +28,7 @@
 #define IDLE_COMMIT_MS  3000   // lines reach flash once the MBB has been quiet this long
 #define MAX_PENDING_MS  15000  // or after this long regardless
 #define PENDING_MAX     12288  // or when this much is waiting in RAM
+#define LOOP_WDT_S      30     // loop() or the capture task silent this long: panic and reboot
 
 #define TZ_DEFAULT      "PST8PDT,M3.2.0,M11.1.0"
 #define NTP_SERVER      "pool.ntp.org"

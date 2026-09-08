@@ -33,6 +33,8 @@ struct ConsoleState {
 };
 static ConsoleState cstate[CONSOLE_CLIENTS];
 static char nodeName[32];
+static uint32_t wifiDisconnects = 0;
+extern const char* lastResetReason;
 
 const char* netName() { return nodeName; }
 String netMac() { return WiFi.macAddress(); }
@@ -94,6 +96,8 @@ static String statusJson() {
     s += ",\"fs_ok\":" + String(storeOk() ? "true" : "false");
     s += ",\"fs_formats\":" + String(storeFormats());
     s += ",\"heap_free\":" + String(ESP.getFreeHeap());
+    s += ",\"wifi_disconnects\":" + String(wifiDisconnects);
+    s += ",\"reset_reason\":\"" + String(lastResetReason) + "\"";
     s += "}";
     return s;
 }
@@ -210,6 +214,10 @@ void netBegin() {
                   mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     WiFi.setHostname(nodeName);
     WiFi.setAutoReconnect(true);
+    WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t info) {
+        wifiDisconnects++;
+        Serial.printf("net: WiFi disconnected, reason %d\n", info.wifi_sta_disconnected.reason);
+    }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
     wm.setConfigPortalBlocking(false);
     wm.setConnectTimeout(20);
     wm.setHostname(nodeName);
