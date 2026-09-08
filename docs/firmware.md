@@ -42,7 +42,12 @@ its [README](../firmware/README.md):
    listing says when each last succeeded and when it last failed. Responses come back through the capture module's
    line queue: the prompt closes a command, lines the MBB prints on its own
    pass through to the log, and everything else is the command's output,
-   kept in RAM and out of the log. The last output of each is served raw at
+   kept in RAM for the API and written to the log as well, behind a
+   `dongle: poll` line per batch, so a session's polls read as a console
+   transcript and the pulled files carry the bike's state every minute it
+   was awake: a charge curve, a ride's pack temperatures. A batch is some
+   10 KB raw, most of it text the dictionary already holds, and the poll
+   interval setting is the volume control. The last output of each is served raw at
    `/api/cmd/NAME` and on the tabbed page at `/cmd`; the bike state and
    the BMS row of `status`, state of charge, pack voltage and current,
    negative while the pack is being charged,

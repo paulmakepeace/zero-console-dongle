@@ -54,7 +54,7 @@ const char* sysResetReason() {
 
 static void onLine(const char* line, size_t len) {
     sleepNoteLine(line, len);   // the attended signals and the hibernate line, whatever else the line is
-    if (pollerConsumeLine(line, len)) return;   // a command's output: kept by the poller, not the log
+    pollerConsumeLine(line, len);   // a command's output is kept by the poller for the API, and logged below like any console traffic
     clockMaybeSetFromMbb(line, len);
     storeAppend(clockStamp() + " " + line, memcmp(line, "dongle:", 7) != 0);
 }

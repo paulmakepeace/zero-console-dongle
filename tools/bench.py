@@ -12,8 +12,8 @@ Usage: tools/bench.py [roundtrip|break|poll|storage|sleep|lightsleep|all] [--hos
              the next high wakes it and opens a new one
   poll       with the adapter answering as the MBB, a requested poll fills
              every command's output, keeps the transmit pin held across the
-             batch, passes an unsolicited line through to the log, and keeps
-             the outputs themselves out of the log
+             batch, passes an unsolicited line through to the log, and logs
+             the outputs behind a dongle: poll line
   storage    the MBB's own statement that the bike is parked arms the sleep
              at once whatever the days count, a key-on forgets it until the
              MBB restates it, and DIS or Inactive hands the decision back to
@@ -195,6 +195,7 @@ class FakeMbb(threading.Thread):
         self.ad = ad
         self.stop = threading.Event()
         self.seen = []
+        self.first_delay = 0.0   # a pause before the first answer, for a look at the log before the batch fills it
 
     def run(self):
         line = b""
@@ -206,9 +207,11 @@ class FakeMbb(threading.Thread):
             while b"\n" in line:
                 cmd, line = line.split(b"\n", 1)
                 cmd = cmd.strip(b"\r")
+                if len(self.seen) == 0 and self.first_delay:
+                    time.sleep(self.first_delay)
                 self.seen.append(cmd)
                 answer = ANSWERS.get(cmd, b"unknown command\r\n")
-                if cmd == b"pdu":   # an unsolicited line lands in the middle of one answer, between two of its lines
+                if cmd == b"faults":   # an unsolicited line lands in the middle of the last answer, between two of its lines, where the live window still shows it
                     cut = answer.find(b"\r\n", len(answer) // 2) + 2
                     answer = answer[:cut] + UNSOLICITED + answer[cut:]
                 self.ad.write(cmd + b"\r\n" + answer + b"ZERO MBB> ")
@@ -235,10 +238,14 @@ def get(host, path):
 def t_poll(host, ad):
     print("poll")
     mbb = FakeMbb(ad)
+    mbb.first_delay = 1.5
     mbb.start()
     try:
         post(host, "/api/settings")   # nothing to change; proves the header path
         print("  ", post(host, "/api/cmd/poll"))
+        time.sleep(0.4)
+        live = get(host, "/live")[1]
+        check(live.rstrip().endswith("dongle: poll"), "the batch is announced in the log before its first answer: %r" % live.rstrip()[-60:])
         held = False
         t0 = time.time()
         while time.time() - t0 < 60:
@@ -262,9 +269,9 @@ def t_poll(host, ad):
               "status carries soc %s and state %r (the answer says %d and %r)" % (s["pack"]["soc"], s["pack"]["bike_state"], want_soc, want_state))
         time.sleep(3.5)
         check(not status(host)["tx_attached"], "transmit pin released after the batch")
-        live = get(host, "/live")[1]
+        live = get(host, "/live")[1]   # the last 40 lines: the end of the batch
         check("Control flags changed" in live, "the unsolicited line inside a response reached the log")
-        check("batt serial" not in live and "Bike State" not in live, "the responses themselves stayed out of the log")
+        check("Pending faults" in live and "blackout_sw" in live, "the responses themselves reached the log")
         try:
             get(host, "/api/cmd/nope")
             check(False, "unknown command is 404")

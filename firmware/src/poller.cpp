@@ -2,12 +2,15 @@
 // attached across every command so the detach's own NUL, which makes the MBB
 // print a prompt, cannot land mid-batch and be mistaken for a command's end.
 // Output comes back through the capture module's line queue; the prompt line
-// closes a command, unsolicited lines pass through to the log, and the rest
-// is the command's output.
+// closes a command and the rest is the command's output, kept here for the
+// API. The log gets every line as well, behind a "dongle: poll" line per
+// batch, so a session's polls read as a console transcript.
 #include "poller.h"
 #include "config.h"
 #include "mbb_uart.h"
 #include "util.h"
+#include "store.h"
+#include "clock.h"
 #include "pure/mbb_parse.h"
 
 static const char* const CMDS[] = {POLL_CMDS};
@@ -130,6 +133,7 @@ void pollerTick(bool mbbAwake, bool consoleBusy) {
     finishAfterThis = false;
     running = true;
     cur = 0;
+    storeAppend(clockStamp() + " dongle: poll", false);
     mbbTxHold(true);
     sendCurrent();
 }
