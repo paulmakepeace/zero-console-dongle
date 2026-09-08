@@ -18,7 +18,7 @@ its [README](../firmware/README.md):
    deleted when free space runs low; the sizes are in the firmware
    [README](../firmware/README.md).
 3. **Serve the files over WiFi.** A status page, a JSON list, download and
-   delete. `tools/pull-logs.py` on the homelab fetches new files on a
+   delete. [`tools/pull-logs.py`](../tools/pull-logs.py) on the homelab fetches new files on a
    schedule and deletes each one after the size checks.
 4. **A raw TCP console** on port 6638, tee'd into the capture. Transmit is
    gated by the transmit-pin rule below. Input arriving while the MBB sleeps

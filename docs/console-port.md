@@ -26,7 +26,7 @@ not `tty.`: the `tty.` side waits for carrier detect and picocom hangs on open.
 ## A legible session
 
 The MBB ends lines with a bare LF, so unmapped output staircases across the
-screen, and it wants backspace rather than delete. `tools/console.sh` sets the
+screen, and it wants backspace rather than delete. [`tools/console.sh`](../tools/console.sh) sets the
 mappings, finds the adapter, and logs the raw session under `logs/`:
 
 ```bash
@@ -47,7 +47,7 @@ the terminal. Quit with Ctrl-A then Ctrl-X.
 For measuring gaps, such as how long the console runs after key-off or how
 long an hourly wake lasts, the picocom log is not enough: it has no
 timestamps, and the MBB's own `DEBUG:` stamps do not cover the bare state
-lines. `tools/capture.py` reads the port, sends nothing, stamps each line
+lines. [`tools/capture.py`](../tools/capture.py) reads the port, sends nothing, stamps each line
 with the local time at its first byte, drops the NULs, and flushes per line:
 
 ```bash

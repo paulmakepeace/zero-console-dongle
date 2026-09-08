@@ -35,16 +35,17 @@ Later builds go over the air through the status page's upload, or:
 curl -H 'X-Dongle: 1' -F firmware=@firmware/.pio/build/devkit/firmware.bin http://zero-dongle-a12c.local/update
 ```
 
-`tools/flash.sh [HOST ...|all]` does the build, the upload and the wait
-for the board to report the new version; `tools/status.py [HOST ...|all]
-[--watch N]` prints one line per board, or only the changes; `tools/bench.py`
+[`tools/flash.sh`](../tools/flash.sh) `[HOST ...|all]` does the build, the
+upload and the wait for the board to report the new version;
+[`tools/status.py`](../tools/status.py) `[HOST ...|all] [--watch N]` prints
+one line per board, or only the changes; [`tools/bench.py`](../tools/bench.py)
 runs the regression through the adapter on the bench board (roundtrip,
 break, sleep) and refuses the bike unit. Board names and addresses both
 work; `DONGLE_HOST` and `DONGLE_BOARDS` set the defaults.
 
 ## Tests
 
-The logic that does not need a board lives in `src/pure/` as plain C++
+The logic that does not need a board lives in [`src/pure/`](src/pure/) as plain C++
 headers: the MBB stamp parser and the two-stamp agreement rule, the line
 framer, the file-name rules, the JSON escaper and the commit accounting.
 The modules wrap them; the tests run them on the host:
@@ -60,7 +61,7 @@ python3 -m pytest tools/tests
 ```
 
 What only hardware can prove, the transmit gate and the sleep edge, is
-`tools/bench.py` on the bench board through the adapter.
+[`tools/bench.py`](../tools/bench.py) on the bench board through the adapter.
 
 Every version bump in `config.h` is an annotated tag `vX.Y.Z` whose body
 rolls up the commits since the previous version; `git tag -n99 v0.4.5`
@@ -145,14 +146,14 @@ erase holds the UART interrupt off long enough to overrun the chip's receive
 FIFO, and the MBB tends to follow a lone line with a burst a second later. A
 power cut loses at most that much. What counts as awake is in the design
 rules of [../docs/firmware.md](../docs/firmware.md). Each line carries the dongle's
-stamp then the MBB text, the same format as `tools/capture.py` once the
+stamp then the MBB text, the same format as [`tools/capture.py`](../tools/capture.py) once the
 clock is known (an uptime stamp `u000016.875` before that). Oldest files go when free space drops
 under 96 KB; a file that cannot be deleted is skipped. Lines that cannot be
 written are counted in `/api/status` as `dropped_lines`; UART overruns and
 frame errors each leave a marker line in the file and a count in the
 status; a filesystem that had to be formatted is counted there too. The
 pull script reads the status first and warns about any of them.
-`tools/pull-logs.py` fetches and deletes them from the homelab into
+[`tools/pull-logs.py`](../tools/pull-logs.py) fetches and deletes them from the homelab into
 `logs/dongle/NAME/`, one directory per board.
 
 The log area is 896 KB with a 96 KB reserve. LittleFS counts in 4 KB

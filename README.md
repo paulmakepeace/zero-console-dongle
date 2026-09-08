@@ -34,14 +34,14 @@ characterised and the CAN and buck parts are on order. See
 - [docs/sources.md](docs/sources.md): references.
 - [firmware/](firmware/): the PlatformIO project, Arduino framework. Its
   README has the build, the tests, first boot and the endpoints.
-- [tools/](tools/): `console.sh` opens a legible, logged console session;
-  `capture.py` is a read-only capture with a timestamp on every line;
-  `pull-logs.py` fetches the dongle's files over WiFi; `status.py` is one
-  line per board or a watch for changes; `flash.sh` builds and flashes over
-  the air; `bench.py` is the regression through the adapter; `log-clean.sh`
-  strips a raw capture for reading; `check-private.sh` is the pre-commit
-  gate against the VIN and serials; `tests/` is the pull script's suite.
-  The firmware's host tests are under `firmware/test/`.
+- [tools/](tools/): [`tools/console.sh`](tools/console.sh) opens a legible, logged console session;
+  [`tools/capture.py`](tools/capture.py) is a read-only capture with a timestamp on every line;
+  [`tools/pull-logs.py`](tools/pull-logs.py) fetches the dongle's files over WiFi; [`tools/status.py`](tools/status.py) is one
+  line per board or a watch for changes; [`tools/flash.sh`](tools/flash.sh) builds and flashes over
+  the air; [`tools/bench.py`](tools/bench.py) is the regression through the adapter; [`tools/log-clean.sh`](tools/log-clean.sh)
+  strips a raw capture for reading; [`tools/check-private.sh`](tools/check-private.sh) is the pre-commit
+  gate against the VIN and serials; [`tools/tests/`](tools/tests/) is the pull script's suite.
+  The firmware's host tests are under [`firmware/test/`](firmware/test/).
 - `logs/`: session captures, ignored by git because they carry the VIN and
   serial numbers. `.private-patterns` at the root, also ignored, holds the
   regexes the pre-commit gate refuses; install the gate once per clone with
@@ -50,7 +50,7 @@ characterised and the CAN and buck parts are on order. See
 ## Next, in order
 
 1. Keep the dongle on the bike collecting wakes, and ride and pull the files
-   with `tools/pull-logs.py`. The open question the captures serve is what
+   with [`tools/pull-logs.py`](tools/pull-logs.py). The open question the captures serve is what
    sets the cellular module's schedule, since the 12 V charge rides on it;
    see [docs/open-questions.md](docs/open-questions.md).
 2. When the CAN and buck parts land, build the second shell with the phase 2
