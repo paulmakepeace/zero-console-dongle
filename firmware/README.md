@@ -44,6 +44,10 @@ runs the regression through the adapter on the bench board (roundtrip,
 break, sleep) and refuses the bike unit. Board names and addresses both
 work; `DONGLE_HOST` and `DONGLE_BOARDS` set the defaults.
 
+Every version bump in `config.h` is an annotated tag `vX.Y.Z` whose body
+rolls up the commits since the previous version; `git tag -n99 v0.4.4`
+reads one, and `git push --follow-tags` sends them with the branch.
+
 ## First boot
 
 Every board names itself `zero-dongle-XXXX`, the last four hex digits of
