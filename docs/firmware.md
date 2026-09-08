@@ -45,6 +45,7 @@ its [README](../firmware/README.md):
    kept in RAM and out of the log. The last output of each is served raw at
    `/api/cmd/NAME` and on the tabbed page at `/cmd`; the bike state and
    the BMS row of `status`, state of charge, pack voltage and current,
+   negative while the pack is being charged,
    capacity and the pack's high and low temperatures, go into the status
    JSON. The ESP32's own die temperature is there too, some 15 to 20 C
    above the air around it, so it says more about the board than the
