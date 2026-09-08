@@ -94,6 +94,11 @@ written are counted in `/api/status` as `dropped_lines`, UART overruns as
 to be formatted as `fs_formats`. `tools/pull-logs.py` fetches and deletes
 them from the homelab.
 
+The log area is 896 KB: a timeout wake is 6 KB, a ride about 40 KB an hour,
+so parked days cost about 150 KB and the area holds six of them between
+pulls. The app slots are 1.5 MB each. Changing the partition table needs a
+USB flash and formats the log area, which is counted in `fs_formats`.
+
 The state-changing endpoints, firmware upload and WiFi reset, require the
 request's Host header to name the dongle, which stops a web page on another
 site from driving them through the owner's browser. Everything else is open
