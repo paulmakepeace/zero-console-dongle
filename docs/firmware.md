@@ -69,8 +69,8 @@ flags.
 - The transmit pin is attached to the UART only while bytes are being sent
   and for 2 s after, only while the MBB is awake, and is an input with a
   pull-down otherwise, from the first instruction of boot. The drop back to
-  the pull-down reaches the far end as one NUL byte; what the MBB makes of
-  that is the last thing to check before pin 9 is connected on the bike. This is the one rule that keeps the
+  the pull-down reaches the MBB as one NUL byte, which it answers with a
+  fresh prompt; verified on the bike with pin 9 connected. This is the one rule that keeps the
   dongle from waking the bike or holding it awake. Every future feature that
   sends anything goes through the same gate.
 - The loop task never blocks on a network client. Console output to a client

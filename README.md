@@ -52,9 +52,8 @@ Next, in order:
 1. Leave the dongle on pins 5 and 8 collecting wakes; the question now is
    what sets the cellular module's schedule, since the 12 V charge rides on
    it.
-2. Connect pin 9, ride on frunk USB, and pull the files with
-   `tools/pull-logs.py`. The console over `nc` is then usable from the
-   house.
+2. Pin 9 is connected and the console works from the house over `nc` on
+   frunk USB; ride and pull the files with `tools/pull-logs.py`.
 3. When the CAN and buck parts land, build the second shell with the phase 2
    wiring in [docs/hardware.md](docs/hardware.md), and bench-test CAN first:
    termination removed, driver input tied recessive, listen-only at

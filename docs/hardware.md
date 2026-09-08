@@ -38,9 +38,11 @@ This decides the wiring and the power design.
 So a dongle must never drive pin 9 while the MBB sleeps, and must not hold
 it high while the MBB is awake either, because a UART idles high and that
 level is what keeps the MBB in its shallow hibernation after key-off. The
-firmware attaches the transmit pin only while bytes are being sent, only
-while pin 8 is high, and a sleeping MBB cannot be commanded without booting
-it. Pin 8 does rise on the MBB's own hourly wake with pin 9 left low, from
+firmware attaches the transmit pin only while bytes are being sent and for
+two seconds after, only while pin 8 is high, and a sleeping MBB cannot be
+commanded without booting it. The drop back to the pull-down reaches the
+MBB as one NUL byte, which its console answers with a fresh prompt and
+nothing else; commands before and after it are handled normally. Pin 8 does rise on the MBB's own hourly wake with pin 9 left low, from
 the first byte of the boot banner, and drops again about 5 s after the MBB
 announces its hibernation, so a dongle sleeping on pin 8 sees every wake.
 
