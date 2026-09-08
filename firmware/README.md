@@ -93,7 +93,10 @@ the MBB reporting it off. Armed, the dongle light-sleeps once
 the MBB has been asleep for two minutes with nobody using it, for nine
 tenths of the time until the MBB's own hourly wake, so it is up a few
 minutes early whatever the sleep timer's clock did, and pin 8 rising wakes
-it regardless; a status check does not count as use, a download, the live
+it regardless. A host that has not spoken to the dongle since before the
+sleep may take a few seconds, once in a while fifteen, to reach it after
+the wake while it looks the dongle's address up again; the pull script's
+retries cover that. A status check does not count as use, a download, the live
 view, the command page or a console client does. If the stored network
 refuses the password three times running the setup network comes up again
 for ten minutes, after which the retry resumes, since a marginal link can
@@ -120,7 +123,7 @@ replaced from the home network with `POST /api/settings`.
 | `/update`            | POST   | firmware image as `firmware` in a multipart body; the status page has the form |
 | `/api/wifi/reset`    | POST   | forget WiFi and reboot into setup          |
 | `/api/settings`      | GET    | JSON: timezone, NTP server, sleep on or off, days unattended before sleeping, poll interval |
-| `/api/settings`      | POST   | form fields `tz`, `ntp`, `setup_pass`, `sleep` (0 or 1), `sleep_days` (0 for always), `poll` (seconds, 0 for never), any subset, applied at once; `sleep_grace` (seconds) is a bench knob, applied but not saved |
+| `/api/settings`      | POST   | form fields `tz`, `ntp`, `setup_pass`, `sleep` (0 or 1), `sleep_days` (0 for always), `poll` (seconds, 0 for never), any subset, applied at once, 400 with nothing applied when a value is over its length (tz 63, ntp 64, setup_pass 32 characters); `sleep_grace` (seconds) is a bench knob, applied but not saved |
 | `/cmd`               | GET    | tabbed page of the polled command outputs  |
 | `/api/cmd`           | GET    | JSON list of the polled commands: age and size of the last good output, whether the last attempt succeeded, age of the last failure |
 | `/api/cmd/NAME`      | GET    | the last output of that command, text, with an `X-Age-Seconds` header; 503 until polled, 404 if unknown |

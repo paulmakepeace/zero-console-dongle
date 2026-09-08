@@ -254,7 +254,10 @@ in. The logic under `src/pure/` has no owner state and runs on the host.
 - Flash writes happen only after the MBB has been quiet for 3 s, plus at
   session end, with a 15 s bound from the first waiting MBB line and the
   4 KB output buffer as the hard one; the space reclaim also runs regardless
-  once free space is under half the reserve. That is because a flash erase holds the
+  once free space is under half the reserve. The other flash writes are
+  the sleep policy's attended time, which waits for the MBB to sleep, and
+  a settings save, which happens at once: a hand action, rare, and what it
+  can lose is marked. That is because a flash erase holds the
   UART interrupt off for longer than the receive FIFO covers and the
   precompiled core keeps that interrupt out of IRAM. Frunk USB dies at
   key-off without warning and the phase 2 supply is cut by a switch, so the

@@ -6,7 +6,7 @@
 // days before sleeping. The setup page and /api/settings both apply
 // through settingsApply; nothing needs a restart.
 void settingsBegin();
-void settingsApply(const String& tz, const String& ntp, const String& pass, const String& sleep, const String& poll, const String& days, const String& grace = String());
+bool settingsApply(const String& tz, const String& ntp, const String& pass, const String& sleep, const String& poll, const String& days, const String& grace = String());   // false: a value too long, nothing applied
 String settingsJson();
 const char* settingsTz();
 const char* settingsNtp();

@@ -36,7 +36,8 @@ String settingsJson() {
            ",\"sleep_grace\":" + String(sleepGraceMs() / 1000) + "}";
 }
 
-void settingsApply(const String& tz, const String& ntp, const String& pass, const String& sleep, const String& poll, const String& days, const String& grace) {
+bool settingsApply(const String& tz, const String& ntp, const String& pass, const String& sleep, const String& poll, const String& days, const String& grace) {
+    if (tz.length() > 63 || ntp.length() > 64 || pass.length() > 32) return false;   // what the clock and the setup network can hold
     Preferences p;
     p.begin("dongle", false);
     if (tz.length() && tz != tzSetting) { tzSetting = tz; p.putString("tz", tz); }
@@ -50,4 +51,5 @@ void settingsApply(const String& tz, const String& ntp, const String& pass, cons
     p.end();
     clockApplySettings(tzSetting.c_str(), ntpSetting.c_str());   // live; no restart
     Serial.println("settings: applied");
+    return true;
 }

@@ -33,7 +33,7 @@ int consoleClients() { int n = 0; for (auto& c : clients) if (c && c.connected()
 String consoleStatusJson() { return "{\"clients\":" + String(consoleClients()) + ",\"dropped_bytes\":" + String(rawDropped.load()) + "}"; }
 
 void consoleStart() {
-    if (up) return;
+    if (up || !rawBuf) return;   // no buffer, no listener: a client would hang in the backlog
     up = true;
     console.begin();
     console.setNoDelay(true);
@@ -138,12 +138,18 @@ void consoleTick() {
             slot.setOption(TCP_KEEPINTVL, &interval);
             slot.setOption(TCP_KEEPCNT, &count);
             cstate[ci] = ConsoleState();
-            slot.printf("%s console. MBB %s. Enter twice for the prompt.\n", wifiName(),
-                        mbbAwake() ? "awake" : "asleep, input dropped until it wakes");
+            char hello[96];
+            int n = snprintf(hello, sizeof hello, "%s console. MBB %s. Enter twice for the prompt.\n", wifiName(),
+                             mbbAwake() ? "awake" : "asleep, input dropped until it wakes");
+            consoleSend(ci, (const uint8_t*)hello, n);
             placed = true;
             break;
         }
-        if (!placed) { c.print("all console slots are in use\n"); c.stop(); }
+        if (!placed) {   // a fresh socket, told without waiting on it
+            static const char full[] = "all console slots are in use\n";
+            ::send(c.fd(), full, sizeof full - 1, MSG_DONTWAIT);
+            c.stop();
+        }
     }
     if (consoleClients() == 0) { discardRaw(); return; }
     // Output: an upstream drop marker if any, backlogs, then whatever the MBB said.
@@ -183,10 +189,15 @@ void consoleTick() {
         cstate[ci].prev = prev;
         if (mbbAwake()) {
             size_t sent = mbbWrite(out, w);
-            if (sent < w) slot.printf("(dongle: %u byte(s) of input not sent)\n", (unsigned)(w - sent));
+            if (sent < w) {
+                char note[48];
+                int n = snprintf(note, sizeof note, "(dongle: %u byte(s) of input not sent)\n", (unsigned)(w - sent));
+                consoleSend(ci, (const uint8_t*)note, n);
+            }
         } else if (millis() - cstate[ci].asleepNoteMs > 1000) {
             cstate[ci].asleepNoteMs = millis();
-            slot.print("(MBB asleep, input dropped)\n");
+            static const char asleep[] = "(MBB asleep, input dropped)\n";
+            consoleSend(ci, (const uint8_t*)asleep, sizeof asleep - 1);
         }
         inputCursor = ci + 1;
         break;

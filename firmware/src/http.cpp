@@ -155,11 +155,11 @@ static void handleCmd(const String& name) {
 static void handleFile() {
     String uri = http.uri();
     if (uri.startsWith("/api/cmd/")) { handleCmd(uri.substring(9)); return; }
-    touch();
-    if (!uri.startsWith("/logs/")) {
+    if (!uri.startsWith("/logs/")) {   // a stray probe is not use
         http.send(404, "text/plain", "not found");
         return;
     }
+    touch();
     String name = uri.substring(6);
     if (name.length() == 0) {
         http.send(404, "text/plain", "not found");
@@ -189,6 +189,7 @@ static void handleFile() {
             if (c.write(buf, n) != n) { whole = false; break; }
             sysTickCapture();
             consoleTick();
+            pollerTick(mbbAwake(), consoleClients() > 0);   // a batch in flight ends rather than holding the transmit pin for the transfer
         }
         if (!whole) c.stop();   // the promised length will not arrive; say so by closing
         f.close();
@@ -234,8 +235,11 @@ void httpBegin() {
     });
     http.on("/api/settings", HTTP_POST, []() {   // form fields tz, ntp, setup_pass, sleep, poll; any subset
         if (!tokenOk()) return;
-        settingsApply(http.arg("tz"), http.arg("ntp"), http.arg("setup_pass"), http.arg("sleep"), http.arg("poll"), http.arg("sleep_days"),
-                      http.arg("sleep_grace"));
+        if (!settingsApply(http.arg("tz"), http.arg("ntp"), http.arg("setup_pass"), http.arg("sleep"), http.arg("poll"), http.arg("sleep_days"),
+                           http.arg("sleep_grace"))) {
+            http.send(400, "text/plain", "a value is too long: tz 63, ntp 64, setup_pass 32 characters at most");
+            return;
+        }
         http.send(200, "text/plain", "applied");
     });
     http.on("/cmd", HTTP_GET, []() { touch(); http.send_P(200, "text/html", CMD_PAGE); });
@@ -248,10 +252,10 @@ void httpBegin() {
     });
     http.on("/api/wifi/reset", HTTP_POST, []() {
         if (!tokenOk()) return;
-        http.send(200, "text/plain", "credentials cleared, rebooting into setup");
+        http.send(200, "text/plain", "clearing credentials, rebooting into setup");   // sent before the radio drops
         sysTickCapture();   // lines framed but not yet delivered
         storeShutdown();
-        wifiResetCredentials();
+        if (!wifiResetCredentials()) Serial.println("http: credentials not cleared; the board will rejoin, try again");
         delay(500);   // let the WiFi task commit the erase before the reset
         ESP.restart();
     });
@@ -259,9 +263,10 @@ void httpBegin() {
         []() {
             http.sendHeader("Connection", "close");
             if (http.header("X-Dongle") != "1") { http.send(403, "text/plain", "missing X-Dongle: 1 header"); return; }
-            http.send(200, "text/plain", Update.hasError() ? "update failed" : "ok, rebooting");
+            bool ok = Update.isFinished() && !Update.hasError();   // an upload with no image never began
+            http.send(200, "text/plain", ok ? "ok, rebooting" : Update.hasError() ? "update failed" : "no firmware in the upload");
             delay(300);
-            if (!Update.hasError()) {
+            if (ok) {
                 sysTickCapture();   // lines framed but not yet delivered
                 storeShutdown();    // end the file cleanly rather than mid-line
                 ESP.restart();

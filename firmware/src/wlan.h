@@ -12,4 +12,4 @@ bool wifiBusy();      // the setup network counts as use while someone is on it 
 const char* wifiName();   // zero-dongle-XXXX, from the MAC
 String wifiMac();
 String wifiStatusJson();
-void wifiResetCredentials();   // forget the home network; the caller restarts into setup
+bool wifiResetCredentials();   // forget the home network; false if the erase did not take; the caller restarts

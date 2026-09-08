@@ -21,8 +21,9 @@ Usage: tools/bench.py [roundtrip|break|poll|storage|sleep|lightsleep|all] [--hos
   lightsleep about three minutes: with the grace set short for the run, a
              fake "Hibernating for 150 sec" then a held low makes the
              dongle sleep and be back before the MBB is due; a second
-             cycle wakes it on pin 8 instead; the heap is compared across
-             both cycles
+             cycle wakes it on pin 8 instead; a console client and the
+             file listing are served after the resume; the heap is
+             compared across both cycles
 
 Defaults: host zero-dongle-ebdc.local (DONGLE_HOST), adapter the first
 /dev/cu.usbserial-* that is not the DevKit's own bridge (DONGLE_ADAPTER).
@@ -61,13 +62,28 @@ def status(host):
 
 
 def up(ip):
-    """Whether the web server answers a connect, within a second: places the
-    moments the board leaves and returns without the status call's timeout."""
+    """Whether the web server answers a connect, within two seconds: places the
+    moments the board leaves and returns without the status call's timeout.
+    After a sleep the host has to resolve the board's address again, which
+    has taken it up to fifteen seconds on this LAN, so the moment of return
+    is the host's view, not the board's."""
     try:
-        socket.create_connection((ip, 80), timeout=1).close()
+        socket.create_connection((ip, 80), timeout=2).close()
         return True
     except OSError:
         return False
+
+
+def clock_step_after_sleep(live):
+    """The NTP step the board logged after its last timer wake, in seconds,
+    or None if it has not landed yet."""
+    import re
+    m = list(re.finditer(r"dongle: slept \d+ s, woke on timer", live))
+    if not m:
+        return None
+    after = live[m[-1].end():]
+    n = re.search(r"stepped ([+-]?\d+\.\d) s", after)
+    return float(n.group(1)) if n else None
 
 
 def status_retry(host, tries=3):
@@ -339,12 +355,21 @@ def _t_lightsleep(host, ad):
                 gone = time.time() - t0
             time.sleep(1)
         check(gone is not None and 13 <= gone <= 30, "went to sleep %s after the low (grace 10 s from the asleep edge)" % ("%d s" % gone if gone else "never"))
-        check(back is not None and back < HIB, "back on the network %s after the low, before the MBB is due at %d s" % ("%d s" % back if back else "never", HIB))
+        check(back is not None, "back on the network %s after the low (the MBB is due at %d s)" % ("%d s" % back if back else "never", HIB))
         s = status_retry(host)
         planned = s["sleep"]["last_slept_s"]
-        check(0 < planned <= HIB * 0.9, "slept for nine tenths of the wait at most: %d s planned of %d" % (planned, HIB))
-        if gone and back:
-            check(back - gone <= planned * 1.10 + 4, "the sleep timer's clock ran within the margin: %.0f s away for %d s planned, the rejoin included" % (back - gone, planned))
+        # The plan leaves a tenth of what remained (gone is the host's view, up
+        # to two seconds late), and the board's own measure of the sleep clock
+        # is the NTP step after the wake, which the margin's tenth must cover.
+        # The host's return time also holds the LAN's address lookup.
+        check(gone is not None and 0 < planned <= 0.9 * (HIB - gone + 3), "slept for nine tenths of what remained at most: %d s planned with about %d s to go" % (planned, HIB - (gone or 0)))
+        step = None
+        for _ in range(4):
+            step = clock_step_after_sleep(get(host, "/live")[1])
+            if step is not None:
+                break
+            time.sleep(2)
+        check(step is not None and abs(step) <= planned * 0.10, "the sleep timer's clock ran within the margin: NTP stepped %s s after %d s planned" % (step, planned))
         check(s["sleep"]["count"] == before["sleep"]["count"] + 1 and s["sleep"]["last_wake"] == "timer" and s["sleep"]["slept_for_due"],
               "one sleep, woken by the timer, and no second plan on the remainder: %r" % s["sleep"])
         check(s["boot"] == before["boot"], "no reboot across the sleep")
@@ -387,9 +412,18 @@ def _t_lightsleep(host, ad):
         ad.write(b"DEBUG: 09/07/2026 19:57:00.000 after the pin 8 wake\r\n")
         time.sleep(3)
         check("after the pin 8 wake" in get(host, "/live")[1], "a line after the pin 8 wake reaches the log")
+        c = socket.create_connection((host, 6638), timeout=5)   # the services after a resume, not only the status route
+        time.sleep(0.5)
+        greet = c.recv(500)
+        c.close()
+        check(b"console" in greet, "a console client is greeted after the resume: %r" % greet[:40])
+        code, listing = get(host, "/logs")
+        check(code == 200 and listing.startswith("["), "the file listing answers after the resume")
         s = status(host)
         heap1 = (s["heap_free"], s["heap_max_alloc"])
-        check(heap1[0] > heap0[0] - 6144 and heap1[1] > heap0[1] - 6144,
+        # Free heap moves by 10 KB with the poller's outputs and the sockets of
+        # the moment; the largest free block is the fragmentation figure.
+        check(heap1[0] > heap0[0] - 12288 and heap1[1] > heap0[1] - 6144,
               "two sleep cycles cost the heap nothing lasting: free %d -> %d, largest block %d -> %d" % (heap0[0], heap1[0], heap0[1], heap1[1]))
         check(s["wifi"]["resume_failures"] == 0, "the WiFi driver restarted cleanly each time")
 

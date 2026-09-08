@@ -44,7 +44,16 @@ static uint32_t ipEventsSeen = 0;
 
 const char* wifiName() { return nodeName; }
 String wifiMac() { return WiFi.macAddress(); }
-void wifiResetCredentials() { wm.resetSettings(); }
+// resetSettings waits 100 ms for the station to drop and gives up silently
+// if it has not; the erase is checked and tried again with a longer wait.
+bool wifiResetCredentials() {
+    for (int i = 0; i < 3; i++) {
+        wm.resetSettings();
+        if (!wm.getWiFiIsSaved()) return true;
+        WiFi.disconnect(true, true, 2000);
+    }
+    return !wm.getWiFiIsSaved();
+}
 // The setup network counts as use while someone is on it, or for its first
 // ten minutes; an unprovisioned board then sleeps like any other, and its
 // setup network returns at each wake.
@@ -59,6 +68,19 @@ String wifiStatusJson() {
 }
 
 static void startPortal(const char* why, bool forAuth);
+static void startMdns();
+
+// The setup page's fields show the live settings, whenever it is raised: a
+// save there applies every field, so a stale one would undo a change made
+// through the API since boot.
+static void fillPortalFields() {
+    tzParam.setValue(settingsTz(), 48);
+    ntpParam.setValue(settingsNtp(), 64);
+    passParam.setValue(settingsSetupPass(), 32);
+    sleepParam.setValue(sleepEnabled() ? "1" : "0", 2);
+    pollParam.setValue(String(pollerInterval()).c_str(), 6);
+    daysParam.setValue(String(sleepAfterDays()).c_str(), 4);
+}
 
 // The home-network services: up on every join, down whenever the setup network is raised.
 static void startServices() {
@@ -69,14 +91,19 @@ static void startServices() {
         consoleStart();
         Serial.printf("wifi: services up on %s\n", WiFi.localIP().toString().c_str());
     }
-    if (!mdnsUp) {
-        mdnsUp = MDNS.begin(nodeName);
-        if (mdnsUp) {
-            MDNS.addService("http", "tcp", HTTP_PORT);
-            MDNS.addService("zero-console", "tcp", CONSOLE_PORT);
-        } else {
-            Serial.println("wifi: mDNS did not start; will retry");
-        }
+    startMdns();
+}
+
+static uint32_t lastMdnsMs = 0;
+static void startMdns() {
+    if (mdnsUp) return;
+    lastMdnsMs = millis();
+    mdnsUp = MDNS.begin(nodeName);
+    if (mdnsUp) {
+        MDNS.addService("http", "tcp", HTTP_PORT);
+        MDNS.addService("zero-console", "tcp", CONSOLE_PORT);
+    } else {
+        Serial.println("wifi: mDNS did not start; retrying in 30 s");
     }
 }
 
@@ -117,6 +144,7 @@ static void startPortal(const char* why, bool forAuth) {
     Serial.printf("wifi: setup network %s up (%s)\n", nodeName, why);
     portalRaisedMs = millis() ? millis() : 1;
     portalForAuth = forAuth;
+    fillPortalFields();
     wm.startConfigPortal(nodeName, settingsSetupPass());
 }
 
@@ -147,12 +175,7 @@ void wifiBegin() {
     }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
 
     Serial.printf("wifi: setup network %s, password %s\n", nodeName, settingsSetupPass());
-    tzParam.setValue(settingsTz(), 48);
-    ntpParam.setValue(settingsNtp(), 64);
-    passParam.setValue(settingsSetupPass(), 32);
-    sleepParam.setValue(sleepEnabled() ? "1" : "0", 2);
-    pollParam.setValue(String(pollerInterval()).c_str(), 6);
-    daysParam.setValue(String(sleepAfterDays()).c_str(), 4);
+    fillPortalFields();
     wm.addParameter(&tzParam);
     wm.addParameter(&ntpParam);
     wm.addParameter(&passParam);
@@ -206,9 +229,10 @@ void wifiTick() {
         }
         // With no setup network up, retry the saved network every 30 s. With one up
         // the user is in charge and WiFiManager connects when they save.
-        if (millis() - lastRetryMs > 30000 && !wm.getConfigPortalActive() && credsSaved) {
-            if (driverStopped) driverStart();   // a resume that failed is tried again
-            else { lastRetryMs = millis(); Serial.println("wifi: retrying the saved network"); WiFi.begin(); }
+        if (millis() - lastRetryMs > 30000 && !wm.getConfigPortalActive()) {
+            if (driverStopped) driverStart();   // a resume that failed is tried again, credentials or not: the setup network rides on it too
+            else if (credsSaved) { lastRetryMs = millis(); Serial.println("wifi: retrying the saved network"); WiFi.begin(); }
         }
     }
+    if (connected && servicesUp && !mdnsUp && millis() - lastMdnsMs > 30000) startMdns();
 }
