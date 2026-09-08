@@ -2,13 +2,15 @@
 #include <Arduino.h>
 #include <FS.h>
 
+enum StoreDeleteResult { STORE_DELETED, STORE_NOT_FOUND, STORE_REFUSED };
+
 bool storeBegin(const char* resetReason);
 void storeSessionClose();
-void storeAppend(const String& line);
-void storeTick();
+void storeAppend(const String& line, bool fromMbb = true);   // notes alone never open a session
+void storeTick(bool mbbQuiet);   // the caller knows whether the MBB is talking
 String storeActiveName();
 String storeListJson();
-bool storeDelete(const String& name);
+StoreDeleteResult storeDelete(const String& name);
 File storeOpenRead(const String& name);   // pair with storeReadDone; the file is safe from reclaim meanwhile
 void storeReadDone(const String& name);
 void storeStats(size_t& total, size_t& used);

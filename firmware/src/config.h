@@ -1,6 +1,6 @@
 #pragma once
 
-#define FW_VERSION      "0.4.0"
+#define FW_VERSION      "0.4.1"
 #define DONGLE_NAME     "zero-dongle"      // base of the hostname, mDNS name and setup AP name; the last four hex digits of the MAC are appended
 // The setup network's password defaults to "zero-" plus the last six hex digits
 // of the MAC, printed at boot, and can be replaced from the setup page.
@@ -30,7 +30,7 @@
 #define SLEEP_AFTER_MS  5000   // MBB counted asleep after this long with pin 8 low and no bytes
 #define AWAKE_HIGH_MS   60     // pin 8 high this long with nothing arriving counts as awake
 #define TX_HOLD_MS      2000   // TX stays attached this long after the last byte sent
-#define RECLAIM_GAP_MS  10000  // a failed write retries reclamation at most this often
+#define RECLAIM_GAP_MS  2000   // a failed write retries reclamation at most this often
 #define IDLE_COMMIT_MS  3000   // lines reach flash once the MBB has been quiet this long
 #define MAX_PENDING_MS  15000  // or after this long regardless
 #define PENDING_MAX     12288  // or when this much is waiting in RAM

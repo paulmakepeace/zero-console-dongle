@@ -31,7 +31,7 @@ const char* sysResetReason() {
 
 static void onLine(const char* line, size_t len) {
     clockMaybeSetFromMbb(line, len);
-    storeAppend(clockStamp() + " " + line);
+    storeAppend(clockStamp() + " " + line, memcmp(line, "dongle:", 7) != 0);
 }
 
 static void onRaw(const uint8_t* data, size_t len) {
@@ -45,10 +45,18 @@ static void onState(bool awake) {
 }
 
 static void onClockNote(const char* note) {
-    storeAppend(clockStamp() + " " + note);
+    storeAppend(clockStamp() + " " + note, false);
 }
 
 void sysFeedWatchdog() { if (wdtArmed) esp_task_wdt_reset(); }
+
+// Capture housekeeping that a long HTTP transfer must keep running.
+void sysTickCapture() {
+    sysFeedWatchdog();
+    mbbTick(onLine, onState);
+    storeTick(millis() - mbbLastByteMs() > IDLE_COMMIT_MS);
+    clockTick();
+}
 
 void setup() {
     mbbPinsSafe();   // before anything slow: pin 9 is the MBB's wake pin
@@ -83,10 +91,7 @@ void setup() {
 }
 
 void loop() {
-    sysFeedWatchdog();
-    mbbTick(onLine, onState);   // lines, markers and edges, in order, on this task
+    sysTickCapture();   // lines, markers and edges, in order, on this task
     netTick();
-    storeTick();
-    clockTick();
     delay(2);
 }

@@ -96,13 +96,15 @@ that vanish without closing are found by TCP keepalive within a minute.
 
 ## Files
 
-One file per MBB session, `bBBBB-SS-YYYYMMDD-HHMMSS.log` with the boot
+One file per MBB session, `bBBBB-SSS-YYYYMMDD-HHMMSS.log` with the boot
 count and a sequence number first so that names sort by creation, and
 `nosync` in place of the time when the clock was not yet known. A file is
-created when the first lines are committed and closed five seconds after
-pin 8 goes low, or rolled into the next sequence number at 256 KB, in which
-case the first file ends with `session continues in the next file` and the
-next one's header says which file it continued from. Lines wait
+created when the first MBB lines are committed and closed five seconds
+after pin 8 goes low. At 256 KB a session rolls into the next sequence
+number; every header carries `id bBBBB-SSS, part N`, the id being the
+first part's stem, so parts join by identity. Lines the dongle writes
+about itself, clock steps and loss markers, never open a file on their
+own; they wait for the next session. Lines wait
 in RAM and reach the flash once the MBB has been quiet for 3 s, or after
 15 s or 12 KB regardless, because a flash erase holds the UART interrupt off
 long enough to overrun the chip's receive FIFO, and the MBB tends to follow
@@ -110,18 +112,18 @@ a lone line with a burst a second later. A power cut loses at most that
 much. Pin 8 has to read high
 for three consecutive 20 ms samples, or deliver a byte, before the MBB counts
 as awake. Each line carries the dongle's
-stamp then the MBB text, the same format as `tools/capture.py`. A session that
-starts before the clock is known is named `0000-bBOOT-N.log` and renamed once
-the first MBB stamp or NTP arrives. Oldest files go when free space drops
+stamp then the MBB text, the same format as `tools/capture.py`. Oldest files go when free space drops
 under 96 KB; a file that cannot be deleted is skipped. Lines that cannot be
 written are counted in `/api/status` as `dropped_lines`; UART overruns and
 frame errors each leave a marker line in the file and a count in the
-status; a filesystem that had to be formatted is counted there too. `tools/pull-logs.py` fetches and deletes
+status; a filesystem that had to be formatted is counted there too. The
+pull script reads the status first and warns about any of them. `tools/pull-logs.py` fetches and deletes
 them from the homelab.
 
-The log area is 896 KB: a timeout wake is 6 KB, a ride about 40 KB an hour,
-so parked days cost about 150 KB and the area holds six of them between
-pulls. The app slots are 1.5 MB each. Changing the partition table needs a
+The log area is 896 KB with a 96 KB reserve. LittleFS counts in 4 KB
+blocks, so a 6 KB timeout wake costs 8 KB and a parked day about 200 KB;
+the area holds four of them between pulls, a ride costs about 40 KB an
+hour. The app slots are 1.5 MB each. Changing the partition table needs a
 USB flash and formats the log area, which is counted in the status.
 
 The clock comes from NTP while that fix is under six hours old, and from
@@ -134,7 +136,4 @@ A 120 s task watchdog covers the loop and the capture task and is fed
 through long downloads and uploads; a hung task reboots with the reason in
 the status and in the next session header.
 
-The state-changing endpoints, firmware upload and WiFi reset, require the
-request's Host header to name the dongle, which stops a web page on another
-site from driving them through the owner's browser. Everything else is open
-on the LAN by design.
+

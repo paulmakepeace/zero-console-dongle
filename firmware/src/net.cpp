@@ -5,6 +5,7 @@
 #include "clock.h"
 #include "mbb_uart.h"
 #include "store.h"
+#include "util.h"
 #include <WiFi.h>
 #include <WiFiManager.h>
 #include <ESPmDNS.h>
@@ -74,18 +75,6 @@ document.getElementById('go').onclick=async()=>{
 refresh();setInterval(refresh,5000);
 </script>)HTML";
 
-static String jsonEscape(const String& in) {
-    String out;
-    out.reserve(in.length() + 8);
-    for (size_t i = 0; i < in.length(); i++) {
-        char c = in[i];
-        if (c == '"' || c == '\\') { out += '\\'; out += c; }
-        else if ((uint8_t)c < 0x20) { char b[8]; snprintf(b, sizeof b, "\\u%04x", c); out += b; }
-        else out += c;
-    }
-    return out;
-}
-
 static String statusJson() {
     size_t total, used;
     storeStats(total, used);
@@ -128,6 +117,10 @@ static void handleFile() {
         return;
     }
     String name = uri.substring(6);
+    if (name.length() == 0) {
+        http.send(404, "text/plain", "not found");
+        return;
+    }
     if (http.method() == HTTP_GET) {
         if (name == storeActiveName()) {
             http.send(409, "text/plain", "file is active; see /live");
@@ -135,10 +128,10 @@ static void handleFile() {
         }
         File f = storeOpenRead(name);
         if (!f) {
-            http.send(404, "text/plain", "no such file");
+            http.send(404, "text/plain", "no such file, or no free reader");
             return;
         }
-        // Chunked by hand so the watchdog is fed on a slow client.
+        // Chunked by hand so the capture keeps ticking on a slow client.
         http.setContentLength(f.size());
         http.send(200, "text/plain", "");
         WiFiClient c = http.client();
@@ -146,7 +139,7 @@ static void handleFile() {
         while (f.available() && c.connected()) {
             size_t n = f.read(buf, sizeof buf);
             if (c.write(buf, n) != n) break;
-            sysFeedWatchdog();
+            sysTickCapture();
         }
         f.close();
         storeReadDone(name);
@@ -158,7 +151,11 @@ static void handleFile() {
             http.send(409, "text/plain", "file is active");
             return;
         }
-        http.send(storeDelete(name) ? 200 : 404, "text/plain", "ok");
+        switch (storeDelete(name)) {
+            case STORE_DELETED: http.send(200, "text/plain", "deleted"); break;
+            case STORE_NOT_FOUND: http.send(404, "text/plain", "no such file"); break;
+            default: http.send(409, "text/plain", "refused: active, being read, or a bad name"); break;
+        }
         return;
     }
     http.send(405, "text/plain", "method");
@@ -191,7 +188,7 @@ static void setupHttp() {
         []() {
             HTTPUpload& up = http.upload();
             if (http.header("X-Dongle") != "1") return;
-            sysFeedWatchdog();   // a slow link can take minutes
+            sysTickCapture();   // a slow link can take minutes
             if (up.status == UPLOAD_FILE_START) {
                 Serial.printf("ota: %s\n", up.filename.c_str());
                 if (Update.isRunning()) Update.abort();

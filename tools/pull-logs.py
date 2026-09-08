@@ -42,6 +42,19 @@ def main():
     os.makedirs(args.dest, exist_ok=True)
 
     try:
+        st = json.loads(fetch(base + "/api/status", timeout=15))
+        fs, uart = st.get("fs", {}), st.get("uart", {})
+        if not fs.get("ok", True):
+            print("pull-logs: WARNING the dongle reports no working filesystem")
+        if fs.get("formats"):
+            print("pull-logs: note: the dongle has formatted its log area %s time(s)" % fs["formats"])
+        if st.get("dropped_lines"):
+            print("pull-logs: WARNING %s line(s) dropped on the dongle since it booted" % st["dropped_lines"])
+        if uart.get("overflows") or uart.get("queue_drops"):
+            print("pull-logs: note: UART overruns %s, queue drops %s since boot" % (uart.get("overflows"), uart.get("queue_drops")))
+    except Exception as exc:
+        print("pull-logs: status not readable: %s" % exc)
+    try:
         files = json.loads(fetch(base + "/logs", timeout=15))
         if not isinstance(files, list) or not all(isinstance(f, dict) for f in files):
             raise ValueError("listing is not a list of objects")

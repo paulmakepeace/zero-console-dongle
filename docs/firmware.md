@@ -63,6 +63,15 @@ Phase 2, in likely order:
   files.
 - **A fixed firmware other owners can flash** and configure from a browser:
   Improv WiFi with esp-web-tools.
+- **Store shape for CAN and compression.** A second file per session needs
+  a store handle per stream with one commit and reclaim policy, reclaim by
+  session rather than by name so a session's files go together, and the
+  listing grouped by session. Compression belongs at session close, not in
+  the commit path, with the on-disk name and size staying authoritative and
+  a flag in the listing the puller understands; the loss markers become
+  framed records rather than spliced text. The pending buffer would be a
+  fixed ring rather than a String, so a partial write is charged to exactly
+  the lines lost.
 
 ## Implementation choice
 
