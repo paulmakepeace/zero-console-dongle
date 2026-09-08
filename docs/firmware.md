@@ -45,7 +45,19 @@ its [README](../firmware/README.md):
    JSON. The ESP32's own die temperature is there too, some 15 to 20 C
    above the air around it, so it says more about the board than the
    frunk.
-8. **Light sleep between sessions.** Two things sleep in this design and
+8. **Light sleep when the bike is unattended.** The dongle sleeps only once
+   the bike has gone a configurable number of days, three by default,
+   without any of the three lines that say it is looked after: a 12 V
+   top-up from the pack, the cellular module answering, or the key
+   turning on. That is the case the always-on supply has to survive, a
+   bike parked for weeks under a cover with the module not answering,
+   where the dongle's 20 mA would otherwise drain a 12 V battery that
+   nothing is refilling; the rest of the time it stays awake and
+   reachable. The time of the last such line is kept in flash, written
+   while the MBB sleeps. The MBB also prints its long-term storage mode's
+   state at every wake, `LTSM state: INIT to DIS`, so storage mode being
+   enabled is the other trigger worth wiring in: the owner's own
+   statement that the bike is parked. Two things sleep in this design and
    the words mean different things for each. The MBB's two depths, shallow
    hibernation and deep sleep, are its own and are defined in the sleep
    section of [mbb-reference.md](mbb-reference.md). The ESP32's are
@@ -105,10 +117,19 @@ its [README](../firmware/README.md):
    against 5.7x with every commit its own block and 8.4x for zlib's dynamic
    Huffman codes, which need 30 KB. That average is carried by the ride
    and charge files with their repeating heartbeat lines; an hourly wake
-   file on its own, 7 KB of mostly unique boot text, compresses about
-   2.9x. A trained dictionary was measured too
-   and earns its keep only on blocks under 1 KB, which the stream's own
-   history already covers.
+   file on its own compresses about 2.9x, because its text, the banner,
+   the self-test and the hibernate sequence, is static from one wake to
+   the next but appears only once within the file, so the stream's own
+   history cannot match it, and the two stamps on every line are the
+   only truly unique bytes, about a quarter of the compressed size. A
+   dictionary made from one whole wake, with a 32 KB window, takes a wake
+   file from 1.9 KB to 0.7 KB, 9.6x, and with the stamps stripped the
+   next wake is 99% identical to the previous one. The price is a 32 KB
+   history buffer against today's 4 KB, the dictionary copied into RAM
+   beside it, a zlib or raw-deflate framing instead of gzip because gzip
+   cannot name a preset dictionary, and the dictionary versioned by id
+   with the puller holding every version. A phase 2 item, worth it once
+   the flash rather than the RAM is the tighter constraint.
 
 Phase 2, in likely order:
 

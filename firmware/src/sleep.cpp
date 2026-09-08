@@ -8,11 +8,15 @@
 #include "store.h"
 #include "net.h"
 #include "pure/hibernate.h"
+#include <Preferences.h>
 #include "esp_sleep.h"
 #include "esp_task_wdt.h"
 #include "driver/gpio.h"
 
 static bool enabled = false;
+static uint32_t afterDays = 3;
+static long lastAttendedS = 0;    // wall time the bike was last seen attended; 0 for never seen
+static bool attendedDirty = false;   // needs saving, done while the MBB sleeps
 static bool haveHib = false;
 static long hibAtS = 0;          // seconds on the clock the store stamps with; wall time once NTP or the MBB set it
 static long hibSec = 0;
@@ -26,8 +30,10 @@ static uint32_t lastSleptS = 0;
 static const char* lastWake = "none";
 static long plannedS = 0;
 
-void sleepBegin(bool on) {
+void sleepBegin(bool on, uint32_t days, long lastS) {
     enabled = on;
+    afterDays = days;
+    lastAttendedS = lastS;
     asleepSinceMs = millis();
     // Pads keep their running configuration through light sleep: the
     // transmit pin and pin 8 stay pulled-down inputs, so the MBB's wake pin
@@ -37,12 +43,25 @@ void sleepBegin(bool on) {
 }
 void sleepSetEnabled(bool on) { enabled = on; }
 bool sleepEnabled() { return enabled; }
+void sleepSetAfterDays(uint32_t d) { afterDays = d; }
+uint32_t sleepAfterDays() { return afterDays; }
 
 static long nowS() { return (long)time(nullptr); }   // advanced across light sleep by the RTC, put right by NTP after each wake
 
 void sleepNoteLine(const char* line, size_t len) {
     long s = parseHibernateSeconds(line, len);
     if (s > 0) { haveHib = true; hibAtS = nowS(); hibSec = s; sleptUncorrectedS = 0; }
+    if (isBikeAttended(line, len) && clockValid()) { lastAttendedS = nowS(); attendedDirty = true; }
+}
+
+// The bike counts as unattended once N days have passed since a top-up or a
+// key-on. With no such event ever seen, the count runs from the clock's first
+// fix, so a fresh board does not sleep on day one.
+static bool unattended() {
+    if (afterDays == 0) return true;
+    if (!clockValid()) return false;
+    long since = lastAttendedS ? nowS() - lastAttendedS : 0;
+    return since > (long)afterDays * 86400L;
 }
 
 static void doSleep(long seconds, long untilWakeS) {
@@ -78,7 +97,13 @@ void sleepTick(bool mbbAwake, bool busy) {
         wasAwake = mbbAwake;
         if (!mbbAwake) asleepSinceMs = now;
     }
+    if (attendedDirty && !mbbAwake) {   // a flash write, so only while the MBB sleeps
+        attendedDirty = false;
+        Preferences p;
+        if (p.begin("dongle", false)) { p.putLong("attended", lastAttendedS); p.end(); }
+    }
     if (!enabled || mbbAwake || busy) return;
+    if (!unattended()) return;
     if (now - asleepSinceMs < (intermediate ? SLEEP_REGRACE_MS : SLEEP_GRACE_MS)) return;
     if (sleptUncorrectedS && clockNtpAgeS() * 1000UL < now - lastWakeMs) sleptUncorrectedS = 0;   // NTP has put the clock right since the wake
     long until = secondsUntilMbbWake(haveHib, hibAtS, hibSec, nowS(), sleptUncorrectedS, SLEEP_DRIFT_PCT, SLEEP_FALLBACK_S);
@@ -95,7 +120,10 @@ void sleepTick(bool mbbAwake, bool busy) {
 
 String sleepStatusJson() {
     long due = haveHib ? secondsUntilMbbWake(true, hibAtS, hibSec, nowS(), sleptUncorrectedS, SLEEP_DRIFT_PCT, 0) : -1;
-    return String("{\"enabled\":") + (enabled ? "true" : "false") + ",\"count\":" + String(sleeps) +
+    long since = lastAttendedS && clockValid() ? nowS() - lastAttendedS : -1;
+    return String("{\"enabled\":") + (enabled ? "true" : "false") + ",\"after_days\":" + String(afterDays) +
+           ",\"attended_age_s\":" + String(since) + ",\"armed\":" + (enabled && unattended() ? "true" : "false") +
+           ",\"count\":" + String(sleeps) +
            ",\"last_wake\":\"" + lastWake + "\",\"last_slept_s\":" + String(lastSleptS) +
            ",\"mbb_wake_due_s\":" + String(due) + "}";
 }

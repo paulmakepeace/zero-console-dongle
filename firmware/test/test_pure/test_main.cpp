@@ -164,6 +164,18 @@ void test_seconds_until_wake() {
     TEST_ASSERT_EQUAL(3600 - 2500 - 120, secondsUntilMbbWake(true, 0, 3600, 2500, 2000, 6, 3600));
 }
 
+void test_attended_lines() {
+    const char* a = "09/08/2026 03:07:44.121 - 12V successfully charged";
+    const char* b = "CCM RTC verified OK";
+    const char* c = "DEBUG:   09/07/2026 21:58:20.935  x.c : line 734 - Key Sw = ON";
+    const char* d = "Key Sw = OFF";
+    TEST_ASSERT_TRUE(isBikeAttended(a, strlen(a)));
+    TEST_ASSERT_TRUE(isBikeAttended(b, strlen(b)));
+    TEST_ASSERT_TRUE(isBikeAttended(c, strlen(c)));
+    TEST_ASSERT_FALSE(isBikeAttended(d, strlen(d)));
+    TEST_ASSERT_FALSE(isBikeAttended("ccm RTC not ready in 31 sec", 27));
+}
+
 void test_sleep_chunks_land_before_the_mbb() {
     // 6% drift, 10 s lead, 600 s chunks, 30 s minimum.
     TEST_ASSERT_EQUAL(554, sleepChunk(3600, 10, 600, 6, 30));   // a long wait: one full chunk, shortened
@@ -234,6 +246,7 @@ int main() {
     RUN_TEST(test_hibernate_line);
     RUN_TEST(test_seconds_until_wake);
     RUN_TEST(test_sleep_chunks_land_before_the_mbb);
+    RUN_TEST(test_attended_lines);
     RUN_TEST(test_prompt_and_unsolicited);
     RUN_TEST(test_soc_and_bike_state);
     RUN_TEST(test_pack_row);

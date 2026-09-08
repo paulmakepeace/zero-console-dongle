@@ -114,8 +114,11 @@ and clamps near 25 V, under the buck's rating; a 24 V part clamps near 39 V,
 which is not.
 
 Pin 8 does not distinguish key on from off, so the supply is not
-key-switched; the dongle gates its own activity on pin 8 and sleeps between
-MBB sessions. Drain: the DevKit's linear regulator and USB bridge take about
+key-switched; the dongle gates its own activity on pin 8 and, once the
+bike has gone days without a top-up or a key-on, sleeps between MBB
+sessions. With the key on the DC-DC converter feeds the 12 V rail from the
+pack and the 12 V battery with it, so the parked case is the only one the
+dongle's draw matters in. Drain: the DevKit's linear regulator and USB bridge take about
 5 mA whatever the ESP32 does, so a DevKit V1 in light sleep draws about
 10 mA at 5 V, about 4 mA from the 13 V side or 100 mAh a day, and an
 always-awake ESP32 with WiFi idling about 20 mA from 13 V. The MBB charges

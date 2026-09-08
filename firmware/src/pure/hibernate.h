@@ -21,6 +21,17 @@ inline long parseHibernateSeconds(const char* s, size_t len) {
     return -1;
 }
 
+// The lines that say the bike is looked after: the cellular module answered
+// and the 12 V battery was topped up, or someone turned the key.
+inline bool isBikeAttended(const char* s, size_t len) {
+    static const char* const keys[] = {"12V successfully charged", "CCM RTC verified OK", "Key Sw = ON"};
+    for (const char* k : keys) {
+        size_t n = strlen(k);
+        for (size_t i = 0; i + n <= len; i++) if (memcmp(s + i, k, n) == 0) return true;
+    }
+    return false;
+}
+
 // Seconds until the MBB's timer fires: its announcement plus its own count,
 // less what has passed. Time spent asleep was measured by the RC clock, so
 // unless NTP has since put the clock right it is assumed to have run long

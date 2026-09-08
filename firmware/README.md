@@ -80,8 +80,10 @@ With no WiFi stored the dongle raises the setup network. Join it from a
 phone, pick the home network and enter its password; the same page takes
 the timezone in POSIX form, the NTP server, a new setup password, whether
 to sleep between MBB sessions and the poll interval, all stored in flash
-and applied at once, no reboot. Sleep is off by default while the dongle
-runs from the frunk socket or a wall supply. With it on, the dongle light-sleeps once
+and applied at once, no reboot. Sleep is armed only once the bike has
+gone `sleep_days` days, three by default, without a 12 V top-up or a
+key-on, the signals that say it is being looked after; 0 arms it whenever
+the MBB sleeps. Armed, the dongle light-sleeps once
 the MBB has been asleep for two minutes with nobody using it, timed to be
 up ten seconds before the MBB's own hourly wake, and pin 8 rising wakes it
 regardless; a status check does not count as use, a download, the live
@@ -109,8 +111,8 @@ replaced from the home network with `POST /api/settings`.
 | `/live`              | GET    | the last lines received                    |
 | `/update`            | POST   | firmware image as `firmware` in a multipart body; the status page has the form |
 | `/api/wifi/reset`    | POST   | forget WiFi and reboot into setup          |
-| `/api/settings`      | GET    | JSON: timezone, NTP server, sleep on or off, poll interval |
-| `/api/settings`      | POST   | form fields `tz`, `ntp`, `setup_pass`, `sleep` (0 or 1), `poll` (seconds, 0 for never), any subset, applied at once |
+| `/api/settings`      | GET    | JSON: timezone, NTP server, sleep on or off, days unattended before sleeping, poll interval |
+| `/api/settings`      | POST   | form fields `tz`, `ntp`, `setup_pass`, `sleep` (0 or 1), `sleep_days` (0 for always), `poll` (seconds, 0 for never), any subset, applied at once |
 | `/cmd`               | GET    | tabbed page of the polled command outputs  |
 | `/api/cmd`           | GET    | JSON list of the polled commands with age and size |
 | `/api/cmd/NAME`      | GET    | the last output of that command, text, with an `X-Age-Seconds` header; 503 until polled, 404 if unknown |

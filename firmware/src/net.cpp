@@ -29,6 +29,7 @@ static WiFiManagerParameter ntpParam("ntp", "NTP server", "", 64);
 static WiFiManagerParameter passParam("setup_pass", "Setup network password, 8+ characters", "", 32);
 static WiFiManagerParameter sleepParam("sleep", "Sleep between MBB sessions, 1 or 0", "", 2);
 static WiFiManagerParameter pollParam("poll", "Poll the MBB every N seconds, 0 for never", "", 6);
+static WiFiManagerParameter daysParam("sleep_days", "Sleep only after N days unattended, 0 for always", "", 4);
 static char setupPass[33];
 static WebServer http(HTTP_PORT);
 static WiFiServer console(CONSOLE_PORT);
@@ -253,7 +254,7 @@ static void handleFile() {
     http.send(405, "text/plain", "method");
 }
 
-static void applySettings(const String& tz, const String& ntp, const String& pass, const String& sleep, const String& poll) {
+static void applySettings(const String& tz, const String& ntp, const String& pass, const String& sleep, const String& poll, const String& days) {
     Preferences p;
     p.begin("dongle", false);
     if (tz.length() && tz != tzSetting) { tzSetting = tz; p.putString("tz", tz); }
@@ -261,6 +262,7 @@ static void applySettings(const String& tz, const String& ntp, const String& pas
     if (pass.length() >= 8 && pass != setupPass) { strlcpy(setupPass, pass.c_str(), sizeof setupPass); p.putString("setup_pass", pass); }
     if (sleep == "0" || sleep == "1") { sleepSetEnabled(sleep == "1"); p.putBool("sleep", sleep == "1"); }
     if (poll.length() && poll.toInt() >= 0 && poll.toInt() < 100000) { pollerSetInterval(poll.toInt()); p.putUInt("poll", poll.toInt()); }
+    if (days.length() && days.toInt() >= 0 && days.toInt() < 1000) { sleepSetAfterDays(days.toInt()); p.putUInt("sleep_days", days.toInt()); }
     p.end();
     clockApplySettings(tzSetting.c_str(), ntpSetting.c_str());   // live; no restart
     Serial.println("net: settings applied");
@@ -273,11 +275,11 @@ static void setupHttp() {
     http.on("/live", HTTP_GET, []() { touch(); http.send(200, "text/plain", storeLastLines()); });
     http.on("/api/settings", HTTP_GET, []() {
         http.send(200, "application/json", "{\"tz\":\"" + jsonEscape(tzSetting) + "\",\"ntp\":\"" + jsonEscape(ntpSetting) +
-                  "\",\"sleep\":" + (sleepEnabled() ? "1" : "0") + ",\"poll\":" + String(pollerInterval()) + "}");
+                  "\",\"sleep\":" + (sleepEnabled() ? "1" : "0") + ",\"sleep_days\":" + String(sleepAfterDays()) + ",\"poll\":" + String(pollerInterval()) + "}");
     });
     http.on("/api/settings", HTTP_POST, []() {   // form fields tz, ntp, setup_pass, sleep, poll; any subset
         if (!tokenOk()) return;
-        applySettings(http.arg("tz"), http.arg("ntp"), http.arg("setup_pass"), http.arg("sleep"), http.arg("poll"));
+        applySettings(http.arg("tz"), http.arg("ntp"), http.arg("setup_pass"), http.arg("sleep"), http.arg("poll"), http.arg("sleep_days"));
         http.send(200, "text/plain", "applied");
     });
     http.on("/cmd", HTTP_GET, []() { touch(); http.send_P(200, "text/html", CMD_PAGE); });
@@ -382,7 +384,7 @@ static void startPortal(const char* why) {
 }
 
 static void onParamsSaved() {
-    applySettings(tzParam.getValue(), ntpParam.getValue(), passParam.getValue(), sleepParam.getValue(), pollParam.getValue());
+    applySettings(tzParam.getValue(), ntpParam.getValue(), passParam.getValue(), sleepParam.getValue(), pollParam.getValue(), daysParam.getValue());
 }
 
 void netPrepare() {
@@ -427,11 +429,13 @@ void netBegin() {
     passParam.setValue(setupPass, 32);
     sleepParam.setValue(sleepEnabled() ? "1" : "0", 2);
     pollParam.setValue(String(pollerInterval()).c_str(), 6);
+    daysParam.setValue(String(sleepAfterDays()).c_str(), 4);
     wm.addParameter(&tzParam);
     wm.addParameter(&ntpParam);
     wm.addParameter(&passParam);
     wm.addParameter(&sleepParam);
     wm.addParameter(&pollParam);
+    wm.addParameter(&daysParam);
     wm.setSaveParamsCallback(onParamsSaved);
     wm.setConfigPortalBlocking(false);
     wm.setConnectTimeout(20);

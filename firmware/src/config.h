@@ -1,6 +1,6 @@
 #pragma once
 
-#define FW_VERSION      "0.6.1"
+#define FW_VERSION      "0.6.2"
 #define DONGLE_NAME     "zero-dongle"      // base of the hostname, mDNS name and setup AP name; the last four hex digits of the MAC are appended
 // The setup network's password defaults to "zero-" plus the last six hex digits
 // of the MAC, printed at boot, and can be replaced from the setup page.
@@ -35,7 +35,8 @@
 #define SLEEP_CHUNK_S    600      // longest single sleep: the RC clock drifts, NTP corrects at each wake
 #define SLEEP_DRIFT_PCT  6        // margin taken off every chunk for that drift
 #define SLEEP_MIN_S      30       // shorter than this is not worth the WiFi round trip
-#define SLEEP_FALLBACK_S 3600     // with no announcement seen, wake hourly anyway   // consecutive authentication failures before the setup network is raised
+#define SLEEP_FALLBACK_S 3600     // with no announcement seen, wake hourly anyway
+#define SLEEP_AFTER_DAYS 3        // sleep only once the bike has gone this long without a 12 V top-up or a key-on; 0 for always   // consecutive authentication failures before the setup network is raised
 
 #define LOG_DIR         "/logs"
 #define FS_MIN_FREE     (96 * 1024)   // delete the oldest file below this much free space

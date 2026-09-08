@@ -180,11 +180,17 @@ class FakeMbb(threading.Thread):
                 self.ad.write(cmd + b"\r\n" + ANSWERS.get(cmd, b"unknown command\r\n") + b"ZERO MBB> ")
 
 
-def post(host, path):
-    req = urllib.request.Request("http://%s%s" % (host, path), method="POST")
+def post(host, path, body=None):
+    req = urllib.request.Request("http://%s%s" % (host, path), data=body, method="POST")
     req.add_header("X-Dongle", "1")
-    with urllib.request.urlopen(req, timeout=5) as r:
-        return r.read().decode()
+    for attempt in range(4):   # the board may be rejoining WiFi after a wake
+        try:
+            with urllib.request.urlopen(req, timeout=5) as r:
+                return r.read().decode()
+        except OSError:
+            if attempt == 3:
+                raise
+            time.sleep(3)
 
 
 def get(host, path):
@@ -233,6 +239,14 @@ def t_poll(host, ad):
 
 def t_lightsleep(host, ad):
     print("lightsleep (about six minutes)")
+    post(host, "/api/settings", b"sleep=1&sleep_days=0")   # sleep whenever the MBB does, for the test
+    try:
+        _t_lightsleep(host, ad)
+    finally:
+        post(host, "/api/settings", b"sleep_days=3")
+
+
+def _t_lightsleep(host, ad):
     ad.write(b"Saving Stats, Hibernating for 300 sec\r\n")
     time.sleep(0.5)
     before = status(host)
