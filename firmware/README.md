@@ -100,7 +100,9 @@ One file per MBB session, `bBBBB-SS-YYYYMMDD-HHMMSS.log` with the boot
 count and a sequence number first so that names sort by creation, and
 `nosync` in place of the time when the clock was not yet known. A file is
 created when the first lines are committed and closed five seconds after
-pin 8 goes low, or rolled into the next sequence number at 256 KB. Lines wait
+pin 8 goes low, or rolled into the next sequence number at 256 KB, in which
+case the first file ends with `session continues in the next file` and the
+next one's header says which file it continued from. Lines wait
 in RAM and reach the flash once the MBB has been quiet for 3 s, or after
 15 s or 12 KB regardless, because a flash erase holds the UART interrupt off
 long enough to overrun the chip's receive FIFO, and the MBB tends to follow

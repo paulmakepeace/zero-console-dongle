@@ -36,6 +36,7 @@ static int lastHead = 0, lastCount = 0;
 static String lastAwake, lastAsleep;
 static uint32_t awakeCount = 0;
 static String openForRead[4];   // names being streamed out; reclaim and delete leave them alone
+static String continuedFrom;    // set when a session rolls at SESSION_MAX_BYTES
 
 struct Lock {
     Lock() { xSemaphoreTakeRecursive(mtx, portMAX_DELAY); }
@@ -168,6 +169,10 @@ static void sessionOpen() {
     writeLine((pendingFirstStamp.length() ? pendingFirstStamp : clockStamp()) +
               " dongle: session start, boot " + String(bootCount) + " (" + bootReason + "), time " +
               clockSourceName() + ", fw " FW_VERSION);
+    if (continuedFrom.length()) {
+        writeLine(clockStamp() + " dongle: session continued from " + continuedFrom);
+        continuedFrom = "";
+    }
     Serial.printf("store: session %s\n", activeName.c_str());
 }
 
@@ -201,7 +206,11 @@ static void commitPending() {
     pending = "";
     active.flush();
     dirty = false;
-    if (activeBytes >= SESSION_MAX_BYTES) sessionClose("session continues in the next file");
+    if (activeBytes >= SESSION_MAX_BYTES) {
+        String from = activeName;
+        sessionClose("session continues in the next file");
+        continuedFrom = from;
+    }
 }
 
 void storeAppend(const String& line) {
