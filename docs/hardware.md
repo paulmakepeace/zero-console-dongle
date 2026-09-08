@@ -70,6 +70,12 @@ The internal pulls the firmware enables cover the running case only. External
 parts are unconditional. A 3-pin connector on the plug's pigtail lets the
 CP2102N adapter and the DevKit swap in, and the pull-downs suit both.
 
+A 32.768 kHz crystal on the RTC pins is the phase 2 fix for the sleep
+timer: the ESP32's internal RC slow clock runs about 5% long, which is why
+the firmware sleeps in ten-minute chunks and corrects from NTP at each
+wake. The crystal pins are GPIO32 and GPIO33, so pin 8's input moves off
+GPIO33 to another RTC-capable input, GPIO34 or 35, in that build.
+
 ## CAN
 
 WCMCU-230 breakout, an SN65HVD230 marked VP230, 3.3 V logic. Before it goes
