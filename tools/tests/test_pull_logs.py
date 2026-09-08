@@ -1,0 +1,216 @@
+"""pull-logs.py against a fake dongle served in-process: python3 -m pytest tools/tests"""
+import http.server
+import importlib.machinery
+import importlib.util
+import json
+import os
+import threading
+import urllib.request
+
+import pytest
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+spec = importlib.util.spec_from_loader("pull_logs", importlib.machinery.SourceFileLoader(
+    "pull_logs", os.path.join(HERE, "..", "pull-logs.py")))
+pull_logs = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(pull_logs)
+
+
+class FakeDongle:
+    """The HTTP contract the puller relies on, with knobs for its failure modes."""
+
+    def __init__(self):
+        self.files = {}           # name -> bytes
+        self.active = ""
+        self.deleted = []
+        self.status_code = 200
+        self.name = "zero-dongle-test"
+        self.short_body = set()   # names whose body is cut short
+        self.gone = set()         # names that vanish between listing and fetch
+        self.became_active = set()
+        self.delete_fails = set()
+        self.status = {"fs": {"ok": True, "formats": 0}, "dropped_lines": 0, "uart": {}}
+        dongle = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a): pass
+
+            def send(self, code, body, length=None):
+                self.send_response(code)
+                self.send_header("Content-Type", "text/plain")
+                self.send_header("Content-Length", str(length if length is not None else len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_GET(self):
+                if self.path == "/api/status":
+                    if dongle.status_code != 200:
+                        return self.send(dongle.status_code, b"no")
+                    return self.send(200, json.dumps(dict(dongle.status, name=dongle.name)).encode())
+                if self.path == "/logs":
+                    listing = [{"name": n, "size": len(b), "active": n == dongle.active} for n, b in dongle.files.items()]
+                    return self.send(200, json.dumps(listing).encode())
+                if self.path.startswith("/logs/"):
+                    n = self.path[6:]
+                    if n in dongle.gone or n not in dongle.files:
+                        return self.send(404, b"no such file")
+                    if n == dongle.active or n in dongle.became_active:
+                        return self.send(409, b"file is active; see /live")
+                    body = dongle.files[n]
+                    if n in dongle.short_body:
+                        self.send(200, body[: len(body) // 2], length=len(body))
+                        return self.wfile.flush()
+                    return self.send(200, body)
+                self.send(404, b"not found")
+
+            def do_DELETE(self):
+                if self.headers.get("X-Dongle") != "1":
+                    return self.send(403, b"missing X-Dongle: 1 header")
+                n = self.path[6:]
+                if n in dongle.delete_fails:
+                    return self.send(500, b"flash error")
+                if n not in dongle.files:
+                    return self.send(404, b"no such file")
+                del dongle.files[n]
+                dongle.deleted.append(n)
+                self.send(200, b"deleted")
+
+        self.server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        self.host = "127.0.0.1:%d" % self.server.server_address[1]
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def close(self):
+        self.server.shutdown()
+
+
+@pytest.fixture
+def dongle():
+    d = FakeDongle()
+    d.files = {"b0001-001-20260907-120000.log": b"one\n" * 100, "b0001-002-20260907-130000.log": b"two\n" * 50,
+               "b0001-003-20260907-140000.log": b"active\n"}
+    d.active = "b0001-003-20260907-140000.log"
+    yield d
+    d.close()
+
+
+def run(dongle, tmp_path, *extra):
+    """Run the puller in-process; returns (exit status, stdout, stderr)."""
+    import sys, io
+    argv = ["pull-logs.py", "--host", dongle.host, "--dest", str(tmp_path / "out"), *extra]
+    out, err = io.StringIO(), io.StringIO()
+    old = sys.argv, sys.stdout, sys.stderr
+    sys.argv, sys.stdout, sys.stderr = argv, out, err
+    try:
+        pull_logs.main()
+        code = 0
+    except SystemExit as e:
+        if isinstance(e.code, int):
+            code = e.code
+        else:   # sys.exit("message"): the interpreter would print it to stderr on the way out
+            code = 1
+            err.write(str(e.code) + "\n")
+    finally:
+        sys.argv, sys.stdout, sys.stderr = old
+    return code, out.getvalue(), err.getvalue()
+
+
+def test_moves_files_and_skips_the_active_one(dongle, tmp_path):
+    code, out, err = run(dongle, tmp_path)
+    assert code == 0, err
+    got = sorted(os.listdir(tmp_path / "out"))
+    assert got == [".pull-lock", "b0001-001-20260907-120000.log", "b0001-002-20260907-130000.log"]
+    assert (tmp_path / "out" / "b0001-001-20260907-120000.log").read_bytes() == b"one\n" * 100
+    assert dongle.deleted == ["b0001-001-20260907-120000.log", "b0001-002-20260907-130000.log"]
+    assert "skip  b0001-003-20260907-140000.log (active)" in out
+    assert dongle.active in dongle.files
+
+
+def test_keep_downloads_without_deleting(dongle, tmp_path):
+    code, out, _ = run(dongle, tmp_path, "--keep")
+    assert code == 0 and dongle.deleted == [] and "saved" in out
+
+
+def test_short_body_is_a_failure_and_nothing_is_deleted(dongle, tmp_path):
+    dongle.short_body.add("b0001-001-20260907-120000.log")
+    code, out, err = run(dongle, tmp_path)
+    assert code == 1
+    assert "FAIL  b0001-001-20260907-120000.log" in err
+    assert "b0001-001-20260907-120000.log" not in dongle.deleted
+    assert "b0001-002-20260907-130000.log" in dongle.deleted     # the rest of the batch still ran
+    assert not any(n.startswith("b0001-001") for n in os.listdir(tmp_path / "out"))
+
+
+def test_file_that_became_active_is_a_skip_and_a_vanished_one_is_lost(dongle, tmp_path):
+    dongle.became_active.add("b0001-001-20260907-120000.log")
+    dongle.gone.add("b0001-002-20260907-130000.log")
+    code, out, err = run(dongle, tmp_path)
+    assert "skip  b0001-001-20260907-120000.log (became active)" in out
+    assert "LOST  b0001-002-20260907-130000.log" in err
+    assert code == 1 and dongle.deleted == []
+
+
+def test_delete_failure_keeps_the_local_copy_and_exits_nonzero(dongle, tmp_path):
+    dongle.delete_fails.add("b0001-001-20260907-120000.log")
+    code, out, err = run(dongle, tmp_path)
+    assert code == 1
+    assert "delete failed: 500 flash error" in err     # the dongle's own reason text
+    assert (tmp_path / "out" / "b0001-001-20260907-120000.log").exists()
+
+
+def test_identical_existing_file_is_not_rewritten_and_a_different_one_gets_a_suffix(dongle, tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
+    same = out / "b0001-001-20260907-120000.log"
+    same.write_bytes(b"one\n" * 100)
+    before = same.stat().st_mtime_ns
+    different = out / "b0001-002-20260907-130000.log"
+    different.write_bytes(b"older content\n")
+    code, _, _ = run(dongle, tmp_path)
+    assert code == 0
+    assert same.stat().st_mtime_ns == before
+    assert (out / "b0001-002-20260907-130000-2.log").read_bytes() == b"two\n" * 50
+    assert different.read_bytes() == b"older content\n"
+
+
+def test_unreadable_status_stops_before_listing(dongle, tmp_path):
+    dongle.status_code = 500
+    code, out, err = run(dongle, tmp_path)
+    assert code != 0 and "status" in err and dongle.deleted == []
+
+
+def test_bad_names_are_rejected_without_a_request(dongle, tmp_path):
+    dongle.files["../etc/passwd"] = b"x"
+    dongle.files[".hidden.log"] = b"x"
+    code, out, err = run(dongle, tmp_path)
+    assert code == 1
+    assert "name rejected" in err
+    assert "../etc/passwd" not in dongle.deleted and ".hidden.log" in dongle.files
+
+
+def test_status_warnings_are_printed(dongle, tmp_path):
+    dongle.status = {"fs": {"ok": False, "formats": 2}, "dropped_lines": 7, "uart": {"overflows": 3}}
+    code, out, err = run(dongle, tmp_path, "--keep")
+    assert "no working filesystem" in err and "formatted" in err and "7 line(s) dropped" in err and "overruns 3" in err
+
+
+def test_second_concurrent_run_exits_at_once(dongle, tmp_path):
+    import fcntl
+    out = tmp_path / "out"
+    out.mkdir()
+    lock = open(out / ".pull-lock", "w")
+    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    code, _, err = run(dongle, tmp_path)
+    assert code == 0 and "another pull is running" in err and dongle.deleted == []
+    lock.close()
+
+
+def test_default_dest_is_one_directory_per_board(dongle, tmp_path, monkeypatch):
+    import sys, io
+    monkeypatch.setattr(pull_logs.os.path, "abspath", lambda p: str(tmp_path / "tools" / "pull-logs.py"))
+    monkeypatch.setattr(sys, "argv", ["pull-logs.py", "--host", dongle.host, "--keep"])
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+    monkeypatch.setattr(sys, "stderr", io.StringIO())
+    with pytest.raises(SystemExit) as e:
+        pull_logs.main()
+    assert e.value.code == 0
+    assert (tmp_path / "logs" / "dongle" / "zero-dongle-test" / "b0001-001-20260907-120000.log").exists()

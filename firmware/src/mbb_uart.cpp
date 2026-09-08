@@ -17,6 +17,7 @@
 #include "esp_system.h"
 #include "freertos/stream_buffer.h"
 #include <atomic>
+#include "pure/framer.h"
 
 static RawHandler rawHandler;
 static volatile bool awake = false;
@@ -115,8 +116,8 @@ static void drainEvents() {
 
 static void captureTask(void*) {
     static uint8_t buf[512];
-    static char line[1024];
-    size_t llen = 0;
+    static LineFramer<1024> framer;
+    auto postLine = [](const char* l, size_t n) { post(EV_LINE, l, n); };
     uint32_t highSinceMs = 0;
     int lowSamples = 3;
     esp_task_wdt_add(NULL);
@@ -150,7 +151,7 @@ static void captureTask(void*) {
         else if (lowSamples < 3 && ++lowSamples == 3) lineHigh = false;
         bool nowAwake = (now - lastActivityMs) < SLEEP_AFTER_MS;
         if (nowAwake != awake) {
-            if (!nowAwake && llen) { post(EV_LINE, line, llen); llen = 0; }   // a session keeps its own tail
+            if (!nowAwake) framer.flush(postLine);   // a session keeps its own tail
             xSemaphoreTake(txMtx, portMAX_DELAY);
             awake = nowAwake;
             if (!awake) txDetach();
@@ -160,23 +161,9 @@ static void captureTask(void*) {
         checkHold();
         if (n > 0) {
             if (rawHandler) rawHandler(buf, n);
-            for (int i = 0; i < n; i++) {
-                uint8_t b = buf[i];
-                if (b == 0 || b == '\r') continue;
-                if (b == '\n') { post(EV_LINE, line, llen); llen = 0; continue; }
-                if (llen >= sizeof line - 1) {
-                    static const char cont[] = " [dongle: line continues]";
-                    memcpy(line + llen - (sizeof cont - 1), cont, sizeof cont - 1);
-                    post(EV_LINE, line, llen);
-                    llen = 0;
-                }
-                line[llen++] = b;
-            }
+            framer.feed(buf, n, postLine);
         }
-        if (llen && (now - lastByteMs) > IDLE_FLUSH_MS) {   // the prompt, or anything else without a newline
-            post(EV_LINE, line, llen);
-            llen = 0;
-        }
+        if (framer.len && (now - lastByteMs) > IDLE_FLUSH_MS) framer.flush(postLine);   // the prompt, or anything else without a newline
         drainEvents();   // markers land after the bytes they interrupted
     }
 }

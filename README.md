@@ -37,7 +37,8 @@ behaviour is characterised and the CAN and buck parts are on order. See
   line per board or a watch for changes; `flash.sh` builds and flashes over
   the air; `bench.py` is the regression through the adapter; `log-clean.sh`
   strips a raw capture for reading; `check-private.sh` is the pre-commit
-  gate against the VIN and serials.
+  gate against the VIN and serials; `tests/` is the pull script's suite.
+  The firmware's host tests are under `firmware/test/`.
 - `logs/`: session captures, ignored by git because they carry the VIN and
   serial numbers. `.private-patterns` at the root, also ignored, holds the
   regexes the pre-commit gate refuses; install the gate once per clone with

@@ -44,6 +44,26 @@ runs the regression through the adapter on the bench board (roundtrip,
 break, sleep) and refuses the bike unit. Board names and addresses both
 work; `DONGLE_HOST` and `DONGLE_BOARDS` set the defaults.
 
+## Tests
+
+The logic that does not need a board lives in `src/pure/` as plain C++
+headers: the MBB stamp parser and the two-stamp agreement rule, the line
+framer, the file-name rules, the JSON escaper and the commit accounting.
+The modules wrap them; the tests run them on the host:
+
+```bash
+~/.platformio/penv/bin/pio test -e native -d firmware
+```
+
+The pull script has its own suite against a fake dongle served in-process:
+
+```bash
+python3 -m pytest tools/tests
+```
+
+What only hardware can prove, the transmit gate and the sleep edge, is
+`tools/bench.py` on the bench board through the adapter.
+
 Every version bump in `config.h` is an annotated tag `vX.Y.Z` whose body
 rolls up the commits since the previous version; `git tag -n99 v0.4.4`
 reads one, and `git push --follow-tags` sends them with the branch.

@@ -14,6 +14,8 @@
 #include <vector>
 #include <algorithm>
 #include "esp_mac.h"
+#include "pure/names.h"
+#include "pure/commit_account.h"
 
 struct Entry { String name; size_t size; };
 
@@ -180,7 +182,7 @@ static void sessionOpen() {
     // A boot count that failed to save repeats, and a repeated name would
     // append to an old file the puller may already hold; skip past any name in use.
     do {
-        snprintf(b, sizeof b, "b%04lu-%03d-%s.log", (unsigned long)bootCount, s, when.c_str());
+        sessionName(b, sizeof b, (unsigned long)bootCount, s, when.c_str());
     } while (LittleFS.exists(pathOf(b)) && ++s < 1000);
     File f = LittleFS.open(pathOf(b), FILE_APPEND);
     if (!f) {
@@ -218,11 +220,7 @@ void storeSessionClose() {
     sessionPart = 0;
 }
 
-static uint32_t countLines(const String& s) {
-    uint32_t n = 0;
-    for (size_t i = 0; i < s.length(); i++) if (s[i] == '\n') n++;
-    return n;
-}
+static uint32_t countLines(const String& s) { return countLines(s.c_str(), s.length()); }
 
 static void commitPending() {
     if (pending.length() == 0) return;
@@ -237,13 +235,12 @@ static void commitPending() {
     // counted once, from the tail of the buffer that did not reach the flash.
     active.flush();
     size_t onDisk = active.size();
-    size_t lostAtFlush = onDisk < activeBytes ? activeBytes - onDisk : 0;
-    if (lostAtFlush) {
-        Serial.printf("store: commit lost %u byte(s) at the flush, flash full\n", (unsigned)lostAtFlush);
+    CommitAccount acct = commitAccount(done, activeBytes, onDisk);
+    if (acct.lostAtFlush) {
+        Serial.printf("store: commit lost %u byte(s) at the flush, flash full\n", (unsigned)acct.lostAtFlush);
         activeBytes = onDisk;
     }
-    size_t kept = done > lostAtFlush ? done - lostAtFlush : 0;
-    if (kept < pending.length()) droppedLines += countLines(pending.substring(kept));
+    if (acct.kept < pending.length()) droppedLines += countLines(pending.c_str() + acct.kept, pending.length() - acct.kept);
     pending = "";
     pendingHasMbb = false;
     if (activeBytes >= SESSION_MAX_BYTES) sessionClose("session continues in the next part");
@@ -297,14 +294,7 @@ String storeListJson() {
     return out;
 }
 
-static bool nameOk(const String& name) {
-    if (name.length() == 0 || name.length() > 64 || !isalnum((unsigned char)name[0])) return false;
-    for (size_t i = 0; i < name.length(); i++) {
-        char c = name[i];
-        if (!(isalnum((unsigned char)c) || c == '-' || c == '_' || c == '.')) return false;
-    }
-    return name.indexOf("..") < 0;
-}
+static bool nameOk(const String& name) { return logNameOk(name.c_str(), name.length()); }
 
 StoreDeleteResult storeDelete(const String& name) {
     Lock l;

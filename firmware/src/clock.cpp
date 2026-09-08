@@ -9,6 +9,7 @@
 #include <sys/time.h>
 #include <time.h>
 #include "esp_sntp.h"
+#include "pure/mbb_time.h"
 
 // source and lastNtpSyncMs belong to the loop task; the SNTP callback, on
 // the lwIP task, only raises the flag and the loop promotes it in clockTick.
@@ -17,9 +18,7 @@ static uint32_t lastNtpSyncMs = 0;
 static volatile bool ntpSyncPending = false;
 static uint32_t lastMbbStepMs = 0;
 static ClockNoteHandler noteHandler;
-static bool haveCandidate = false;
-static time_t candidateSec;
-static uint32_t candidateMs;
+static StampConsensus consensus;
 // Fixed storage: lwIP keeps the server name pointer, so it must never move.
 static char tzSetting[64], ntpSetting[65];
 
@@ -81,40 +80,22 @@ String clockStamp() {
     return String(buf);
 }
 
-static int num(const char* p, int n) {
-    int v = 0;
-    while (n--) v = v * 10 + (*p++ - '0');
-    return v;
-}
-
-// A stamp at the start of the line, after an optional "DEBUG:" and spaces.
+// The stamp is local time in the configured zone; mktime turns it into epoch.
 static bool parseMbbTime(const char* s, size_t len, struct timeval* out) {
-    static const char pat[] = "dd/dd/dddd dd:dd:dd.ddd";
-    const size_t plen = sizeof(pat) - 1;
-    size_t i = 0;
-    if (len >= 6 && memcmp(s, "DEBUG:", 6) == 0) i = 6;
-    while (i < len && s[i] == ' ') i++;
-    if (i + plen > len) return false;
-    for (size_t j = 0; j < plen; j++) {
-        char c = s[i + j];
-        if (pat[j] == 'd' ? (c < '0' || c > '9') : (c != pat[j])) return false;
-    }
-    const char* p = s + i;
+    MbbStamp st;
+    if (!parseMbbStamp(s, len, st)) return false;
     struct tm tm = {};
-    tm.tm_mon = num(p, 2) - 1;
-    tm.tm_mday = num(p + 3, 2);
-    tm.tm_year = num(p + 6, 4) - 1900;
-    tm.tm_hour = num(p + 11, 2);
-    tm.tm_min = num(p + 14, 2);
-    tm.tm_sec = num(p + 17, 2);
+    tm.tm_year = st.year - 1900;
+    tm.tm_mon = st.month - 1;
+    tm.tm_mday = st.day;
+    tm.tm_hour = st.hour;
+    tm.tm_min = st.minute;
+    tm.tm_sec = st.second;
     tm.tm_isdst = -1;
-    if (tm.tm_year < 2024 - 1900 || tm.tm_year > 2040 - 1900 || tm.tm_mon < 0 || tm.tm_mon > 11 ||
-        tm.tm_mday < 1 || tm.tm_mday > 31 || tm.tm_hour > 23 || tm.tm_min > 59 || tm.tm_sec > 59) return false;
-    struct tm check = tm;
     time_t t = mktime(&tm);
-    if (t < 1700000000 || tm.tm_mday != check.tm_mday) return false;   // mktime rolled an impossible date
+    if (t < 1700000000) return false;
     out->tv_sec = t;
-    out->tv_usec = num(p + 20, 3) * 1000;
+    out->tv_usec = st.ms * 1000;
     return true;
 }
 
@@ -126,31 +107,18 @@ void clockMaybeSetFromMbb(const char* line, size_t len) {
     gettimeofday(&now, nullptr);
     if (source != TIME_NONE) {
         long diff = (long)(now.tv_sec - tv.tv_sec);
-        if (diff > -5 && diff < 5) { haveCandidate = false; return; }   // agrees, nothing to do
+        if (diff > -5 && diff < 5) { consensus.reset(); return; }   // agrees, nothing to do
     }
-    // Two consecutive stamps have to tell the same story, allowing for the
-    // time that passed between them, before the clock moves.
-    uint32_t nowMs = millis();
-    if (haveCandidate) {
-        long expected = (long)candidateSec + (long)((nowMs - candidateMs) / 1000);
-        long delta = (long)tv.tv_sec - expected;
-        if (delta > -5 && delta < 5) {
-            if (ntpSyncPending) { haveCandidate = false; return; }   // NTP just landed; the tick promotes it
-            String before = clockStamp();
-            settimeofday(&tv, nullptr);
-            source = TIME_MBB;
-            lastMbbStepMs = millis();
-            haveCandidate = false;
-            if (noteHandler) {
-                String note = "dongle: clock stepped from " + before + " to " + clockStamp() + " by the MBB";
-                noteHandler(note.c_str());
-            }
-            return;
-        }
+    if (!consensus.offer((long)tv.tv_sec, millis())) return;   // the first of two, or a disagreement
+    if (ntpSyncPending) return;   // NTP just landed; the tick promotes it
+    String before = clockStamp();
+    settimeofday(&tv, nullptr);
+    source = TIME_MBB;
+    lastMbbStepMs = millis();
+    if (noteHandler) {
+        String note = "dongle: clock stepped from " + before + " to " + clockStamp() + " by the MBB";
+        noteHandler(note.c_str());
     }
-    haveCandidate = true;
-    candidateSec = tv.tv_sec;
-    candidateMs = nowMs;
 }
 
 void clockTick() {
