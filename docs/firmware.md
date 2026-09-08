@@ -66,9 +66,11 @@ flags.
 
 ## Design rules
 
-- The transmit pin is attached to the UART only while bytes are being sent,
-  only while the MBB is awake, and is an input with a pull-down otherwise,
-  from the first instruction of boot. This is the one rule that keeps the
+- The transmit pin is attached to the UART only while bytes are being sent
+  and for 2 s after, only while the MBB is awake, and is an input with a
+  pull-down otherwise, from the first instruction of boot. The drop back to
+  the pull-down reaches the far end as one NUL byte; what the MBB makes of
+  that is the last thing to check before pin 9 is connected on the bike. This is the one rule that keeps the
   dongle from waking the bike or holding it awake. Every future feature that
   sends anything goes through the same gate.
 - The loop task never blocks on a network client. Console output to a client
@@ -79,7 +81,11 @@ flags.
   rebuild with `CONFIG_UART_ISR_IN_IRAM=y` gets through the IDF compile
   after stubbing four embedded certificate files it expects, then fails to
   link on an undefined `__wrap_log_printf` from the core's log wrapper.
-  Left for phase 2. A flash erase holds the UART interrupt off for longer
+  Left for phase 2. Measured on the bench with a continuous full-rate
+  stream, the worst case the MBB never produces: 2179 lines in 20 s with
+  flash commits forced every second gave 38 overflow events, 12 corrupted
+  lines, 2 lost, every event marked in the file. Real MBB traffic is a few
+  lines a minute with bursts of a dozen. A flash erase holds the UART interrupt off for longer
   than the receive FIFO covers, and the precompiled core keeps that
   interrupt out of IRAM. Frunk USB dies at key-off without warning, and the
   phase 2 supply is cut by a switch, so the bound is also the most a power
