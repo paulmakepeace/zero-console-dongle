@@ -70,7 +70,7 @@ static const char PAGE[] PROGMEM = R"HTML(<!doctype html><meta charset=utf-8><me
 <title>zero-dongle</title>
 <style>body{font:14px system-ui,sans-serif;margin:1em;max-width:60em}pre{background:#f4f4f4;padding:.5em;overflow-x:auto;font-size:12px}table{border-collapse:collapse}td{padding:.1em .8em .1em 0}a{margin-right:1em}</style>
 <h2 id=t>zero-dongle</h2><p><a href=/cmd>Command outputs</a></p><table id=s></table>
-<h3>Files</h3><div id=f></div>
+<h3>Files</h3><div id=fs></div><div id=f></div>
 <h3>Last lines</h3><pre id=l></pre>
 <h3>Firmware update</h3>
 <input type=file id=fw accept=.bin> <button id=go>Flash</button> <span id=fwmsg></span>
@@ -80,6 +80,7 @@ function row(t,k,v){const tr=t.insertRow();tr.insertCell().textContent=k;tr.inse
 async function refresh(){
  const s=await j('/api/status'); document.getElementById('t').textContent=s.name;
  const t=document.getElementById('s'); t.textContent=''; for(const [k,v] of Object.entries(s)) row(t,k,v);
+ const st=s.store; document.getElementById('fs').textContent=st.files+' file(s), '+(st.bytes/1024).toFixed(0)+' KB on flash of '+(st.fs_total/1024).toFixed(0)+' KB, compressing '+st.ratio+'x since boot'+(st.days_left>=0?', about '+st.days_left+' day(s) of space left at this rate':'');
  const f=await j('/logs'); const d=document.getElementById('f'); d.textContent='';
  for(const x of f){const div=document.createElement('div'); if(x.active){div.textContent=x.name+' '+x.size+' bytes (active, see last lines)'}else{const a=document.createElement('a');a.href='/logs/'+encodeURIComponent(x.name);a.textContent=x.name;div.appendChild(a);div.appendChild(document.createTextNode(' '+x.size+' bytes'))} d.appendChild(div)}
  if(!f.length) d.textContent='none';
@@ -155,8 +156,17 @@ static String statusJson() {   // a health check is not use: a watcher must not 
          ",\"backpressure\":" + String(mbbBackpressure()) + ",\"frame_errors\":" + String(mbbFrameErrors()) +
          ",\"queue_drops\":" + String(mbbQueueDrops()) + "}";
     s += ",\"console\":{\"clients\":" + String(consoleClientCount()) + ",\"dropped_bytes\":" + String(rawDropped.load()) + "}";
-    s += ",\"pack\":{\"soc\":" + String(pollerSoc()) + ",\"bike_state\":\"" + jsonEscape(pollerBikeState()) + "\"" +
-         ",\"age_s\":" + String(pollerOutputAgeS("bms") == UINT32_MAX ? -1 : (long)pollerOutputAgeS("bms")) + "}";
+    {
+        long soc, mv, ma, ah, hi, lo;
+        bool have = pollerPack(soc, mv, ma, ah, hi, lo);
+        s += ",\"pack\":{\"soc\":" + String(pollerSoc()) + ",\"bike_state\":\"" + jsonEscape(pollerBikeState()) + "\"" +
+             ",\"age_s\":" + String(pollerOutputAgeS("status") == UINT32_MAX ? -1 : (long)pollerOutputAgeS("status"));
+        if (have) s += ",\"mv\":" + String(mv) + ",\"ma\":" + String(ma) + ",\"ah\":" + String(ah) +
+                       ",\"temp_hi_c\":" + String(hi) + ",\"temp_lo_c\":" + String(lo);
+        s += "}";
+    }
+    s += ",\"store\":" + storeMetricsJson();
+    s += ",\"esp_temp_c\":" + String(temperatureRead(), 1);   // the die, not the air: it runs some 15 to 20 C above ambient
     s += ",\"poll\":{\"interval_s\":" + String(pollerInterval()) + ",\"active\":" + (pollerActive() ? "true" : "false") + "}";
     s += ",\"sleep\":" + sleepStatusJson();
     s += ",\"heap_free\":" + String(ESP.getFreeHeap()) + ",\"heap_min_free\":" + String(ESP.getMinFreeHeap()) +

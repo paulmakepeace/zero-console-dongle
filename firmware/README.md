@@ -80,7 +80,8 @@ With no WiFi stored the dongle raises the setup network. Join it from a
 phone, pick the home network and enter its password; the same page takes
 the timezone in POSIX form, the NTP server, a new setup password, whether
 to sleep between MBB sessions and the poll interval, all stored in flash
-and applied at once, no reboot. With sleep on, the dongle light-sleeps once
+and applied at once, no reboot. Sleep is off by default while the dongle
+runs from the frunk socket or a wall supply. With it on, the dongle light-sleeps once
 the MBB has been asleep for two minutes with nobody using it, timed to be
 up ten seconds before the MBB's own hourly wake, and pin 8 rising wakes it
 regardless; a status check does not count as use, a download, the live
@@ -101,7 +102,7 @@ replaced from the home network with `POST /api/settings`.
 | Path                 | Method | What                                      |
 |----------------------|--------|-------------------------------------------|
 | `/`                  | GET    | status page                               |
-| `/api/status`        | GET    | JSON: board name, MAC, firmware version, uptime, boot count and reset reason, awake, pin 8 level, TX attached, last awake and asleep stamps and the awake count, the active file, time and its source and NTP age, WiFi with mDNS and setup-network state, filesystem, dropped lines, the UART's overrun, back-pressure, frame-error and queue-drop counts, console clients and dropped bytes, the pack's state of charge and the bike state from the last poll, the poll interval, the sleep count and last wake source, heap and stack headroom, watchdog |
+| `/api/status`        | GET    | JSON: board name, MAC, firmware version, uptime, boot count and reset reason, awake, pin 8 level, TX attached, last awake and asleep stamps and the awake count, the active file, time and its source and NTP age, WiFi with mDNS and setup-network state, filesystem, dropped lines, the UART's overrun, back-pressure, frame-error and queue-drop counts, console clients and dropped bytes, the pack's state of charge, voltage, current, capacity and temperatures and the bike state from the last poll, the poll interval, the sleep count and last wake source, the store's file count and bytes on flash, its compression since boot and the days of space left at that rate, the ESP32's die temperature, heap and stack headroom, watchdog |
 | `/logs`              | GET    | JSON list of files with size and active flag |
 | `/logs/NAME`         | GET    | the file; 409 while active, 503 when all four readers are busy, 404 if absent |
 | `/logs/NAME`         | DELETE | remove it; 409 while active or being read, or for a bad name |
@@ -176,10 +177,12 @@ pull script reads the status first and warns about any of them.
 [`tools/pull-logs.py`](../tools/pull-logs.py) fetches and deletes them from the homelab into
 `logs/dongle/NAME/`, one directory per board.
 
-The log area is 896 KB with a 96 KB reserve. The stream compresses the
-console about 6.8 times, so a timeout wake costs one 4 KB block and a
-parked day about 30 KB; the area holds a few weeks between pulls, and a
-ride costs about 6 KB an hour. The app slots are 1.5 MB each. Changing the partition table needs a
+The log area is 896 KB with a 96 KB reserve. The stream compresses a
+timeout wake about 2.9 times and a ride or a charge, with their repeating
+lines, six or more; a wake costs one 4 KB block, a parked day about 60 KB,
+so the area holds about two weeks of parking between pulls, and a ride
+costs about 6 KB an hour. The status reports the files, the bytes, the
+ratio since boot and the days of space left at the current rate. The app slots are 1.5 MB each. Changing the partition table needs a
 USB flash and formats the log area, which is counted in the status.
 
 The clock comes from NTP while that fix is under six hours old, and from

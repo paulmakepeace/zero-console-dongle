@@ -20,5 +20,6 @@ uint32_t storeBootCount();
 uint32_t storeDroppedLines();
 bool storeOk();
 uint32_t storeFormats();
+String storeMetricsJson();   // files on flash, bytes, the compression since boot, days of space left at this rate
 void storeNoteEdge(bool awake);
 String storeEdges();   // JSON fragment: last awake and asleep stamps, count

@@ -87,7 +87,7 @@ void setup() {
     p.begin("dongle", true);
     String tz = p.isKey("tz") ? p.getString("tz") : String(TZ_DEFAULT);
     String ntp = p.isKey("ntp") ? p.getString("ntp") : String(NTP_SERVER);
-    bool sleepOn = p.isKey("sleep") ? p.getBool("sleep") : true;
+    bool sleepOn = p.isKey("sleep") ? p.getBool("sleep") : false;   // off until the always-on supply makes it worth the windows
     uint32_t pollS = p.isKey("poll") ? p.getUInt("poll") : POLL_INTERVAL_S;
     p.end();
     sleepBegin(sleepOn);

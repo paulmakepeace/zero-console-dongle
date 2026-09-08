@@ -49,6 +49,34 @@ inline long numberAfter(const char* text, size_t len, const char* key) {
 
 inline long parseSoc(const char* bmsText, size_t len) { return numberAfter(bmsText, len, "soc"); }
 
+// The BMS row of `status`:
+//  BMS | SOC |  Pack V  | Current | Capacity|  L cell  | H temp | L temp | Cont | Elig
+//    2   86 %  108555 mV  -12284 mA     84 AH    3873 mV    31 C    29 C      +     + +
+struct PackRow { long soc, packMv, currentMa, capacityAh, lowCellMv, tempHiC, tempLoC; };
+
+inline bool parsePackRow(const char* text, size_t len, PackRow& out) {
+    static const char key[] = "BMS | SOC";
+    size_t i = 0;
+    for (; i + sizeof(key) - 1 <= len; i++) if (memcmp(text + i, key, sizeof(key) - 1) == 0) break;
+    if (i + sizeof(key) - 1 > len) return false;
+    while (i < len && text[i] != '\n') i++;   // to the row
+    long v[8];
+    int n = 0;
+    bool neg = false, inNum = false;
+    long cur = 0;
+    for (i++; i < len && text[i] != '\n' && n < 8; i++) {
+        char c = text[i];
+        if (c == '-' && !inNum) { neg = true; continue; }
+        if (isdigit((unsigned char)c)) { inNum = true; cur = cur * 10 + (c - '0'); continue; }
+        if (inNum) { v[n++] = neg ? -cur : cur; cur = 0; inNum = false; }
+        neg = false;
+    }
+    if (inNum && n < 8) v[n++] = neg ? -cur : cur;
+    if (n < 8) return false;   // bms id, soc, mv, ma, ah, cell mv, hi c, lo c
+    out = {v[1], v[2], v[3], v[4], v[5], v[6], v[7]};
+    return true;
+}
+
 // "Bike State: CHRG" -> "CHRG". Returns the length written, 0 when absent.
 inline size_t parseBikeState(const char* text, size_t len, char* out, size_t cap) {
     static const char key[] = "Bike State:";

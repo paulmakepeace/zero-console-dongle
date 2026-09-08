@@ -39,8 +39,12 @@ its [README](../firmware/README.md):
    line queue: the prompt closes a command, lines the MBB prints on its own
    pass through to the log, and everything else is the command's output,
    kept in RAM and out of the log. The last output of each is served raw at
-   `/api/cmd/NAME` and on the tabbed page at `/cmd`; the state of charge
-   from `bms` and the bike state from `status` go into the status JSON.
+   `/api/cmd/NAME` and on the tabbed page at `/cmd`; the bike state and
+   the BMS row of `status`, state of charge, pack voltage and current,
+   capacity and the pack's high and low temperatures, go into the status
+   JSON. The ESP32's own die temperature is there too, some 15 to 20 C
+   above the air around it, so it says more about the board than the
+   frunk.
 8. **Light sleep between sessions.** Two things sleep in this design and
    the words mean different things for each. The MBB's two depths, shallow
    hibernation and deep sleep, are its own and are defined in the sleep
@@ -99,7 +103,10 @@ its [README](../firmware/README.md):
    buffer counted as lost. Measured at the store's real commit boundaries
    on 48 pulled sessions, the median commit being 300 bytes: 6.8x this way,
    against 5.7x with every commit its own block and 8.4x for zlib's dynamic
-   Huffman codes, which need 30 KB. A trained dictionary was measured too
+   Huffman codes, which need 30 KB. That average is carried by the ride
+   and charge files with their repeating heartbeat lines; an hourly wake
+   file on its own, 7 KB of mostly unique boot text, compresses about
+   2.9x. A trained dictionary was measured too
    and earns its keep only on blocks under 1 KB, which the stream's own
    history already covers.
 

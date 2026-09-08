@@ -14,4 +14,5 @@ String pollerListJson();
 const String* pollerOutput(const char* name);
 uint32_t pollerOutputAgeS(const char* name);
 long pollerSoc();              // -1 until known
+bool pollerPack(long& soc, long& packMv, long& currentMa, long& capacityAh, long& tempHiC, long& tempLoC);   // from the last status
 const char* pollerBikeState(); // "" until known

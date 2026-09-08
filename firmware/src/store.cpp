@@ -44,6 +44,8 @@ static bool pendingHasMbb = false;
 static uint32_t pendingLines = 0;   // lines in gz's buffer since the last commit
 static uint32_t pendingSinceMs = 0;
 static uint32_t droppedLines = 0;
+static uint32_t rawBytes = 0;      // console bytes taken in since boot
+static uint32_t storedBytes = 0;   // compressed bytes that reached the flash since boot
 static String lastLines[LAST_LINES];
 static int lastHead = 0, lastCount = 0;
 static String lastAwake, lastAsleep;
@@ -223,6 +225,7 @@ static WriteResult writeOut(bool retryNow = false) {
     }
     active.flush();
     activeBytes += done;
+    storedBytes += done;
     size_t onDisk = active.size();
     if (onDisk < activeBytes) {   // the stdio buffer took what the filesystem could not
         Serial.printf("store: commit lost %u byte(s) at the flush, flash full\n", (unsigned)(activeBytes - onDisk));
@@ -345,6 +348,7 @@ void storeAppend(const String& line, bool fromMbb) {
     }
     if (fromMbb && !pendingHasMbb) pendingSinceMs = millis();   // the 15 s bound counts from the first MBB line
     pendingLines++;
+    rawBytes += line.length() + 1;
     if (fromMbb) pendingHasMbb = true;
 }
 
@@ -432,6 +436,26 @@ void storeNoteEdge(bool awake) {
 String storeEdges() {
     Lock l;
     return "\"last_awake\":\"" + lastAwake + "\",\"last_asleep\":\"" + lastAsleep + "\",\"awake_count\":" + String(awakeCount);
+}
+
+String storeMetricsJson() {
+    Lock l;
+    static uint32_t cachedAtMs = 0;
+    static uint32_t files = 0, bytes = 0;
+    if (ok && (cachedAtMs == 0 || millis() - cachedAtMs > 10000)) {   // a directory scan: not on every status call
+        cachedAtMs = millis() ? millis() : 1;
+        files = 0; bytes = 0;
+        for (auto& e : listEntries()) { files++; bytes += e.size; }
+    }
+    size_t total = ok ? LittleFS.totalBytes() : 0, used = ok ? LittleFS.usedBytes() : 0;
+    float ratio = storedBytes ? (float)rawBytes / storedBytes : 0;
+    uint32_t upS = millis() / 1000;
+    long daysLeft = -1;   // meaningful once an hour of rate is known
+    if (upS > 3600 && storedBytes > 0 && total > used) daysLeft = (long)((double)(total - used) / storedBytes * upS / 86400.0);
+    char b[200];
+    snprintf(b, sizeof b, "{\"files\":%lu,\"bytes\":%lu,\"fs_used\":%u,\"fs_total\":%u,\"raw_bytes\":%lu,\"stored_bytes\":%lu,\"ratio\":%.1f,\"days_left\":%ld}",
+             (unsigned long)files, (unsigned long)bytes, (unsigned)used, (unsigned)total, (unsigned long)rawBytes, (unsigned long)storedBytes, ratio, daysLeft);
+    return String(b);
 }
 
 uint32_t storeBootCount() { return bootCount; }

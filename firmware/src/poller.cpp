@@ -27,6 +27,8 @@ static String buf;
 static uint32_t awakeSinceMs = 0;
 static bool wasAwake = false;
 static long soc = -1;
+static PackRow pack = {-1, -1, 0, -1, -1, -999, -999};
+static bool havePack = false;
 static char bikeState[16] = "";
 
 void pollerBegin(uint32_t s) { intervalS = s; buf.reserve(POLL_MAX_BYTES + 128); }
@@ -36,6 +38,11 @@ void pollerRequest() { requested = true; }
 bool pollerActive() { return running; }
 long pollerSoc() { return soc; }
 const char* pollerBikeState() { return bikeState; }
+bool pollerPack(long& s, long& mv, long& ma, long& ah, long& hi, long& lo) {
+    if (!havePack) return false;
+    s = pack.soc; mv = pack.packMv; ma = pack.currentMa; ah = pack.capacityAh; hi = pack.tempHiC; lo = pack.tempLoC;
+    return true;
+}
 
 static int indexOf(const char* name) {
     for (int i = 0; i < NCMD; i++) if (strcmp(CMDS[i], name) == 0) return i;
@@ -71,6 +78,8 @@ static void closeCurrent(bool ok) {
     if (ok && (strcmp(CMDS[cur], "state") == 0 || strcmp(CMDS[cur], "status") == 0)) {
         char st[16];
         if (parseBikeState(buf.c_str(), buf.length(), st, sizeof st)) strlcpy(bikeState, st, sizeof bikeState);
+        PackRow r;
+        if (parsePackRow(buf.c_str(), buf.length(), r)) { pack = r; havePack = true; soc = r.soc; }
     }
     buf = "";
     cur++;

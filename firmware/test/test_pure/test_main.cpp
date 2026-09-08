@@ -207,6 +207,17 @@ void test_soc_and_bike_state() {
     TEST_ASSERT_EQUAL_STRING("", st);
 }
 
+void test_pack_row() {
+    const char* status = "status\n Bike State: CHRG\n BMS | SOC |  Pack V  | Current | Capacity|  L cell  | H temp | L temp | Cont | Elig\n   2   86 %  108555 mV  -12284 mA     84 AH    3873 mV    31 C    29 C      +     + + \n DC Bus Voltage: 102000 mV\n";
+    PackRow r;
+    TEST_ASSERT_TRUE(parsePackRow(status, strlen(status), r));
+    TEST_ASSERT_EQUAL(86, r.soc); TEST_ASSERT_EQUAL(108555, r.packMv); TEST_ASSERT_EQUAL(-12284, r.currentMa);
+    TEST_ASSERT_EQUAL(84, r.capacityAh); TEST_ASSERT_EQUAL(3873, r.lowCellMv); TEST_ASSERT_EQUAL(31, r.tempHiC); TEST_ASSERT_EQUAL(29, r.tempLoC);
+    TEST_ASSERT_FALSE(parsePackRow("no table here\n", 14, r));
+    const char* shortRow = " BMS | SOC |\n   2   86 %\n";
+    TEST_ASSERT_FALSE(parsePackRow(shortRow, strlen(shortRow), r));
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_stamp_plain_and_debug_prefixed);
@@ -225,5 +236,6 @@ int main() {
     RUN_TEST(test_sleep_chunks_land_before_the_mbb);
     RUN_TEST(test_prompt_and_unsolicited);
     RUN_TEST(test_soc_and_bike_state);
+    RUN_TEST(test_pack_row);
     return UNITY_END();
 }
