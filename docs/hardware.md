@@ -18,7 +18,11 @@ cost 8 mm of height. Wires go to the pads.
 
 The antenna is the black overhang at the module end of the board, a meandered
 copper track under the matte finish. Keep wire, perfboard and posts away from
-it and aim it at the plastic side of the shell, not the pin block.
+it and aim it at the plastic side of the shell, not the pin block. Under the
+bike's cover in the drive the link to the house runs at -81 to -88 dBm with
+a few disconnects an hour, which is the edge of what the printed antenna
+can do; a WROOM-32U module with a u.FL socket and a small external antenna
+is the phase 2 board option if that matters.
 
 ## How the MBB's console pins behave
 
@@ -70,11 +74,19 @@ The internal pulls the firmware enables cover the running case only. External
 parts are unconditional. A 3-pin connector on the plug's pigtail lets the
 CP2102N adapter and the DevKit swap in, and the pull-downs suit both.
 
-A 32.768 kHz crystal on the RTC pins is the phase 2 fix for the sleep
-timer: the ESP32's internal RC slow clock runs about 5% long, which is why
-the firmware sleeps in ten-minute chunks and corrects from NTP at each
-wake. The crystal pins are GPIO32 and GPIO33, so pin 8's input moves off
-GPIO33 to another RTC-capable input, GPIO34 or 35, in that build.
+The ESP32's internal RC slow clock runs about 5% long, which is why the
+firmware sleeps in ten-minute chunks and corrects from NTP at each wake.
+The fix for that is not the 32.768 kHz crystal the module's pins allow for:
+no DevKit-class board carries one, selecting it as the slow clock is a
+build-time option the precompiled core does not set, and its pins are
+GPIO32 and GPIO33, the latter being pin 8's input. The phase 2 board
+carries a DS3231 real-time clock module on I2C instead, a dollar or two,
+which does three jobs: its alarm output wakes the ESP32 at the MBB's due
+time on a temperature-compensated clock good to a few parts per million,
+so the chunking goes; its thermometer reads the frunk's air rather than the
+ESP32's die; and with a coin cell it keeps time through a power cut, so
+the dongle boots with the time known. Two wires, a pull-down on the alarm
+line, and a small I2C driver.
 
 ## CAN
 

@@ -1,5 +1,5 @@
 uzlib, the compression side, from github.com/pfalcon/uzlib (zlib license).
-Files: genlz77.c, defl_static.c, defl_static.h, crc32.c, uzlib.h (trimmed
+Files: genlz77.c, defl_static.c, defl_static.h, adler32.c, uzlib.h (trimmed
 to the compression API).
 
 Changes for the dongle:
@@ -10,4 +10,10 @@ Changes for the dongle:
   zlib_finish_stream() ends the stream with a final empty stored block.
   zlib_finish_block() is gone.
 - uzlib_hash_add() enters bytes into the hash table without emitting,
-  used after the window slides.
+  used for the dictionary and after the window slides.
+- A match that starts in the dictionary stops at dict_end: in the decoder's
+  stream the dictionary and the data are not adjacent.
+- dict_end / dict_extra in struct uzlib_comp: a match into a preset
+  dictionary held at the front of the buffer is emitted at its true
+  distance in the stream, which grows as the data behind it slides.
+- adler32.c is upstream as is, for the zlib trailer and the dictionary id.

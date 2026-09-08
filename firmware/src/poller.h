@@ -8,7 +8,7 @@ void pollerSetInterval(uint32_t s);   // 0 turns the schedule off; a request sti
 uint32_t pollerInterval();
 bool pollerConsumeLine(const char* line, size_t len);   // true: poll output, not for the log
 void pollerTick(bool mbbAwake, bool consoleBusy);
-void pollerRequest();
+bool pollerRequest();   // false when the MBB has announced its hibernation: the request is not kept
 bool pollerActive();
 String pollerListJson();
 const String* pollerOutput(const char* name);

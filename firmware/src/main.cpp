@@ -15,6 +15,23 @@
 static bool wdtArmed = false;
 bool sysWatchdogArmed() { return wdtArmed; }
 
+// The longest single pass of each stage of the loop task since boot: a
+// stall here is what an HTTP client sees as a timeout.
+enum { ST_CAPTURE, ST_NET, ST_POLLER, ST_SLEEP, ST_N };
+static const char* const stageName[ST_N] = {"capture", "net", "poller", "sleep"};
+static uint32_t stageMaxMs[ST_N];
+String sysLoopMaxJson() {
+    String s = "{";
+    for (int i = 0; i < ST_N; i++) s += String(i ? ",\"" : "\"") + stageName[i] + "\":" + String(stageMaxMs[i]);
+    return s + "}";
+}
+static void timed(int stage, void (*fn)()) {
+    uint32_t t = millis();
+    fn();
+    uint32_t d = millis() - t;
+    if (d > stageMaxMs[stage]) stageMaxMs[stage] = d;
+}
+
 const char* sysResetReason() {
     switch (esp_reset_reason()) {
         case ESP_RST_POWERON: return "power-on";
@@ -32,9 +49,9 @@ const char* sysResetReason() {
 }
 
 static void onLine(const char* line, size_t len) {
+    sleepNoteLine(line, len);   // the attended signals and the hibernate line, whatever else the line is
     if (pollerConsumeLine(line, len)) return;   // a command's output: kept by the poller, not the log
     clockMaybeSetFromMbb(line, len);
-    sleepNoteLine(line, len);
     storeAppend(clockStamp() + " " + line, memcmp(line, "dongle:", 7) != 0);
 }
 
@@ -102,9 +119,9 @@ void setup() {
 }
 
 void loop() {
-    sysTickCapture();   // lines, markers and edges, in order, on this task
-    netTick();
-    pollerTick(mbbAwake(), netConsoleClients() > 0);
-    sleepTick(mbbAwake(), netBusy() || pollerActive());
+    timed(ST_CAPTURE, sysTickCapture);   // lines, markers and edges, in order, on this task
+    timed(ST_NET, netTick);
+    timed(ST_POLLER, []() { pollerTick(mbbAwake(), netConsoleClients() > 0); });
+    timed(ST_SLEEP, []() { sleepTick(mbbAwake(), netBusy() || pollerActive()); });
     delay(2);
 }

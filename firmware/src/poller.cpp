@@ -12,9 +12,12 @@
 
 static const char* const CMDS[] = {POLL_CMDS};
 static const int NCMD = sizeof CMDS / sizeof CMDS[0];
-static String outputs[NCMD];
+static String outputs[NCMD];        // the last good output of each; a failed attempt does not replace it
 static uint32_t outputAtMs[NCMD];
-static bool outputOk[NCMD];
+static bool outputOk[NCMD];         // the last attempt succeeded
+static uint32_t failedAtMs[NCMD];
+static bool mbbStopping = false;    // the MBB has announced its hibernation: no more commands
+static uint32_t stoppingSinceMs = 0;
 static uint32_t intervalS = POLL_INTERVAL_S;
 static uint32_t lastPollMs = 0;
 static bool requested = false;
@@ -34,7 +37,7 @@ static char bikeState[16] = "";
 void pollerBegin(uint32_t s) { intervalS = s; buf.reserve(POLL_MAX_BYTES + 128); }
 void pollerSetInterval(uint32_t s) { intervalS = s; }
 uint32_t pollerInterval() { return intervalS; }
-void pollerRequest() { requested = true; }
+bool pollerRequest() { if (mbbStopping) return false; requested = true; return true; }
 bool pollerActive() { return running; }
 long pollerSoc() { return soc; }
 const char* pollerBikeState() { return bikeState; }
@@ -55,11 +58,9 @@ static void sendCurrent() {
     cmdStartedMs = millis();
     String line = String(CMDS[cur]) + "\r\n";
     if (mbbWrite((const uint8_t*)line.c_str(), line.length()) != line.length()) {
-        outputs[cur] = "(not sent)";
         outputOk[cur] = false;
-        outputAtMs[cur] = millis();
-        cur++;   // fall through to the next on the next tick's timeout path
-        cmdStartedMs = millis() - POLL_TIMEOUT_MS;
+        failedAtMs[cur] = millis() ? millis() : 1;
+        cmdStartedMs = millis() - POLL_TIMEOUT_MS;   // the timeout path closes this one and moves on
     }
 }
 
@@ -71,9 +72,10 @@ static void finish() {
 }
 
 static void closeCurrent(bool ok) {
-    outputs[cur] = buf;
+    if (cur < 0 || cur >= NCMD) { finish(); return; }
     outputOk[cur] = ok;
-    outputAtMs[cur] = millis();
+    if (ok) { outputs[cur] = buf; outputAtMs[cur] = millis() ? millis() : 1; }
+    else failedAtMs[cur] = millis() ? millis() : 1;   // the last good output stays
     if (ok && strcmp(CMDS[cur], "bms") == 0) soc = parseSoc(buf.c_str(), buf.length());
     if (ok && (strcmp(CMDS[cur], "state") == 0 || strcmp(CMDS[cur], "status") == 0)) {
         char st[16];
@@ -88,9 +90,13 @@ static void closeCurrent(bool ok) {
 }
 
 bool pollerConsumeLine(const char* line, size_t len) {
-    if (!running || cur < 0) return false;
+    static const char stopping[] = "MBB will hibernate";
+    for (size_t i = 0; i + sizeof(stopping) - 1 <= len; i++)
+        if (memcmp(line + i, stopping, sizeof(stopping) - 1) == 0) { mbbStopping = true; stoppingSinceMs = millis() ? millis() : 1; break; }
+    if (!running || cur < 0 || cur >= NCMD) return false;
     if (isPrompt(line, len)) { closeCurrent(true); return true; }
     if (isUnsolicited(line, len)) return false;   // the log wants these whatever we are doing
+    if (len >= 7 && memcmp(line, "dongle:", 7) == 0) return false;   // the dongle's own markers belong in the file
     if (expectEcho) {
         expectEcho = false;
         if (len == strlen(CMDS[cur]) && memcmp(line, CMDS[cur], len) == 0) return true;   // our own echo
@@ -102,9 +108,12 @@ bool pollerConsumeLine(const char* line, size_t len) {
 
 void pollerTick(bool mbbAwake, bool consoleBusy) {
     uint32_t now = millis();
-    if (mbbAwake != wasAwake) { wasAwake = mbbAwake; if (mbbAwake) awakeSinceMs = now; }
+    if (mbbAwake != wasAwake) { wasAwake = mbbAwake; if (mbbAwake) { awakeSinceMs = now; mbbStopping = false; } }
+    // An announcement the MBB did not follow through on (a key-on inside the
+    // countdown keeps it up) stops mattering after a minute.
+    if (mbbStopping && mbbAwake && now - stoppingSinceMs > 60000) mbbStopping = false;
     if (running) {
-        if (!mbbAwake) { closeCurrent(false); if (running) finish(); return; }
+        if (!mbbAwake || mbbStopping) { finishAfterThis = true; closeCurrent(false); return; }   // it will not answer; keep what we have, end the batch
         if (consoleBusy) finishAfterThis = true;   // the console has priority; stop after this command
         if (now - cmdStartedMs > POLL_TIMEOUT_MS) {
             if (buf.length()) buf += "[dongle: no prompt within the timeout]\n";
@@ -113,8 +122,8 @@ void pollerTick(bool mbbAwake, bool consoleBusy) {
         }
         return;
     }
-    if (!mbbAwake || consoleBusy) return;
-    if (now - awakeSinceMs < POLL_SETTLE_MS) return;   // let the MBB finish booting first
+    if (!mbbAwake || consoleBusy || mbbStopping) return;
+    if (!requested && now - awakeSinceMs < POLL_SETTLE_MS) return;   // the schedule lets the MBB finish booting; a request is the operator's call
     bool due = intervalS && (lastPollMs == 0 || now - lastPollMs >= intervalS * 1000UL);
     if (!requested && !due) return;
     requested = false;
@@ -131,7 +140,8 @@ String pollerListJson() {
         if (i) s += ",";
         s += "{\"name\":\"" + String(CMDS[i]) + "\",\"bytes\":" + String(outputs[i].length()) +
              ",\"age_s\":" + String(outputAtMs[i] ? (long)((millis() - outputAtMs[i]) / 1000) : -1) +
-             ",\"ok\":" + (outputOk[i] ? "true" : "false") + "}";
+             ",\"ok\":" + (outputOk[i] ? "true" : "false") +
+             ",\"failed_s\":" + String(failedAtMs[i] ? (long)((millis() - failedAtMs[i]) / 1000) : -1) + "}";
     }
     return s + "]";
 }

@@ -31,6 +31,8 @@ characterised and the CAN and buck parts are on order. See
   the console pins behave, wiring, CAN, power, parts list.
 - [docs/firmware.md](docs/firmware.md): what phase 1 does, what phase 2
   adds, the Arduino choice and the design rules.
+- [docs/compression.md](docs/compression.md): how the session files are
+  compressed, the learned dictionary, before-and-after figures, flash wear.
 - [docs/sources.md](docs/sources.md): references.
 - [firmware/](firmware/): the PlatformIO project, Arduino framework. Its
   README has the build, the tests, first boot and the endpoints.

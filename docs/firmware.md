@@ -34,8 +34,12 @@ its [README](../firmware/README.md):
    stays attached across every command, because the detach's own NUL makes
    the MBB print a prompt that a prompt-counting framer would take for a
    command's end; the poller waits 20 s after the MBB wakes, never runs
-   while it sleeps, and stands aside for a console client, finishing the
-   command in flight. Responses come back through the capture module's
+   while it sleeps or once it has announced its hibernation, and stands
+   aside for a console client, finishing the command in flight. The
+   announcement expires after a minute if the MBB stays up, a key-on
+   inside the countdown, and a poll requested during it is refused rather
+   than kept. A failed attempt never replaces the last good output; the
+   listing says when each last succeeded and when it last failed. Responses come back through the capture module's
    line queue: the prompt closes a command, lines the MBB prints on its own
    pass through to the log, and everything else is the command's output,
    kept in RAM and out of the log. The last output of each is served raw at
@@ -55,8 +59,9 @@ its [README](../firmware/README.md):
    nothing is refilling; the rest of the time it stays awake and
    reachable. The time of the last such line is kept in flash, written
    while the MBB sleeps. The MBB also prints its long-term storage mode's
-   state at every wake, `LTSM state: INIT to DIS`, so storage mode being
-   enabled is the other trigger worth wiring in: the owner's own
+   state at every wake, `LTSM state: INIT to DIS`, and `bms`, which the
+   poller runs, reports it as `storage mode Inactive`, so storage mode
+   being enabled is the other trigger worth wiring in: the owner's own
    statement that the bike is parked. Two things sleep in this design and
    the words mean different things for each. The MBB's two depths, shallow
    hibernation and deep sleep, are its own and are defined in the sleep
@@ -87,8 +92,10 @@ its [README](../firmware/README.md):
    dongle up. Pin 8 rising wakes it regardless, for
    wakes it did not schedule, at the cost of the first bytes of the banner,
    because the UART runs from the APB clock, which stops in light sleep.
-   With no announcement seen it wakes hourly anyway. WiFi goes down for
-   the sleep and the join brings the services back; the sleep is noted in
+   With no announcement seen it wakes hourly anyway. The WiFi driver is
+   stopped for the sleep and started after, never torn down, so its
+   buffers are not re-allocated into a fragmented heap; a start that
+   fails is counted in the status and retried; the sleep is noted in
    the log with its length and wake source. The ESP32 cannot wake from
    UART2, the port the MBB is on, so the UART is not a wake source. Light
    rather than deep sleep because the DevKit's regulator and USB bridge
@@ -96,40 +103,44 @@ its [README](../firmware/README.md):
    of [hardware.md](hardware.md)), and light sleep keeps RAM and the
    peripherals as they were.
 
-9. **Compressed session files.** A session file is one gzip stream: the
-   gzip header at open, deflate blocks with fixed Huffman codes as lines
-   arrive, a sync flush (an empty stored block) at every commit so the file
-   decodes up to the last commit after a power cut, and the gzip trailer,
-   CRC-32 and length, at session close. Names end `.log.gz`; `gunzip` reads
-   them, the puller inflates and verifies each one and stores the plain
-   `.log`, and a file without its trailer is reported as truncated with the
-   lines recovered. The compressor is uzlib's, patched for a fixed output
-   buffer and for the flushes (see `firmware/lib/uzlib/NOTES`), on fixed
-   arrays: a 4 KB history window plus one line, a 4 KB hash table, and a
-   4 KB output buffer, about 13 KB in all and none of it on the heap. Lines
-   are compressed as they arrive, against the history of the whole file,
-   so the buffer that waits for a commit holds compressed bytes and the
-   commit rule becomes: 3 s of MBB quiet, 15 s, or a full 4 KB buffer. A short
-   write breaks the stream from that point, so it closes the part and the
-   session continues in the next one, with the lines that were in the
-   buffer counted as lost. Measured at the store's real commit boundaries
-   on 48 pulled sessions, the median commit being 300 bytes: 6.8x this way,
-   against 5.7x with every commit its own block and 8.4x for zlib's dynamic
-   Huffman codes, which need 30 KB. That average is carried by the ride
-   and charge files with their repeating heartbeat lines; an hourly wake
-   file on its own compresses about 2.9x, because its text, the banner,
-   the self-test and the hibernate sequence, is static from one wake to
-   the next but appears only once within the file, so the stream's own
-   history cannot match it, and the two stamps on every line are the
-   only truly unique bytes, about a quarter of the compressed size. A
-   dictionary made from one whole wake, with a 32 KB window, takes a wake
-   file from 1.9 KB to 0.7 KB, 9.6x, and with the stamps stripped the
-   next wake is 99% identical to the previous one. The price is a 32 KB
-   history buffer against today's 4 KB, the dictionary copied into RAM
-   beside it, a zlib or raw-deflate framing instead of gzip because gzip
-   cannot name a preset dictionary, and the dictionary versioned by id
-   with the puller holding every version. A phase 2 item, worth it once
-   the flash rather than the RAM is the tighter constraint.
+9. **Compressed session files, with a dictionary the dongle learns.** A
+   session file is one zlib stream: deflate blocks with fixed Huffman
+   codes as lines arrive, a sync flush (an empty stored block) at every
+   commit so the file decodes up to the last commit after a power cut,
+   and the Adler-32 trailer at session close. Names end `.log.z`. The
+   stream's window is a dictionary followed by 8 KB of history, so a line
+   can match text from this file or from the dictionary alike, and the
+   header names the dictionary by its Adler-32, as zlib's FDICT does.
+
+   The dictionary is the dongle's own: the lines that keep coming back on
+   this bike, learned from its sessions. Every MBB line is stripped of its
+   stamps and looked up; one already in the dictionary is marked as used,
+   a new one is kept as a candidate. At a session's end with the MBB
+   asleep, if the session brought more than 1 KB of new lines and the
+   last rebuild is over an hour old, the dictionary is rebuilt as the
+   proven lines first, then the new, then the rest, to 6 KB, verified on
+   the flash as `dict-<id>.txt`, and used from the next session on; the
+   session header carries the id too. The proven marks age, so a line the
+   bike stops printing falls off. Dictionary files are never
+   reclaimed for space; one is deleted only when no session file on the
+   flash names it and it is not the one in use. The puller fetches a
+   dictionary by id the first time a file needs it and keeps every version
+   beside the files, so a lost session file costs only itself and a lost
+   dictionary costs only the files that named it. A fresh board starts
+   without one and learns it from its first sessions.
+
+   The measurements behind this, per file and against the naive design and
+   a baked-in dictionary, are in [compression.md](compression.md), with
+   what a rebuild costs the flash. The compressor is uzlib's, patched for
+   a fixed output buffer and the flushes (see `firmware/lib/uzlib/NOTES`),
+   on fixed arrays: the dictionary, history and line window, a hash table,
+   a 4 KB output buffer, the candidate buffer, about 34 KB in all and none
+   of it on the heap. Lines are
+   compressed as they arrive, so the buffer that waits for a commit holds
+   compressed bytes and the commit rule is 3 s of MBB quiet, 15 s, or a
+   full 4 KB buffer. A short write breaks the stream, so that part closes
+   and the session continues in the next one, with the lines that were
+   waiting counted as lost.
 
 Phase 2, in likely order:
 
@@ -222,7 +233,7 @@ flags.
   programs pages, 2179 lines in 20 s lose 2; on a filesystem in use, where a
   12 KB commit erases three sectors at about 45 ms each with the interrupt
   suspended, 1926 lines in 15 s lose 261, every loss marked. With the
-  interrupt in IRAM the 16 KB ring absorbs any erase and neither number is
+  interrupt in IRAM the 8 KB ring absorbs any erase and neither number is
   above zero, and the quiet-time commit rule becomes an optimisation. Real
   MBB traffic is a few lines a minute with bursts of a dozen, which the
   quiet rule keeps clear of the erases.

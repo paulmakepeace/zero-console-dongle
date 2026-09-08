@@ -10,11 +10,12 @@ void storeShutdown();   // before a deliberate restart: end the session, drop wa
 void storeAppend(const String& line, bool fromMbb = true);   // notes alone never open a session
 void storeTick(bool mbbQuiet);   // the caller knows whether the MBB is talking
 String storeActiveName();
-String storeListJson();
 StoreDeleteResult storeDelete(const String& name);
 File storeOpenRead(const String& name, bool* busy = nullptr);   // pair with storeReadDone; the file is safe from reclaim meanwhile; busy: no free reader
 void storeReadDone(const String& name);
 void storeStats(size_t& total, size_t& used);
+// Walk the log directory without holding it in RAM: one callback per file.
+void storeForEachFile(void (*fn)(void* ctx, const char* name, size_t size, bool active), void* ctx);
 String storeLastLines();
 uint32_t storeBootCount();
 uint32_t storeDroppedLines();

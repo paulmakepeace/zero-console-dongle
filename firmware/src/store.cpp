@@ -10,15 +10,15 @@
 #include "config.h"
 #include "clock.h"
 #include "util.h"
+#include "net.h"   // sysFeedWatchdog
 #include <LittleFS.h>
 #include <Preferences.h>
-#include <vector>
-#include <algorithm>
+#include <dirent.h>
+#include <sys/stat.h>
 #include "esp_mac.h"
 #include "pure/names.h"
-#include "pure/gzstream.h"
-
-struct Entry { String name; size_t size; };
+#include "pure/zstream.h"
+#include "pure/dictkeeper.h"
 
 static SemaphoreHandle_t mtx;
 static File active;
@@ -36,7 +36,10 @@ static uint32_t lastRotateMs = 0;
 static uint32_t lastReclaimMs = (uint32_t)0 - RECLAIM_GAP_MS - 1;   // the first failure may reclaim at once
 static uint32_t lastOpenFailMs = (uint32_t)0 - RECLAIM_GAP_MS - 1;
 static uint32_t lastSpaceCheckMs = 0;
-static GzStream<GZ_HISTORY, GZ_LINE_CAP, GZ_OUT, GZ_HASH_BITS> gz;   // fixed arrays, never on the heap
+static ZStream<GZ_DICT, GZ_HISTORY, GZ_LINE_CAP, GZ_OUT, GZ_HASH_BITS> gz;   // fixed arrays, never on the heap
+static DictKeeper<GZ_DICT, DICT_CAND, DICT_MAX_LINES, GZ_LINE_CAP> keeper;    // the dictionary, learned from the sessions
+static uint32_t dictId = 0;         // the dictionary on flash and in use, by its Adler-32; 0 for none
+static uint32_t lastDictRefreshMs = 0;
 static bool streamOpen = false;  // gz is begun
 static bool named = false;       // the session has its name and header
 static bool endWanted = false;   // the session ended before its file could be created; close at the first commit
@@ -65,40 +68,93 @@ static bool isOpenForRead(const String& name) {
     for (auto& n : openForRead) if (n == name) return true;
     return false;
 }
-
-static std::vector<Entry> listEntries() {
-    std::vector<Entry> out;
-    File dir = LittleFS.open(LOG_DIR);
-    if (!dir) return out;
-    for (File f = dir.openNextFile(); f; f = dir.openNextFile()) {
-        if (f.isDirectory()) continue;
-        String n = f.name();
-        int slash = n.lastIndexOf('/');
-        if (slash >= 0) n = n.substring(slash + 1);
-        out.push_back({n, (size_t)f.size()});
-    }
-    std::sort(out.begin(), out.end(), [](const Entry& a, const Entry& b) { return a.name < b.name; });
-    return out;
+static bool isOpenForRead(const char* name) {
+    for (auto& n : openForRead) if (n == name) return true;
+    return false;
 }
 
-static size_t freeBytes() { return LittleFS.totalBytes() - LittleFS.usedBytes(); }
+// One pass over the directory through POSIX readdir: nothing of it held in
+// RAM, no File object, and a stat (a directory lookup per entry) only when
+// the caller wants sizes.
+template <class F>
+static void forEachFile(F&& fn, bool withSizes) {
+    const char* mp = LittleFS.mountpoint();
+    if (!mp) return;
+    char base[64];
+    snprintf(base, sizeof base, "%s%s", mp, LOG_DIR);
+    DIR* d = opendir(base);
+    if (!d) return;
+    struct dirent* e;
+    while ((e = readdir(d)) != nullptr) {
+        if (e->d_type == DT_DIR) continue;
+        size_t size = 0;
+        if (withSizes) {
+            char path[sizeof base + 258];
+            snprintf(path, sizeof path, "%s/%s", base, e->d_name);
+            struct stat st;
+            if (stat(path, &st) != 0 || S_ISDIR(st.st_mode)) continue;
+            size = (size_t)st.st_size;
+        }
+        fn(e->d_name, size);
+    }
+    closedir(d);
+}
 
-// Delete oldest first until the reserve is back. Returns true if anything went.
+// The partition's size never changes; asking is a full traversal.
+static size_t totalBytes() {
+    static size_t total = 0;
+    if (!total) total = LittleFS.totalBytes();
+    return total;
+}
+
+void storeForEachFile(void (*fn)(void*, const char*, size_t, bool), void* ctx) {
+    Lock l;
+    forEachFile([&](const char* n, size_t size) { fn(ctx, n, size, activeName == n); }, true);
+}
+
+static size_t freeBytes() { return totalBytes() - LittleFS.usedBytes(); }
+
+static void dictCollect();
+
+// Delete oldest first until the reserve is back. One walk collects the eight
+// oldest deletable names, then they go in order until the filesystem says
+// the reserve is back; a name that will not delete is skipped from then on,
+// and three refusals in a row end the attempt.
 static bool ensureSpace() {
     if (freeBytes() >= FS_MIN_FREE) return false;
-    bool freed = false;
-    for (auto& e : listEntries()) {
-        if (e.name == activeName || isOpenForRead(e.name)) continue;
-        if (!LittleFS.remove(pathOf(e.name))) {
-            Serial.printf("store: cannot delete %s\n", e.name.c_str());
-            continue;
+    dictCollect();   // dictionaries nothing names cost nothing to drop, and go first
+    if (freeBytes() >= FS_MIN_FREE) return true;
+    char floor[65] = "";   // names at or below this were tried and refused
+    int refusals = 0;
+    for (int round = 0; round < 4; round++) {
+        sysFeedWatchdog();
+        char oldest[8][65];
+        int n = 0;
+        forEachFile([&](const char* name, size_t) {
+            if (strncmp(name, "dict-", 5) == 0 || activeName == name || isOpenForRead(name)) return;
+            if (floor[0] && strcmp(name, floor) <= 0) return;
+            // Keep the eight smallest, sorted: insert, then drop the largest.
+            int i = n < 8 ? n++ : 7;
+            if (i == 7 && n == 8 && strcmp(name, oldest[7]) >= 0) return;
+            while (i > 0 && strcmp(name, oldest[i - 1]) < 0) { strlcpy(oldest[i], oldest[i - 1], 65); i--; }
+            strlcpy(oldest[i], name, 65);
+        }, false);
+        if (n == 0) break;
+        for (int i = 0; i < n; i++) {
+            sysFeedWatchdog();
+            strlcpy(floor, oldest[i], sizeof floor);
+            if (!LittleFS.remove(pathOf(oldest[i]))) {
+                Serial.printf("store: cannot delete %s\n", oldest[i]);
+                if (++refusals >= 3) { Serial.println("store: giving up on the reclaim for now"); return false; }
+                continue;
+            }
+            refusals = 0;
+            Serial.printf("store: deleted %s for space\n", oldest[i]);
+            if (freeBytes() >= FS_MIN_FREE) return true;   // the filesystem counts in blocks; ask it, do not guess
         }
-        Serial.printf("store: deleted %s for space\n", e.name.c_str());
-        freed = true;
-        if (freeBytes() >= FS_MIN_FREE) return true;   // the filesystem counts in blocks; ask it, do not guess
     }
-    if (!freed) Serial.println("store: nothing to delete; every file is active or being read");
-    return freed;
+    Serial.println("store: the reserve is not back; every file is active, being read, or will not delete");
+    return false;
 }
 
 bool storeBegin(const char* resetReason) {
@@ -132,7 +188,120 @@ bool storeBegin(const char* resetReason) {
     }
     Serial.printf("store: boot %lu, %u of %u bytes used\n", (unsigned long)bootCount,
                   (unsigned)LittleFS.usedBytes(), (unsigned)LittleFS.totalBytes());
+    p.begin("dongle", true);
+    uint32_t id = p.getUInt("dict", 0);
+    p.end();
+    if (id) {
+        char name[24];
+        snprintf(name, sizeof name, "dict-%08lx.txt", (unsigned long)id);
+        File f = LittleFS.open(pathOf(name), FILE_READ);
+        size_t n = f ? f.read(gz.scratch(), GZ_DICT) : 0;
+        if (f) f.close();
+        if (n && uzlib_adler32(gz.scratch(), n, 1) == id) { keeper.load(gz.scratch(), n); dictId = id; }
+        else Serial.printf("store: dictionary %s missing or damaged; starting without one\n", name);
+    }
+    Serial.printf("store: dictionary %08lx, %u bytes, %u lines\n", (unsigned long)dictId, (unsigned)keeper.dlen, (unsigned)keeper.nlines);
     return true;
+}
+
+// The dictionary files a session file still needs are found by the id in
+// its header; the rest go, except the one in use. Two passes over the
+// directory with fixed arrays; with more ids in play than fit, nothing goes.
+static void dictCollect() {
+    // Nothing to do unless a dictionary other than the one in use exists.
+    bool candidate = false;
+    forEachFile([&](const char* n, size_t) {
+        if (strncmp(n, "dict-", 5) != 0) return;
+        uint32_t id = strtoul(n + 5, nullptr, 16);
+        if (!(dictId && id == dictId)) candidate = true;
+    }, false);
+    if (!candidate) return;
+    uint32_t inUse[32];
+    int nInUse = 0;
+    char unsure[65] = "";   // a header that could not be read, or more ids than fit: then nothing goes
+    forEachFile([&](const char* n, size_t) {
+        size_t len = strlen(n);
+        if (len < 6 || strcmp(n + len - 6, ".log.z") != 0) return;
+        sysFeedWatchdog();   // one open per file; many files take a while
+        File f = LittleFS.open(pathOf(n), FILE_READ);
+        uint8_t h[6];
+        if (!f || f.read(h, 6) != 6) { strlcpy(unsure, n, sizeof unsure); if (f) f.close(); return; }
+        f.close();
+        if (h[0] != 0x78 || !(h[1] & 0x20)) return;   // no dictionary named
+        uint32_t id = ((uint32_t)h[2] << 24) | ((uint32_t)h[3] << 16) | ((uint32_t)h[4] << 8) | h[5];
+        for (int i = 0; i < nInUse; i++) if (inUse[i] == id) return;
+        if (nInUse < 32) inUse[nInUse++] = id; else strlcpy(unsure, "(more than 32 dictionaries named)", sizeof unsure);
+    }, false);
+    if (unsure[0]) { Serial.printf("store: dictionaries not collected: %s\n", unsure); return; }
+    char victims[8][24];
+    int nVictims = 0;
+    forEachFile([&](const char* n, size_t) {
+        if (strncmp(n, "dict-", 5) != 0 || nVictims >= 8) return;
+        uint32_t id = strtoul(n + 5, nullptr, 16);
+        if ((dictId && id == dictId) || isOpenForRead(n)) return;
+        for (int i = 0; i < nInUse; i++) if (inUse[i] == id) return;
+        strlcpy(victims[nVictims++], n, 24);
+    }, false);
+    for (int i = 0; i < nVictims; i++)
+        if (LittleFS.remove(pathOf(victims[i]))) Serial.printf("store: dictionary %s no longer needed\n", victims[i]);
+}
+
+// At a session's end with the MBB asleep: if the session taught enough,
+// rebuild the dictionary, write it as a file the puller can fetch by id,
+// and use it from the next session on.
+static void dictMaybeRefresh() {
+    if (!ok || streamOpen) return;   // no filesystem, or the stream still holds a session and the scratch space is in use
+    bool due = keeper.noveltyBytes() >= DICT_NOVELTY && (lastDictRefreshMs == 0 || millis() - lastDictRefreshMs > DICT_REFRESH_MIN_MS);
+    if (!due) { keeper.endSession(DICT_MARK_SESSIONS); return; }
+    size_t newBytes = 0;
+    size_t n = keeper.rebuild(gz.scratch(), GZ_DICT, &newBytes);
+    uint32_t id = uzlib_adler32(gz.scratch(), n, 1);
+    if (n == 0 || id == dictId || newBytes == 0) { keeper.endSession(DICT_MARK_SESSIONS); return; }   // nothing learned: no file
+    char name[24];
+    snprintf(name, sizeof name, "dict-%08lx.txt", (unsigned long)id);
+    const char* tmpName = "dict-new.tmp";
+    ensureSpace();   // a no-op above the reserve
+    // Written to a temporary name, flushed, and read back against its id
+    // before anything names it: a dictionary the puller cannot verify would
+    // cost every session that named it, and a name already on the flash is
+    // never truncated.
+    bool good;
+    if (LittleFS.exists(pathOf(name))) {
+        // The same id is already on the flash: adopt what the flash holds,
+        // read into the scratch, rather than trust a checksum match alone.
+        File r = LittleFS.open(pathOf(name), FILE_READ);
+        size_t got = r ? r.read(gz.scratch(), GZ_DICT) : 0;
+        if (r) r.close();
+        good = got == n && uzlib_adler32(gz.scratch(), got, 1) == id;
+    } else {
+        File f = LittleFS.open(pathOf(tmpName), FILE_WRITE);
+        good = f && f.write(gz.scratch(), n) == n;
+        if (f) { f.flush(); good = good && f.size() == n; f.close(); }
+        if (good) good = LittleFS.rename(pathOf(tmpName), pathOf(name));
+        if (!good) LittleFS.remove(pathOf(tmpName));
+    }
+    if (good) {
+        File r = LittleFS.open(pathOf(name), FILE_READ);
+        uint8_t buf[256];
+        uint32_t check = 1;
+        size_t got = 0;
+        while (r) { size_t k = r.read(buf, sizeof buf); if (!k) break; check = uzlib_adler32(buf, k, check); got += k; }
+        if (r) r.close();
+        good = got == n && check == id;
+    }
+    Preferences p;
+    bool named = good && p.begin("dongle", false) && p.putUInt("dict", id) == sizeof(uint32_t);
+    p.end();
+    if (!named) {
+        Serial.println("store: dictionary not written; keeping the old one");
+        keeper.endSession(DICT_MARK_SESSIONS);
+        return;
+    }
+    keeper.load(gz.scratch(), n);
+    dictId = id;
+    lastDictRefreshMs = millis() ? millis() : 1;
+    Serial.printf("store: dictionary %s, %u bytes, %u lines, %u new\n", name, (unsigned)n, (unsigned)keeper.nlines, (unsigned)newBytes);
+    dictCollect();
 }
 
 // A session is a stream in RAM until it earns a file. The stream starts at
@@ -142,7 +311,7 @@ bool storeBegin(const char* resetReason) {
 // flash is not touched while the MBB is talking.
 static void streamStart() {
     if (streamOpen) return;
-    gz.begin();
+    gz.begin(keeper.dict, keeper.dlen);
     streamOpen = true;
     named = false;
     endWanted = false;
@@ -165,6 +334,9 @@ static void sessionName(const String& firstStamp) {
     String header = (firstStamp.length() ? firstStamp : clockStamp()) +
                     " dongle: session start, " + boardName + ", id " + sessionId + ", part " + String(sessionPart) +
                     ", boot " + String(bootCount) + " (" + bootReason + "), time " + clockSourceName() + ", fw " FW_VERSION;
+    char d[16];
+    snprintf(d, sizeof d, ", dict %08lx", (unsigned long)dictId);
+    header += d;
     if (gz.add(header.c_str(), header.length())) pendingLines++;   // GZ_HEADER_ROOM was kept for it
     else { droppedLines++; Serial.println("store: no room for the session header"); }
 }
@@ -287,6 +459,7 @@ void storeSessionClose() {
     // stream stays open and the notes wait for the next session.
     if (streamOpen && !active && !pendingHasMbb) return;
     sessionEnd("session end");
+    dictMaybeRefresh();   // the MBB is asleep: the one time a dictionary may be written
 }
 
 // The stream's buffer to the flash. Notes alone wait for MBB lines to join
@@ -349,6 +522,7 @@ void storeAppend(const String& line, bool fromMbb) {
     if (fromMbb && !pendingHasMbb) pendingSinceMs = millis();   // the 15 s bound counts from the first MBB line
     pendingLines++;
     rawBytes += line.length() + 1;
+    if (fromMbb) keeper.note(line.c_str(), line.length());
     if (fromMbb) pendingHasMbb = true;
 }
 
@@ -369,25 +543,12 @@ String storeActiveName() {
     return activeName;
 }
 
-String storeListJson() {
-    Lock l;
-    String out = "[";
-    bool first = true;
-    for (auto& e : listEntries()) {
-        if (!first) out += ",";
-        first = false;
-        out += "{\"name\":\"" + jsonEscape(e.name) + "\",\"size\":" + String(e.size) +
-               ",\"active\":" + (e.name == activeName ? "true" : "false") + "}";
-    }
-    out += "]";
-    return out;
-}
-
 static bool nameOk(const String& name) { return logNameOk(name.c_str(), name.length()); }
 
 StoreDeleteResult storeDelete(const String& name) {
     Lock l;
     if (!nameOk(name) || name == activeName || isOpenForRead(name)) return STORE_REFUSED;
+    if (name.startsWith("dict-")) return STORE_REFUSED;   // collected on their own once nothing names them
     if (!LittleFS.exists(pathOf(name))) return STORE_NOT_FOUND;
     return LittleFS.remove(pathOf(name)) ? STORE_DELETED : STORE_REFUSED;
 }
@@ -411,8 +572,8 @@ void storeReadDone(const String& name) {
 
 void storeStats(size_t& total, size_t& used) {
     Lock l;
-    total = LittleFS.totalBytes();
-    used = LittleFS.usedBytes();
+    total = ok ? totalBytes() : 0;
+    used = ok ? LittleFS.usedBytes() : 0;
 }
 
 String storeLastLines() {
@@ -442,19 +603,21 @@ String storeMetricsJson() {
     Lock l;
     static uint32_t cachedAtMs = 0;
     static uint32_t files = 0, bytes = 0;
-    if (ok && (cachedAtMs == 0 || millis() - cachedAtMs > 10000)) {   // a directory scan: not on every status call
+    if (ok && (cachedAtMs == 0 || millis() - cachedAtMs > 10000)) {   // a directory walk: not on every status call
         cachedAtMs = millis() ? millis() : 1;
-        files = 0; bytes = 0;
-        for (auto& e : listEntries()) { files++; bytes += e.size; }
+        files = 0;
+        forEachFile([&](const char*, size_t) { files++; }, false);
     }
-    size_t total = ok ? LittleFS.totalBytes() : 0, used = ok ? LittleFS.usedBytes() : 0;
+    size_t total = ok ? totalBytes() : 0, used = ok ? LittleFS.usedBytes() : 0;
+    bytes = used;   // the files, plus a little metadata; a stat per file would cost a directory lookup each
     float ratio = storedBytes ? (float)rawBytes / storedBytes : 0;
     uint32_t upS = millis() / 1000;
     long daysLeft = -1;   // meaningful once an hour of rate is known
     if (upS > 3600 && storedBytes > 0 && total > used) daysLeft = (long)((double)(total - used) / storedBytes * upS / 86400.0);
-    char b[200];
-    snprintf(b, sizeof b, "{\"files\":%lu,\"bytes\":%lu,\"fs_used\":%u,\"fs_total\":%u,\"raw_bytes\":%lu,\"stored_bytes\":%lu,\"ratio\":%.1f,\"days_left\":%ld}",
-             (unsigned long)files, (unsigned long)bytes, (unsigned)used, (unsigned)total, (unsigned long)rawBytes, (unsigned long)storedBytes, ratio, daysLeft);
+    char b[260];
+    snprintf(b, sizeof b, "{\"files\":%lu,\"bytes\":%lu,\"fs_used\":%u,\"fs_total\":%u,\"raw_bytes\":%lu,\"stored_bytes\":%lu,\"ratio\":%.1f,\"days_left\":%ld,\"dict\":\"%08lx\",\"dict_bytes\":%u,\"dict_lines\":%u,\"novelty\":%u}",
+             (unsigned long)files, (unsigned long)bytes, (unsigned)used, (unsigned)total, (unsigned long)rawBytes, (unsigned long)storedBytes, ratio, daysLeft,
+             (unsigned long)dictId, (unsigned)keeper.dlen, (unsigned)keeper.nlines, (unsigned)keeper.noveltyBytes());
     return String(b);
 }
 

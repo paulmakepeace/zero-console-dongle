@@ -9,9 +9,13 @@ default host is this bike's unit and DONGLE_HOST in the environment
 overrides it. Files go to logs/dongle/NAME/, one directory per board, unless
 --dest names a directory, which is then used as given.
 
-Skips the file the dongle is still writing. A `.log.gz` file is inflated
-and stored as the plain `.log`; one without its gzip trailer, cut off by a
-power loss, is stored as far as it decodes and reported as truncated. A
+Skips the file the dongle is still writing. A `.log.z` (zlib, with the
+dongle's own dictionary named in its header) or `.log.gz` file is inflated
+and stored as the plain `.log`; one without its trailer, cut off by a power
+loss, is stored as far as it decodes and reported as truncated. Dictionaries
+are fetched from the dongle by id when first needed and kept under
+`dicts/` beside the files; the dongle's `dict-*` files are never deleted
+by this script. A
 file is deleted from the dongle only after the download's size matches
 what the dongle reported, the stream decodes, and the file and its
 directory entry are on disk. --keep downloads without
@@ -65,12 +69,24 @@ def fetch(url, method="GET", timeout=60, tries=2):
             time.sleep(2)
 
 
-def inflate(data):
-    """A gzip stream to its bytes. Returns (bytes, complete, note): a stream
-    cut off before its trailer still yields everything up to the last flush;
-    a stream that fails part-way (a flash bit error) yields what decoded
-    before the error, with a note saying so."""
-    d = zlib.decompressobj(31)
+def dictionary_id(data):
+    """The dictionary a zlib stream names in its header, or None."""
+    if len(data) >= 6 and data[0] == 0x78 and data[1] & 0x20:
+        return int.from_bytes(data[2:6], "big")
+    return None
+
+
+def inflate(data, zdict=None):
+    """A gzip or zlib stream to its bytes. Returns (bytes, complete, note): a
+    stream cut off before its trailer still yields everything up to the last
+    flush; a stream that fails part-way (a flash bit error) yields what
+    decoded before the error, with a note saying so."""
+    if data[:2] == b"\x1f\x8b":
+        d = zlib.decompressobj(31)
+    elif zdict is not None:
+        d = zlib.decompressobj(15, zdict=zdict)
+    else:
+        d = zlib.decompressobj(15)
     out = b""
     for k in range(0, len(data), 512):   # in pieces, so a late error keeps the early bytes
         before = d.copy()
@@ -88,6 +104,27 @@ def inflate(data):
             return out, False, "%d byte(s) decoded, then the stream fails: %s" % (len(out), exc)
     note = "bytes after the gzip trailer" if d.unused_data else ""
     return out, d.eof, note
+
+
+def dictionary(base, dest, did):
+    """The dictionary with this id, from the local cache or the dongle."""
+    cache = os.path.join(dest, "dicts")
+    os.makedirs(cache, exist_ok=True)
+    path = os.path.join(cache, "%08x.txt" % did)
+    if os.path.exists(path):
+        with open(path, "rb") as f:
+            d = f.read()
+    else:
+        d = fetch("%s/logs/dict-%08x.txt" % (base, did), timeout=30)
+        if zlib.adler32(d) & 0xFFFFFFFF != did:
+            raise ValueError("the dongle's dict-%08x.txt does not match its id" % did)
+        tmp = "%s.part.%d" % (path, os.getpid())
+        with open(tmp, "wb") as f:
+            f.write(d)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    return d
 
 
 def resolve(host):
@@ -164,6 +201,8 @@ def main():
         if f.get("active"):
             print("skip  %s (active)" % name)
             continue
+        if name.startswith("dict-"):
+            continue   # fetched by id when a file needs it, never deleted from here
         try:
             data = fetch("%s/logs/%s" % (base, name))
         except HttpFail as exc:
@@ -188,10 +227,23 @@ def main():
             print("note  %s is empty" % name)
         local = name
         raw = None
-        if name.endswith(".gz"):
-            local = name[:-3]
+        if name.endswith(".gz") or name.endswith(".z"):
+            local = name[:-3] if name.endswith(".gz") else name[:-2]
             raw = data
-            data, complete, note = inflate(raw)
+            zdict = None
+            did = dictionary_id(raw)
+            if did is not None:
+                try:
+                    zdict = dictionary(base, args.dest, did)
+                except Exception as exc:
+                    # Keep the bytes: the dictionary may turn up later; the dongle's copy stays.
+                    keep = os.path.join(args.dest, name)
+                    with open(keep, "wb") as f:
+                        f.write(raw)
+                    warn("FAIL  %s: needs dictionary %08x (%s); raw kept as %s, not deleted" % (name, did, exc, keep))
+                    failed += 1
+                    continue
+            data, complete, note = inflate(raw, zdict)
             if note:
                 warn("note  %s: %s; the raw .gz is kept beside the .log" % (name, note))
             elif not complete and size:
@@ -221,7 +273,7 @@ def main():
                     os.fsync(out.fileno())
                 os.replace(tmp, dest)
                 if raw is not None:   # the damaged stream itself, for a second look, beside its .log
-                    rawdest = dest + ".gz"
+                    rawdest = dest + (".gz" if name.endswith(".gz") else ".z")
                     rawtmp = "%s.part.%d" % (rawdest, os.getpid())
                     with open(rawtmp, "wb") as out:
                         out.write(raw)

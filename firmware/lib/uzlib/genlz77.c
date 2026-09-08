@@ -103,14 +103,21 @@ void uzlib_compress(struct uzlib_comp *data, const uint8_t *src, unsigned slen)
         const uint8_t **bucket = &data->hash_table[h & (HASH_SIZE - 1)];
         const uint8_t *subs = *bucket;
         *bucket = src;
-        if (subs && src > subs && (src - subs) <= MAX_OFFSET && !memcmp(src, subs, MIN_MATCH)) {
+        unsigned dist = subs ? (unsigned)(src - subs) : 0;
+        int inDict = subs && data->dict_end && subs < data->dict_end;
+        if (inDict) dist += data->dict_extra;   /* the true distance in the stream */
+        if (inDict && subs + MIN_MATCH > data->dict_end) subs = 0;   /* a candidate straddling the dictionary's end is no candidate */
+        if (subs && src > subs && dist <= MAX_OFFSET && !memcmp(src, subs, MIN_MATCH)) {
             src += MIN_MATCH;
             const uint8_t *m = subs + MIN_MATCH;
+            /* a match in the dictionary may not run on into the data behind it:
+             * in the decoder's stream the two are not adjacent */
+            const uint8_t *mend = (data->dict_end && subs < data->dict_end) ? data->dict_end : 0;
             int len = MIN_MATCH;
-            while (*src == *m && len < MAX_MATCH && src < top) {
+            while (*src == *m && len < MAX_MATCH && src < top && (!mend || m < mend)) {
                 src++; m++; len++;
             }
-            copy(data, src - len - subs, len);
+            copy(data, dist, len);
         } else {
             literal(data, *src++);
         }
@@ -128,7 +135,7 @@ void uzlib_compress(struct uzlib_comp *data, const uint8_t *src, unsigned slen)
 void uzlib_hash_add(struct uzlib_comp *data, const uint8_t *src, unsigned slen)
 {
     if (slen < MIN_MATCH) return;
-    const uint8_t *top = src + slen - MIN_MATCH;
+    const uint8_t *top = src + slen - MIN_MATCH + 1;
     while (src < top) {
         int h = HASH(data, src);
         data->hash_table[h & (HASH_SIZE - 1)] = src;

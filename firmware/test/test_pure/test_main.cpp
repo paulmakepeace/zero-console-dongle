@@ -8,6 +8,7 @@
 #include "json_escape.h"
 #include "hibernate.h"
 #include "mbb_parse.h"
+#include "dictkeeper.h"
 
 void setUp() {}
 void tearDown() {}
@@ -125,7 +126,7 @@ void test_session_name_sorts_by_creation() {
     sessionName(a, sizeof a, 99, 12, "20260907-191951");
     sessionName(b, sizeof b, 100, 1, "nosync");
     sessionName(c, sizeof c, 100, 2, "20260907-194117");
-    TEST_ASSERT_EQUAL_STRING("b0099-012-20260907-191951.log.gz", a);
+    TEST_ASSERT_EQUAL_STRING("b0099-012-20260907-191951.log.z", a);
     TEST_ASSERT_TRUE(strcmp(a, b) < 0);
     TEST_ASSERT_TRUE(strcmp(b, c) < 0);
     TEST_ASSERT_TRUE(ok(a) && ok(b) && ok(c));
@@ -202,6 +203,8 @@ void test_prompt_and_unsolicited() {
     const char* b = "09/07/2026 21:58:20.937 - State change from CHRG to STOP";
     TEST_ASSERT_TRUE(isUnsolicited(b, strlen(b)));
     TEST_ASSERT_TRUE(isUnsolicited("Disch limits: curr 819", 22));
+    const char* c2 = "09/08/2026 04:08:28.513 - LTSM state: INIT to DIS";
+    TEST_ASSERT_TRUE(isUnsolicited(c2, strlen(c2)));   // the MBB's own stamp opens it
     TEST_ASSERT_FALSE(isUnsolicited(" Bike State: CHRG", 17));
     TEST_ASSERT_FALSE(isUnsolicited("     - soc               86", 27));
 }
@@ -226,8 +229,55 @@ void test_pack_row() {
     TEST_ASSERT_EQUAL(86, r.soc); TEST_ASSERT_EQUAL(108555, r.packMv); TEST_ASSERT_EQUAL(-12284, r.currentMa);
     TEST_ASSERT_EQUAL(84, r.capacityAh); TEST_ASSERT_EQUAL(3873, r.lowCellMv); TEST_ASSERT_EQUAL(31, r.tempHiC); TEST_ASSERT_EQUAL(29, r.tempLoC);
     TEST_ASSERT_FALSE(parsePackRow("no table here\n", 14, r));
+    const char* ruled = " BMS | SOC |  Pack V  | Current | Capacity|  L cell  | H temp | L temp | Cont | Elig\n ----+-----+----------+---------+---------+----------+--------+--------+------+------+\n   2   85 %  107900 mV       0 mA     84 AH    3850 mV    22 C    21 C      -     + + \n";
+    TEST_ASSERT_TRUE(parsePackRow(ruled, strlen(ruled), r));
+    TEST_ASSERT_EQUAL(85, r.soc); TEST_ASSERT_EQUAL(0, r.currentMa); TEST_ASSERT_EQUAL(22, r.tempHiC);
     const char* shortRow = " BMS | SOC |\n   2   86 %\n";
     TEST_ASSERT_FALSE(parsePackRow(shortRow, strlen(shortRow), r));
+}
+
+// --- dictkeeper -----------------------------------------------------------
+static std::string strip(const char* l) { char b[300]; size_t n = stripStamps(l, strlen(l), b, sizeof b); return std::string(b, n); }
+
+void test_strip_stamps() {
+    TEST_ASSERT_EQUAL_STRING("DEBUG:   ../src/Application/zero_mbb_manage_bike.c : line 650 - Control flags changed",
+        strip("2026-09-08T05:09:58.422 DEBUG:   09/08/2026 05:09:56.050  ../src/Application/zero_mbb_manage_bike.c : line 650 - Control flags changed").c_str());
+    TEST_ASSERT_EQUAL_STRING("DEBUG: something new here", strip("2026-09-08T04:08:25.001 DEBUG: 09/08/2026 04:08:25.000 something new here").c_str());
+    TEST_ASSERT_EQUAL_STRING("- State change from STRT to PWSU", strip("2026-09-08T04:08:25.076 09/08/2026 04:08:25.076 - State change from STRT to PWSU").c_str());
+    TEST_ASSERT_EQUAL_STRING("*              Zero Motorcycles MBB                         *", strip("u000012.345 *              Zero Motorcycles MBB                         *   ").c_str());
+    TEST_ASSERT_EQUAL_STRING("", strip("2026-09-08T04:08:25.076").c_str());
+}
+
+static DictKeeper<1024, 512, 120, 300> keeper;
+
+void test_keeper_learns_and_rebuilds_with_used_lines_kept() {
+    keeper.load((const uint8_t*)"old line one\nold line two\nold line three\n", 41);
+    TEST_ASSERT_EQUAL(3, keeper.nlines);
+    auto note = [](const char* l) { keeper.note(l, strlen(l)); };
+    note("2026-09-08T04:08:25.000 old line two");                                              // used
+    note("2026-09-08T04:08:25.001 DEBUG: 09/08/2026 04:08:25.000 something new here");   // novel
+    note("2026-09-08T04:08:25.002 DEBUG: 09/08/2026 04:08:26.000 something new here");   // the same, once stripped
+    note("2026-09-08T04:08:25.003 short");                                                     // too short to matter
+    TEST_ASSERT_EQUAL(strlen("DEBUG: something new here") + 1, keeper.noveltyBytes());
+    uint8_t out[1024];
+    size_t n = keeper.rebuild(out, sizeof out);
+    TEST_ASSERT_EQUAL_STRING("old line two\nDEBUG: something new here\nold line one\nold line three\n", std::string((char*)out, n).c_str());   // proven, then new, then the rest
+    n = keeper.rebuild(out, 40);   // a cap keeps the front, whole lines only
+    TEST_ASSERT_EQUAL_STRING("old line two\nDEBUG: something new here\n", std::string((char*)out, n).c_str());
+    keeper.load(out, n);
+    TEST_ASSERT_EQUAL(2, keeper.nlines);
+    TEST_ASSERT_EQUAL(0, keeper.noveltyBytes());
+}
+
+void test_keeper_candidate_buffer_is_bounded() {
+    keeper.load((const uint8_t*)"", 0);
+    for (int i = 0; i < 100; i++) {
+        char l[80];
+        int n = snprintf(l, sizeof l, "2026-09-08T04:08:25.%03d line number %d is unique", i, i);
+        keeper.note(l, n);
+    }
+    TEST_ASSERT_TRUE(keeper.noveltyBytes() <= 512);
+    TEST_ASSERT_TRUE(keeper.noveltyBytes() > 400);
 }
 
 int main() {
@@ -247,6 +297,9 @@ int main() {
     RUN_TEST(test_seconds_until_wake);
     RUN_TEST(test_sleep_chunks_land_before_the_mbb);
     RUN_TEST(test_attended_lines);
+    RUN_TEST(test_strip_stamps);
+    RUN_TEST(test_keeper_learns_and_rebuilds_with_used_lines_kept);
+    RUN_TEST(test_keeper_candidate_buffer_is_bounded);
     RUN_TEST(test_prompt_and_unsolicited);
     RUN_TEST(test_soc_and_bike_state);
     RUN_TEST(test_pack_row);

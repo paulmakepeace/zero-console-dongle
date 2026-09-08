@@ -20,7 +20,7 @@ import urllib.request
 DEFAULT_BOARDS = "zero-dongle-a12c.local zero-dongle-ebdc.local"
 
 
-def fetch(host, timeout=5):
+def fetch(host, timeout=8):   # the board serves one client at a time, and a silent one can hold it five seconds
     with urllib.request.urlopen("http://%s/api/status" % host, timeout=timeout) as r:
         return json.loads(r.read())
 

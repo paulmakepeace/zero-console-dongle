@@ -40,7 +40,9 @@ upload and the wait for the board to report the new version;
 [`tools/status.py`](../tools/status.py) `[HOST ...|all] [--watch N]` prints
 one line per board, or only the changes; [`tools/bench.py`](../tools/bench.py)
 runs the regression through the adapter on the bench board (roundtrip,
-break, sleep, poll, and a six-minute lightsleep) and refuses the bike unit. Board names and addresses both
+break, poll, sleep, and a light-sleep scenario that sets the grace and the
+chunk short for the run and covers a chunk boundary), about four and a
+half minutes in all, and refuses the bike unit. Board names and addresses both
 work; `DONGLE_HOST` and `DONGLE_BOARDS` set the defaults.
 
 ## Tests
@@ -76,7 +78,10 @@ so several boards can share a network. The bike's unit is
 password is `zero-` plus the last six hex digits of the MAC, printed on the
 serial console at boot, and can be replaced from the setup page.
 
-With no WiFi stored the dongle raises the setup network. Join it from a
+With no WiFi stored the dongle raises the setup network, and keeps raising
+it after each sleep until it is provisioned; the setup network counts as
+use for its first ten minutes and while someone is on it, after which an
+unprovisioned board sleeps like any other. Join it from a
 phone, pick the home network and enter its password; the same page takes
 the timezone in POSIX form, the NTP server, a new setup password, whether
 to sleep between MBB sessions and the poll interval, all stored in flash
@@ -88,10 +93,11 @@ the MBB has been asleep for two minutes with nobody using it, timed to be
 up ten seconds before the MBB's own hourly wake, and pin 8 rising wakes it
 regardless; a status check does not count as use, a download, the live
 view, the command page or a console client does. If the stored network
-refuses the password three times running the setup network comes up again;
-if the network is out of reach the dongle just retries every 30 s with no
-setup network, however long that lasts, and one failed handshake on a good
-password raises nothing. If the home network was renamed, hold the DevKit's
+refuses the password three times running the setup network comes up again
+for ten minutes, after which the retry resumes, since a marginal link can
+fail three handshakes too; if the network is out of reach the dongle just
+retries every 30 s with no setup network, however long that lasts, and one
+failed handshake on a good password raises nothing. If the home network was renamed, hold the DevKit's
 BOOT button while powering up and the setup network comes up. The setup
 network carries nothing but the setup page: the log server and the console
 come up on every join of the home network and go down whenever the setup
@@ -104,17 +110,17 @@ replaced from the home network with `POST /api/settings`.
 | Path                 | Method | What                                      |
 |----------------------|--------|-------------------------------------------|
 | `/`                  | GET    | status page                               |
-| `/api/status`        | GET    | JSON: board name, MAC, firmware version, uptime, boot count and reset reason, awake, pin 8 level, TX attached, last awake and asleep stamps and the awake count, the active file, time and its source and NTP age, WiFi with mDNS and setup-network state, filesystem, dropped lines, the UART's overrun, back-pressure, frame-error and queue-drop counts, console clients and dropped bytes, the pack's state of charge, voltage, current, capacity and temperatures and the bike state from the last poll, the poll interval, the sleep count and last wake source, the store's file count and bytes on flash, its compression since boot and the days of space left at that rate, the ESP32's die temperature, heap and stack headroom, watchdog |
-| `/logs`              | GET    | JSON list of files with size and active flag |
+| `/api/status`        | GET    | JSON: board name, MAC, firmware version, uptime, boot count and reset reason, awake, pin 8 level, TX attached, last awake and asleep stamps and the awake count, the active file, time and its source and NTP age, WiFi with mDNS and setup-network state, filesystem, dropped lines, the UART's overrun, back-pressure, frame-error and queue-drop counts, console clients and dropped bytes, the pack's state of charge, voltage, current, capacity and temperatures and the bike state from the last poll, the poll interval, the sleep count and last wake source, the store's file count and bytes on flash, its compression since boot and the days of space left at that rate, the ESP32's die temperature, the longest pass of each stage of the loop task, heap and stack headroom, watchdog |
+| `/logs`              | GET    | JSON list of files with size and active flag, streamed one file at a time |
 | `/logs/NAME`         | GET    | the file; 409 while active, 503 when all four readers are busy, 404 if absent |
-| `/logs/NAME`         | DELETE | remove it; 409 while active or being read, or for a bad name |
+| `/logs/NAME`         | DELETE | remove it; 409 while active or being read, or for a bad name. The puller never deletes `dict-*` files |
 | `/live`              | GET    | the last lines received                    |
 | `/update`            | POST   | firmware image as `firmware` in a multipart body; the status page has the form |
 | `/api/wifi/reset`    | POST   | forget WiFi and reboot into setup          |
 | `/api/settings`      | GET    | JSON: timezone, NTP server, sleep on or off, days unattended before sleeping, poll interval |
-| `/api/settings`      | POST   | form fields `tz`, `ntp`, `setup_pass`, `sleep` (0 or 1), `sleep_days` (0 for always), `poll` (seconds, 0 for never), any subset, applied at once |
+| `/api/settings`      | POST   | form fields `tz`, `ntp`, `setup_pass`, `sleep` (0 or 1), `sleep_days` (0 for always), `poll` (seconds, 0 for never), any subset, applied at once; `sleep_grace` and `sleep_chunk` (seconds) are bench knobs, applied but not saved |
 | `/cmd`               | GET    | tabbed page of the polled command outputs  |
-| `/api/cmd`           | GET    | JSON list of the polled commands with age and size |
+| `/api/cmd`           | GET    | JSON list of the polled commands: age and size of the last good output, whether the last attempt succeeded, age of the last failure |
 | `/api/cmd/NAME`      | GET    | the last output of that command, text, with an `X-Age-Seconds` header; 503 until polled, 404 if unknown |
 | `/api/cmd/poll`      | POST   | run the batch now                          |
 
@@ -122,7 +128,12 @@ DELETE, `/update`, `/api/wifi/reset`, `POST /api/settings` and `POST /api/cmd/po
 `X-Dongle: 1`, which a form on another website cannot send from your
 browser; the status page and `pull-logs.py` add it, and so does
 `curl -H 'X-Dongle: 1'`. There is no other authentication on the home
-network.
+network. The server serves one client at a time and gives a connection
+that has not yet sent its request five seconds before moving on; a browser
+tab left open on the status page opens such connections ahead of its
+refreshes, and every other client then waits. The tools allow for it with
+eight-second timeouts and the pull script with fifteen; close the tab
+before timing anything.
 
 TCP console on port 6638, advertised over mDNS as `_zero-console._tcp`:
 
@@ -142,15 +153,18 @@ TCP keepalive within about 90 s.
 
 ## Files
 
-One gzip file per MBB session, `bBBBB-SSS-YYYYMMDD-HHMMSS.log.gz` with the
+One zlib file per MBB session, `bBBBB-SSS-YYYYMMDD-HHMMSS.log.z` with the
 boot count and a sequence number first so that names sort by creation, and
 `nosync` in place of the time when the clock was not yet known. Lines are
-compressed as they arrive, against the whole file's history, on fixed
-arrays; the file is created when the first compressed bytes are committed
-and closed five seconds after pin 8 goes low, with the gzip trailer.
-`gunzip` reads a file; the pull script inflates each one and stores the
-plain `.log`. A file cut off by a power loss decodes up to its last
-commit, and the puller says how many lines it recovered. At 256 KB a session rolls into the next sequence
+compressed as they arrive, against the file's own history and against a
+dictionary of the lines this bike keeps printing, which the dongle learns
+from its sessions and keeps on the flash as `dict-<id>.txt`; the file's
+header names the dictionary by id. The file is created when the first
+compressed bytes are committed and closed five seconds after pin 8 goes
+low, with the trailer. The pull script inflates each one, fetching the
+dictionary by id the first time it needs it, and stores the plain `.log`.
+A file cut off by a power loss decodes up to its last commit, and the
+puller says how many lines it recovered. At 256 KB a session rolls into the next sequence
 number; every header carries the board name and `id bBBBB-SSS, part N`,
 the id being the first part's boot count and sequence, so parts join by
 identity and a pulled file says which board wrote it. A boot count that
@@ -179,11 +193,10 @@ pull script reads the status first and warns about any of them.
 [`tools/pull-logs.py`](../tools/pull-logs.py) fetches and deletes them from the homelab into
 `logs/dongle/NAME/`, one directory per board.
 
-The log area is 896 KB with a 96 KB reserve. The stream compresses a
-timeout wake about 2.9 times and a ride or a charge, with their repeating
-lines, six or more; a wake costs one 4 KB block, a parked day about 60 KB,
-so the area holds about two weeks of parking between pulls, and a ride
-costs about 6 KB an hour. The status reports the files, the bytes, the
+The log area is 896 KB with a 96 KB reserve. With the dictionary learned,
+a timeout wake compresses about seven times and costs one 4 KB block, a
+parked day about 30 KB, so the area holds about a month of parking
+between pulls, and a ride costs about 6 KB an hour. The status reports the files, the bytes, the
 ratio since boot and the days of space left at the current rate. The app slots are 1.5 MB each. Changing the partition table needs a
 USB flash and formats the log area, which is counted in the status.
 

@@ -21,6 +21,16 @@ inline bool isUnsolicited(const char* s, size_t len) {
     }
     static const char sc[] = "State change from";
     for (size_t i = 0; i + sizeof(sc) - 1 <= len; i++) if (memcmp(s + i, sc, sizeof(sc) - 1) == 0) return true;
+    // A line that opens with the MBB's own stamp is narration; a command's output never does.
+    static const char pat[] = "dd/dd/dddd dd:dd:dd.ddd";
+    if (len >= sizeof(pat) - 1) {
+        bool m = true;
+        for (size_t j = 0; j < sizeof(pat) - 1 && m; j++) {
+            char c = s[j];
+            m = pat[j] == 'd' ? (c >= '0' && c <= '9') : (c == pat[j]);
+        }
+        if (m) return true;
+    }
     return false;
 }
 
@@ -59,7 +69,16 @@ inline bool parsePackRow(const char* text, size_t len, PackRow& out) {
     size_t i = 0;
     for (; i + sizeof(key) - 1 <= len; i++) if (memcmp(text + i, key, sizeof(key) - 1) == 0) break;
     if (i + sizeof(key) - 1 > len) return false;
-    while (i < len && text[i] != '\n') i++;   // to the row
+    while (i < len && text[i] != '\n') i++;   // to the end of the header
+    // The row is the next line with a digit in it; a separator of dashes may sit between.
+    for (int tries = 0; tries < 3; tries++) {
+        size_t j = i + 1;
+        bool digit = false;
+        while (j < len && text[j] != '\n') { if (isdigit((unsigned char)text[j])) digit = true; j++; }
+        if (digit) break;
+        if (j >= len) return false;
+        i = j;
+    }
     long v[8];
     int n = 0;
     bool neg = false, inNum = false;

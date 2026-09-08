@@ -27,11 +27,16 @@ struct uzlib_comp {
     uzlib_hash_entry_t *hash_table;
     unsigned int hash_bits;
     unsigned int dict_size;
+    /* A preset dictionary held at the front of the buffer while the data
+     * behind it slides: a match into it lies dict_extra bytes further back
+     * in the decoder's stream than in the buffer. NULL when not used. */
+    const uint8_t *dict_end;
+    unsigned int dict_extra;
 };
 
 void uzlib_compress(struct uzlib_comp *c, const uint8_t *src, unsigned slen);
 void uzlib_hash_add(struct uzlib_comp *c, const uint8_t *src, unsigned slen);
-uint32_t uzlib_crc32(const void *data, unsigned int length, uint32_t prev_sum);
+uint32_t uzlib_adler32(const void *data, unsigned int length, uint32_t prev_sum);   /* prev_sum 1 initially */
 
 #include "defl_static.h"
 

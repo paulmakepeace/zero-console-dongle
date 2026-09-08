@@ -21,6 +21,7 @@
 #include "freertos/stream_buffer.h"
 #include "lwip/sockets.h"
 #include "esp_mac.h"
+#include "esp_wifi.h"
 #include <atomic>
 
 static WiFiManager wm;
@@ -42,6 +43,11 @@ static uint32_t lastRetryMs = 0;
 static char nodeName[32];
 static String tzSetting, ntpSetting;
 static uint32_t lastHttpMs = 0;
+static bool credsSaved = false;       // taken once at boot; the driver may be stopped later
+static bool driverStopped = false;    // esp_wifi_stop for a sleep, not yet restarted
+static uint32_t resumeFailures = 0;
+static uint32_t portalRaisedMs = 0;
+static bool portalForAuth = false;
 static void touch() { lastHttpMs = millis(); }
 
 // Written by the WiFi event task, read by the loop task.
@@ -64,7 +70,14 @@ static size_t inputCursor = 0;
 
 const char* netName() { return nodeName; }
 int netConsoleClients() { int n = 0; for (auto& c : clients) if (c && c.connected()) n++; return n; }
-bool netBusy() { return netConsoleClients() > 0 || millis() - lastHttpMs < 30000; }
+// The setup network counts as use while someone is on it, or for its first
+// ten minutes; an unprovisioned board then sleeps like any other, and its
+// setup network returns at each wake.
+bool netBusy() {
+    if (netConsoleClients() > 0 || millis() - lastHttpMs < 30000) return true;
+    if (wm.getConfigPortalActive() && (WiFi.softAPgetStationNum() > 0 || millis() - portalRaisedMs < AUTH_PORTAL_MS)) return true;
+    return false;
+}
 String netMac() { return WiFi.macAddress(); }
 
 static const char PAGE[] PROGMEM = R"HTML(<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
@@ -78,10 +91,12 @@ static const char PAGE[] PROGMEM = R"HTML(<!doctype html><meta charset=utf-8><me
 <script>
 async function j(u){return (await fetch(u)).json()}
 function row(t,k,v){const tr=t.insertRow();tr.insertCell().textContent=k;tr.insertCell().textContent=typeof v=='object'?JSON.stringify(v):v}
+let tick=0;
 async function refresh(){
  const s=await j('/api/status'); document.getElementById('t').textContent=s.name;
  const t=document.getElementById('s'); t.textContent=''; for(const [k,v] of Object.entries(s)) row(t,k,v);
  const st=s.store; document.getElementById('fs').textContent=st.files+' file(s), '+(st.bytes/1024).toFixed(0)+' KB on flash of '+(st.fs_total/1024).toFixed(0)+' KB, compressing '+st.ratio+'x since boot'+(st.days_left>=0?', about '+st.days_left+' day(s) of space left at this rate':'');
+ if(tick++%6) return;   // the file list every 30 s: a walk of the flash per fetch
  const f=await j('/logs'); const d=document.getElementById('f'); d.textContent='';
  for(const x of f){const div=document.createElement('div'); if(x.active){div.textContent=x.name+' '+x.size+' bytes (active, see last lines)'}else{const a=document.createElement('a');a.href='/logs/'+encodeURIComponent(x.name);a.textContent=x.name;div.appendChild(a);div.appendChild(document.createTextNode(' '+x.size+' bytes'))} d.appendChild(div)}
  if(!f.length) d.textContent='none';
@@ -147,7 +162,8 @@ static String statusJson() {   // a health check is not use: a watcher must not 
     s += ",\"ntp_age_s\":" + String(clockNtpAgeS() == UINT32_MAX ? -1 : (long)clockNtpAgeS());
     s += ",\"wifi\":{\"ssid\":\"" + jsonEscape(WiFi.SSID()) + "\",\"rssi\":" + String(WiFi.RSSI()) +
          ",\"ip\":\"" + WiFi.localIP().toString() + "\",\"disconnects\":" + String(wifiDisconnects) +
-         ",\"mdns\":" + (mdnsUp ? "true" : "false") + ",\"setup_network\":" + (wm.getConfigPortalActive() ? "true" : "false") + "}";
+         ",\"mdns\":" + (mdnsUp ? "true" : "false") + ",\"setup_network\":" + (wm.getConfigPortalActive() ? "true" : "false") +
+         ",\"resume_failures\":" + String(resumeFailures) + "}";
     s += ",\"fs\":{\"total\":" + String(total) + ",\"used\":" + String(used) + ",\"ok\":" +
          (storeOk() ? "true" : "false") + ",\"formats\":" + String(storeFormats()) + "}";
     s += ",\"active\":\"" + jsonEscape(storeActiveName()) + "\"";
@@ -172,6 +188,7 @@ static String statusJson() {   // a health check is not use: a watcher must not 
     s += ",\"sleep\":" + sleepStatusJson();
     s += ",\"heap_free\":" + String(ESP.getFreeHeap()) + ",\"heap_min_free\":" + String(ESP.getMinFreeHeap()) +
          ",\"heap_max_alloc\":" + String(ESP.getMaxAllocHeap());
+    s += ",\"loop_max_ms\":" + sysLoopMaxJson();
     s += ",\"stack_free\":{\"loop\":" + String(uxTaskGetStackHighWaterMark(nullptr)) +
          ",\"capture\":" + String(mbbCaptureStackFree()) + "}";
     s += "}";
@@ -226,7 +243,7 @@ static void handleFile() {
         }
         // Chunked by hand so the capture and the console keep running on a slow client.
         http.setContentLength(f.size());
-        http.send(200, name.endsWith(".gz") ? "application/gzip" : "text/plain", "");
+        http.send(200, name.endsWith(".gz") ? "application/gzip" : name.endsWith(".z") ? "application/zlib" : "text/plain", "");
         WiFiClient c = http.client();
         uint8_t buf[1024];
         bool whole = true;
@@ -254,7 +271,7 @@ static void handleFile() {
     http.send(405, "text/plain", "method");
 }
 
-static void applySettings(const String& tz, const String& ntp, const String& pass, const String& sleep, const String& poll, const String& days) {
+static void applySettings(const String& tz, const String& ntp, const String& pass, const String& sleep, const String& poll, const String& days, const String& grace = String(), const String& chunk = String()) {
     Preferences p;
     p.begin("dongle", false);
     if (tz.length() && tz != tzSetting) { tzSetting = tz; p.putString("tz", tz); }
@@ -263,6 +280,12 @@ static void applySettings(const String& tz, const String& ntp, const String& pas
     if (sleep == "0" || sleep == "1") { sleepSetEnabled(sleep == "1"); p.putBool("sleep", sleep == "1"); }
     if (poll.length() && poll.toInt() >= 0 && poll.toInt() < 100000) { pollerSetInterval(poll.toInt()); p.putUInt("poll", poll.toInt()); }
     if (days.length() && days.toInt() >= 0 && days.toInt() < 1000) { sleepSetAfterDays(days.toInt()); p.putUInt("sleep_days", days.toInt()); }
+    // Bench knobs, applied but never saved: the grace before a sleep in seconds and the longest chunk in seconds.
+    if (grace.length() || chunk.length()) {
+        uint32_t g = grace.length() ? grace.toInt() * 1000UL : sleepGraceMs();
+        uint32_t c = chunk.length() ? chunk.toInt() : sleepChunkS();
+        if (g >= 5000 && c >= SLEEP_MIN_S + SLEEP_LEAD_S) sleepSetTiming(g, c);
+    }
     p.end();
     clockApplySettings(tzSetting.c_str(), ntpSetting.c_str());   // live; no restart
     Serial.println("net: settings applied");
@@ -271,15 +294,32 @@ static void applySettings(const String& tz, const String& ntp, const String& pas
 static void setupHttp() {
     http.on("/", HTTP_GET, []() { http.send_P(200, "text/html", PAGE); });
     http.on("/api/status", HTTP_GET, []() { http.send(200, "application/json", statusJson()); });
-    http.on("/logs", HTTP_GET, []() { touch(); http.send(200, "application/json", storeListJson()); });
+    http.on("/logs", HTTP_GET, []() {   // streamed one file at a time: the directory is never held in RAM
+        touch();
+        http.setContentLength(CONTENT_LENGTH_UNKNOWN);
+        http.send(200, "application/json", "");
+        http.sendContent("[");
+        bool first = true;
+        storeForEachFile([](void* ctx, const char* name, size_t size, bool active) {
+            bool* f = (bool*)ctx;
+            String e = String(*f ? "" : ",") + "{\"name\":\"" + jsonEscape(name) + "\",\"size\":" + String(size) + ",\"active\":" + (active ? "true" : "false") + "}";
+            *f = false;
+            http.sendContent(e);
+            sysFeedWatchdog();
+        }, &first);
+        http.sendContent("]");
+        http.sendContent("");
+    });
     http.on("/live", HTTP_GET, []() { touch(); http.send(200, "text/plain", storeLastLines()); });
     http.on("/api/settings", HTTP_GET, []() {
         http.send(200, "application/json", "{\"tz\":\"" + jsonEscape(tzSetting) + "\",\"ntp\":\"" + jsonEscape(ntpSetting) +
-                  "\",\"sleep\":" + (sleepEnabled() ? "1" : "0") + ",\"sleep_days\":" + String(sleepAfterDays()) + ",\"poll\":" + String(pollerInterval()) + "}");
+                  "\",\"sleep\":" + (sleepEnabled() ? "1" : "0") + ",\"sleep_days\":" + String(sleepAfterDays()) + ",\"poll\":" + String(pollerInterval()) +
+                  ",\"sleep_grace\":" + String(sleepGraceMs() / 1000) + ",\"sleep_chunk\":" + String(sleepChunkS()) + "}");
     });
     http.on("/api/settings", HTTP_POST, []() {   // form fields tz, ntp, setup_pass, sleep, poll; any subset
         if (!tokenOk()) return;
-        applySettings(http.arg("tz"), http.arg("ntp"), http.arg("setup_pass"), http.arg("sleep"), http.arg("poll"), http.arg("sleep_days"));
+        applySettings(http.arg("tz"), http.arg("ntp"), http.arg("setup_pass"), http.arg("sleep"), http.arg("poll"), http.arg("sleep_days"),
+                      http.arg("sleep_grace"), http.arg("sleep_chunk"));
         http.send(200, "text/plain", "applied");
     });
     http.on("/cmd", HTTP_GET, []() { touch(); http.send_P(200, "text/html", CMD_PAGE); });
@@ -287,7 +327,7 @@ static void setupHttp() {
     http.on("/api/cmd/poll", HTTP_POST, []() {
         if (!tokenOk()) return;
         touch();
-        pollerRequest();
+        if (!pollerRequest()) { http.send(409, "text/plain", "the MBB is hibernating; not requested"); return; }
         http.send(200, "text/plain", "poll requested");
     });
     http.on("/api/wifi/reset", HTTP_POST, []() {
@@ -364,22 +404,37 @@ static void stopServices() {
     Serial.println("net: services down");
 }
 
+// The driver stays initialised across a sleep: stop and start only, so
+// its buffers are never freed and re-allocated into a fragmented heap.
 void netSuspend() {
     stopServices();
-    WiFi.disconnect(true, false);   // radio off, credentials kept
-    WiFi.mode(WIFI_OFF);
+    if (wm.getConfigPortalActive()) wm.stopConfigPortal();
+    WiFi.disconnect(false, false);   // leave the network cleanly; credentials kept
+    esp_wifi_stop();
+    driverStopped = true;
 }
 
-void netResume() {
-    WiFi.mode(WIFI_STA);
-    WiFi.begin();   // the stored network; the join brings the services up
+static void startPortal(const char* why, bool forAuth);
+
+static void driverStart() {
+    esp_err_t e = esp_wifi_start();
+    if (e == ESP_OK) {
+        driverStopped = false;
+        if (credsSaved) WiFi.begin();   // the stored network; the join brings the services up
+        else startPortal("no credentials", false);   // an unprovisioned board's setup network comes back after a sleep
+    }
+    else { resumeFailures++; Serial.printf("net: WiFi did not restart (%s); retrying\n", esp_err_to_name(e)); }
     lastRetryMs = millis();
 }
 
-static void startPortal(const char* why) {
+void netResume() { driverStart(); }
+
+static void startPortal(const char* why, bool forAuth) {
     if (wm.getConfigPortalActive()) return;
     stopServices();   // the setup network carries nothing but the setup page
     Serial.printf("net: setup network %s up (%s)\n", nodeName, why);
+    portalRaisedMs = millis() ? millis() : 1;
+    portalForAuth = forAuth;
     wm.startConfigPortal(nodeName, setupPass);
 }
 
@@ -388,7 +443,7 @@ static void onParamsSaved() {
 }
 
 void netPrepare() {
-    rawBuf = xStreamBufferCreate(8192, 1);
+    rawBuf = xStreamBufferCreate(4096, 1);   // a few hundred milliseconds of the console at full rate; the loop drains it every 2 ms
     if (!rawBuf) Serial.println("net: no memory for the console buffer; console output off");
 }
 
@@ -401,8 +456,8 @@ void netBegin() {
     WiFi.setAutoReconnect(true);
     // The event task owns the failure accounting; the loop task only reads it.
     WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t info) {
-        wifiDisconnects = wifiDisconnects + 1;
         uint8_t r = info.wifi_sta_disconnected.reason;
+        if (r != WIFI_REASON_ASSOC_LEAVE) wifiDisconnects = wifiDisconnects + 1;   // our own leaving is not a disconnect
         bool auth = r == WIFI_REASON_AUTH_FAIL || r == WIFI_REASON_AUTH_EXPIRE || r == WIFI_REASON_CONNECTION_FAIL ||
                     r == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT || r == WIFI_REASON_HANDSHAKE_TIMEOUT;
         if (auth) { if (authFailures < 255) authFailures = authFailures + 1; }
@@ -446,11 +501,12 @@ void netBegin() {
     bool bootButtonHeld = digitalRead(PIN_BOOT_BUTTON) == LOW;
     sysFeedWatchdog();
     if (bootButtonHeld) {
-        startPortal("BOOT button held at power-up");
+        startPortal("BOOT button held at power-up", false);
     } else if (wm.autoConnect(nodeName, setupPass)) {
         ipEvents.fetch_add(1);   // in case the event fired before the handler was in place
-    } else if (!wm.getWiFiIsSaved()) {
-        startPortal("no credentials");
+        credsSaved = true;
+    } else if (!(credsSaved = wm.getWiFiIsSaved())) {
+        startPortal("no credentials", false);
     } else {
         Serial.println("net: saved network not reachable; retrying without the setup network");
     }
@@ -604,6 +660,7 @@ void netTick() {
     uint32_t joins = ipEvents.load();
     if (joins != ipEventsSeen) {
         ipEventsSeen = joins;
+        credsSaved = true;   // a join proves there are credentials, however they got there
         clockNetworkUp();   // on every join, so NTP is not left on a backoff
         startServices();
         Serial.printf("net: connected to %s, %s\n", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
@@ -613,13 +670,20 @@ void netTick() {
     if (!connected) {
         // A wrong password shows as repeated authentication failures; a network
         // that is out of reach does not raise anything, however long it lasts.
-        if (authFailures >= AUTH_FAILS_FOR_PORTAL) startPortal("authentication failed repeatedly");
+        // A marginal link can fail the handshake three times running too, so a
+        // setup network raised this way comes down again after a while.
+        if (authFailures >= AUTH_FAILS_FOR_PORTAL && !driverStopped) startPortal("authentication failed repeatedly", true);
+        if (wm.getConfigPortalActive() && portalForAuth && millis() - portalRaisedMs > AUTH_PORTAL_MS) {
+            Serial.println("net: setup network down again; back to retrying the saved network");
+            wm.stopConfigPortal();
+            authFailures = 0;
+            lastRetryMs = millis() - 30000;
+        }
         // With no setup network up, retry the saved network every 30 s. With one up
         // the user is in charge and WiFiManager connects when they save.
-        if (millis() - lastRetryMs > 30000 && !wm.getConfigPortalActive() && wm.getWiFiIsSaved()) {
-            lastRetryMs = millis();
-            Serial.println("net: retrying saved WiFi");
-            WiFi.begin();
+        if (millis() - lastRetryMs > 30000 && !wm.getConfigPortalActive() && credsSaved) {
+            if (driverStopped) driverStart();   // a resume that failed is tried again
+            else { lastRetryMs = millis(); Serial.println("net: retrying saved WiFi"); WiFi.begin(); }
         }
     }
     if (servicesUp) http.handleClient();

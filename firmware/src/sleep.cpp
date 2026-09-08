@@ -15,6 +15,8 @@
 
 static bool enabled = false;
 static uint32_t afterDays = 3;
+static uint32_t graceMs = SLEEP_GRACE_MS;
+static uint32_t chunkS = SLEEP_CHUNK_S;
 static long lastAttendedS = 0;    // wall time the bike was last seen attended; 0 for never seen
 static bool attendedDirty = false;   // needs saving, done while the MBB sleeps
 static bool haveHib = false;
@@ -44,6 +46,9 @@ void sleepBegin(bool on, uint32_t days, long lastS) {
 void sleepSetEnabled(bool on) { enabled = on; }
 bool sleepEnabled() { return enabled; }
 void sleepSetAfterDays(uint32_t d) { afterDays = d; }
+void sleepSetTiming(uint32_t g, uint32_t c) { graceMs = g; chunkS = c; }
+uint32_t sleepGraceMs() { return graceMs; }
+uint32_t sleepChunkS() { return chunkS; }
 uint32_t sleepAfterDays() { return afterDays; }
 
 static long nowS() { return (long)time(nullptr); }   // advanced across light sleep by the RTC, put right by NTP after each wake
@@ -104,10 +109,10 @@ void sleepTick(bool mbbAwake, bool busy) {
     }
     if (!enabled || mbbAwake || busy) return;
     if (!unattended()) return;
-    if (now - asleepSinceMs < (intermediate ? SLEEP_REGRACE_MS : SLEEP_GRACE_MS)) return;
+    if (now - asleepSinceMs < (intermediate ? SLEEP_REGRACE_MS : graceMs)) return;
     if (sleptUncorrectedS && clockNtpAgeS() * 1000UL < now - lastWakeMs) sleptUncorrectedS = 0;   // NTP has put the clock right since the wake
     long until = secondsUntilMbbWake(haveHib, hibAtS, hibSec, nowS(), sleptUncorrectedS, SLEEP_DRIFT_PCT, SLEEP_FALLBACK_S);
-    plannedS = sleepChunk(until, SLEEP_LEAD_S, SLEEP_CHUNK_S, SLEEP_DRIFT_PCT, SLEEP_MIN_S);
+    plannedS = sleepChunk(until, SLEEP_LEAD_S, chunkS, SLEEP_DRIFT_PCT, SLEEP_MIN_S);
     if (plannedS == 0) {
         // The MBB's wake is due or overdue. Stay up for it; if it never comes,
         // the announcement is stale and the fallback timer takes over.

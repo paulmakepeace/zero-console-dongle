@@ -270,3 +270,58 @@ def test_damaged_raw_follows_the_suffix_of_its_log(dongle, tmp_path):
     assert (out / "b0002-001-20260908-000100-2.log").read_bytes() == b"one\n"
     assert (out / "b0002-001-20260908-000100-2.log.gz").exists()
     assert not (out / "b0002-001-20260908-000100.log.gz").exists()
+
+
+def test_damaged_zlib_keeps_its_raw_with_the_zlib_suffix(dongle, tmp_path):
+    dongle.files = {"b0004-001-20260908-000100.log.z": z(b"one\n", complete=False) + b"\xff" * 50}
+    code, _, err = run(dongle, tmp_path)
+    assert code == 0, err
+    assert (tmp_path / "out" / "b0004-001-20260908-000100.log.z").exists()
+    assert (tmp_path / "out" / "b0004-001-20260908-000100.log").read_bytes() == b"one\n"
+
+
+DICT = b"******************************************************************\n*              Zero Motorcycles MBB                         *\nReset Source: Hib Wake RTC, Power-On, Supply WD, Power Val\n"
+
+
+def z(payload, zdict=None, complete=True):
+    """A zlib stream as the dongle writes it: FDICT naming the dictionary, a sync flush per commit."""
+    c = zlib.compressobj(6, zlib.DEFLATED, 15, zdict=zdict) if zdict else zlib.compressobj(6, zlib.DEFLATED, 15)
+    body = c.compress(payload) + c.flush(zlib.Z_SYNC_FLUSH)
+    return body + c.flush() if complete else body
+
+
+def test_zlib_file_with_a_dictionary_fetches_it_once_and_caches_it(dongle, tmp_path):
+    did = zlib.adler32(DICT) & 0xFFFFFFFF
+    dongle.files = {"dict-%08x.txt" % did: DICT,
+                    "b0003-001-20260908-110000.log.z": z(b"line one\n" + DICT, DICT),
+                    "b0003-002-20260908-120000.log.z": z(b"line two\n", DICT)}
+    code, out, err = run(dongle, tmp_path)
+    assert code == 0, err
+    assert (tmp_path / "out" / "b0003-001-20260908-110000.log").read_bytes() == b"line one\n" + DICT
+    assert (tmp_path / "out" / "b0003-002-20260908-120000.log").read_bytes() == b"line two\n"
+    assert (tmp_path / "out" / "dicts" / ("%08x.txt" % did)).read_bytes() == DICT
+    assert "dict-%08x.txt" % did in dongle.files           # never deleted by the puller
+    assert sorted(dongle.deleted) == ["b0003-001-20260908-110000.log.z", "b0003-002-20260908-120000.log.z"]
+    # a second run with a new file uses the cache: remove the dongle's copy and it still works
+    del dongle.files["dict-%08x.txt" % did]
+    dongle.files["b0003-003-20260908-130000.log.z"] = z(b"line three\n", DICT)
+    code, out, err = run(dongle, tmp_path)
+    assert code == 0, err
+    assert (tmp_path / "out" / "b0003-003-20260908-130000.log").read_bytes() == b"line three\n"
+
+
+def test_zlib_file_whose_dictionary_is_missing_is_a_failure_and_kept(dongle, tmp_path):
+    dongle.files = {"b0003-001-20260908-110000.log.z": z(b"line one\n", DICT)}
+    code, out, err = run(dongle, tmp_path)
+    assert code == 1 and "needs dictionary" in err and dongle.deleted == []
+    assert (tmp_path / "out" / "b0003-001-20260908-110000.log.z").read_bytes() == z(b"line one\n", DICT)   # the raw is kept locally too
+
+
+def test_zlib_file_without_a_dictionary_and_a_truncated_one(dongle, tmp_path):
+    dongle.files = {"b0003-001-20260908-110000.log.z": z(b"a\nb\n"),
+                    "b0003-002-20260908-120000.log.z": z(b"c\nd\ne\n", complete=False)}
+    code, out, err = run(dongle, tmp_path)
+    assert code == 0, err
+    assert (tmp_path / "out" / "b0003-001-20260908-110000.log").read_bytes() == b"a\nb\n"
+    assert (tmp_path / "out" / "b0003-002-20260908-120000.log").read_bytes() == b"c\nd\ne\n"
+    assert "truncated; 3 line(s) recovered" in out

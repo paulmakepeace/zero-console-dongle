@@ -14,10 +14,12 @@ Usage: tools/bench.py [roundtrip|break|sleep|poll|lightsleep|all] [--host H] [--
              every command's output, keeps the transmit pin held across the
              batch, passes an unsolicited line through to the log, and keeps
              the outputs themselves out of the log
-  lightsleep about six minutes: a fake "Hibernating for 300 sec" then a held
-             low makes the dongle sleep after its grace period and wake on
-             its timer before the MBB is due; a second cycle wakes it on
-             pin 8 instead
+  lightsleep about three and a half minutes: with the grace and the chunk set
+             short for the run, a fake "Hibernating for 150 sec" then a
+             held low makes the dongle sleep, wake at a chunk boundary,
+             sleep again and be up before the MBB is due; a second cycle
+             wakes it on pin 8 instead; the heap is compared across all
+             three cycles
 
 Defaults: host zero-dongle-ebdc.local (DONGLE_HOST), adapter the first
 /dev/cu.usbserial-* that is not the DevKit's own bridge (DONGLE_ADAPTER).
@@ -49,8 +51,22 @@ def check(cond, what):
 
 
 def status(host):
-    with urllib.request.urlopen("http://%s/api/status" % host, timeout=5) as r:
+    # The board's web server serves one client at a time and gives a silent
+    # connection five seconds before moving on, so a request can wait that long.
+    with urllib.request.urlopen("http://%s/api/status" % host, timeout=8) as r:
         return json.loads(r.read())
+
+
+def status_retry(host, tries=3):
+    """For moments the board may be busy: a timeout is retried, and reported."""
+    for attempt in range(tries):
+        try:
+            return status(host)
+        except Exception as exc:
+            print("  note status request %d failed: %s" % (attempt + 1, exc))
+            if attempt + 1 == tries:
+                raise
+            time.sleep(2)
 
 
 def console(host):
@@ -96,23 +112,25 @@ def t_break(host, ad):
     s = status(host)
     check(s["tx_attached"] and s["line_high"], "attached with the line high")
     fcntl.ioctl(ad.fd, TIOCSBRK)
-    t0 = time.time()
-    released = None
-    while time.time() - t0 < 1.2:
+    try:
+        t0 = time.time()
+        released = None
+        while time.time() - t0 < 1.2:
+            s = status(host)
+            if not s["tx_attached"]:
+                released = time.time() - t0
+                break
+        # Three low samples 20 ms apart plus the HTTP polls that see it; the hold it cuts short is 2 s.
+        check(released is not None and released < 1.0, "released %s after the line dropped" %
+              ("%.0f ms" % (released * 1000) if released else "never"))
         s = status(host)
-        if not s["tx_attached"]:
-            released = time.time() - t0
-            break
-    # Three low samples 20 ms apart plus the poll itself; the hold it cuts short is 2 s.
-    check(released is not None and released < 0.5, "released %s after the line dropped" %
-          ("%.0f ms" % (released * 1000) if released else "never"))
-    s = status(host)
-    check(not s["line_high"] and s["mbb_awake"], "line low, awake flag still true")
-    c.sendall(b"z\n")
-    time.sleep(0.3)
-    note = c.recv(200)
-    check(b"not sent" in note, "input during the low was refused: %r" % note)
-    fcntl.ioctl(ad.fd, TIOCCBRK)
+        check(not s["line_high"] and s["mbb_awake"], "line low, awake flag still true")
+        c.sendall(b"z\n")
+        time.sleep(0.3)
+        note = c.recv(200)
+        check(b"not sent" in note, "input during the low was refused: %r" % note)
+    finally:
+        fcntl.ioctl(ad.fd, TIOCCBRK)   # the line comes back whatever happened above
     time.sleep(0.3)
     ad.read(100)
     c.sendall(b"y\n")
@@ -128,10 +146,12 @@ def t_sleep(host, ad):
     before = status(host)
     check(before["mbb_awake"], "awake before")
     fcntl.ioctl(ad.fd, TIOCSBRK)
-    time.sleep(6.5)
-    s = status(host)   # while the line is still low; a high wakes it again within 60 ms
-    check(not s["mbb_awake"], "asleep after 6 s low")
-    fcntl.ioctl(ad.fd, TIOCCBRK)
+    try:
+        time.sleep(6.5)
+        s = status_retry(host)   # while the line is still low; a high wakes it again within 60 ms
+        check(not s["mbb_awake"], "asleep after 6 s low")
+    finally:
+        fcntl.ioctl(ad.fd, TIOCCBRK)
     time.sleep(4)   # the close commits after the quiet period
     s = status(host)
     check(s["active"] == "", "session file closed: active is %r" % s["active"])
@@ -145,16 +165,13 @@ def t_sleep(host, ad):
     check(s["active"] not in ("", before["active"]), "a new session file opened: %r" % s["active"])
 
 
-# Canned answers for the poll test; the responder echoes the command first
-# and ends with the prompt, as the MBB does.
-ANSWERS = {
-    b"status": b" Bike State: CHRG\r\n BMS | SOC |  Pack V\r\n   2   86 %  108555 mV\r\n",
-    b"charging": b"         EVSE_Command,          1,       Yes\r\n",
-    b"bms": b"BMS 2 status data:\r\n     - pack voltage      108558\r\n     - soc               86\r\n",
-    b"pdu": b" PDU channels\r\nDEBUG:   09/07/2026 21:58:20.935  x.c : line 650 - Control flags changed\r\n ch 1 12000 mV\r\n",
-    b"in": b" Key_On, 1\r\n",
-    b"faults": b" no faults\r\n",
-}
+# The fake MBB's answers: the bike's own, one file per command, in tools/mbb-answers.
+ANSWERS = {}
+for _f in glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), "mbb-answers", "*.txt")):
+    with open(_f, "rb") as _fh:
+        ANSWERS[os.path.basename(_f)[:-4].encode()] = _fh.read().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+# One unsolicited line the MBB might print mid-answer, for the pass-through check.
+UNSOLICITED = b"DEBUG:   09/07/2026 21:58:20.935  x.c : line 650 - Control flags changed\r\n"
 
 
 class FakeMbb(threading.Thread):
@@ -177,7 +194,11 @@ class FakeMbb(threading.Thread):
                 cmd, line = line.split(b"\n", 1)
                 cmd = cmd.strip(b"\r")
                 self.seen.append(cmd)
-                self.ad.write(cmd + b"\r\n" + ANSWERS.get(cmd, b"unknown command\r\n") + b"ZERO MBB> ")
+                answer = ANSWERS.get(cmd, b"unknown command\r\n")
+                if cmd == b"pdu":   # an unsolicited line lands in the middle of one answer, between two of its lines
+                    cut = answer.find(b"\r\n", len(answer) // 2) + 2
+                    answer = answer[:cut] + UNSOLICITED + answer[cut:]
+                self.ad.write(cmd + b"\r\n" + answer + b"ZERO MBB> ")
 
 
 def post(host, path, body=None):
@@ -185,7 +206,7 @@ def post(host, path, body=None):
     req.add_header("X-Dongle", "1")
     for attempt in range(4):   # the board may be rejoining WiFi after a wake
         try:
-            with urllib.request.urlopen(req, timeout=5) as r:
+            with urllib.request.urlopen(req, timeout=8) as r:
                 return r.read().decode()
         except OSError:
             if attempt == 3:
@@ -194,7 +215,7 @@ def post(host, path, body=None):
 
 
 def get(host, path):
-    with urllib.request.urlopen("http://%s%s" % (host, path), timeout=5) as r:
+    with urllib.request.urlopen("http://%s%s" % (host, path), timeout=8) as r:
         return r.status, r.read().decode()
 
 
@@ -221,12 +242,16 @@ def t_poll(host, ad):
         code, bms = get(host, "/api/cmd/bms")
         check(code == 200 and "soc" in bms and "bms" not in bms.splitlines()[0], "bms output kept without its echo: %r" % bms[:60])
         s = status(host)
-        check(s["pack"]["soc"] == 86 and s["pack"]["bike_state"] == "CHRG", "status carries soc %s and state %r" % (s["pack"]["soc"], s["pack"]["bike_state"]))
+        import re
+        want_state = re.search(rb"Bike State:\s*(\S+)", ANSWERS[b"status"]).group(1).decode()
+        want_soc = int(re.search(rb"\n\s*\d+\s+(\d+)\s*%", ANSWERS[b"status"]).group(1))
+        check(s["pack"]["soc"] == want_soc and s["pack"]["bike_state"] == want_state,
+              "status carries soc %s and state %r (the answer says %d and %r)" % (s["pack"]["soc"], s["pack"]["bike_state"], want_soc, want_state))
         time.sleep(3.5)
         check(not status(host)["tx_attached"], "transmit pin released after the batch")
         live = get(host, "/live")[1]
         check("Control flags changed" in live, "the unsolicited line inside a response reached the log")
-        check("pack voltage" not in live and "Key_On" not in live, "the responses themselves stayed out of the log")
+        check("batt serial" not in live and "Bike State" not in live, "the responses themselves stayed out of the log")
         try:
             get(host, "/api/cmd/nope")
             check(False, "unknown command is 404")
@@ -238,67 +263,72 @@ def t_poll(host, ad):
 
 
 def t_lightsleep(host, ad):
-    print("lightsleep (about six minutes)")
-    post(host, "/api/settings", b"sleep=1&sleep_days=0")   # sleep whenever the MBB does, for the test
+    print("lightsleep (about three and a half minutes)")
+    # Sleep whenever the MBB does, a 10 s grace and 45 s chunks: the same code
+    # path as the hour-long sleep, with numbers the bench can wait out.
+    post(host, "/api/settings", b"sleep=1&sleep_days=0&sleep_grace=10&sleep_chunk=45")
     try:
         _t_lightsleep(host, ad)
     finally:
-        post(host, "/api/settings", b"sleep_days=3")
+        post(host, "/api/settings", b"sleep_days=3&sleep_grace=120&sleep_chunk=600")
 
 
 def _t_lightsleep(host, ad):
-    ad.write(b"Saving Stats, Hibernating for 300 sec\r\n")
+    HIB = 150
+    ad.write(b"Saving Stats, Hibernating for %d sec\r\n" % HIB)
     time.sleep(0.5)
     before = status(host)
+    heap0 = (before["heap_free"], before["heap_max_alloc"])
     fcntl.ioctl(ad.fd, TIOCSBRK)
     t0 = time.time()
     try:
         time.sleep(7)
-        check(not status(host)["mbb_awake"], "asleep behind the held low")
-        gone = None
-        while time.time() - t0 < 180:
+        check(not status_retry(host)["mbb_awake"], "asleep behind the held low")
+        # Off the network within the grace plus the edge, then a chunk boundary
+        # (up, then down again), then up for good before the MBB is due.
+        seen = []   # (t, reachable)
+        last = None
+        while time.time() - t0 < HIB + 20:
             try:
                 status(host)
-                time.sleep(5)
+                r = True
             except Exception:
-                gone = time.time() - t0
-                break
-        check(gone is not None and 110 < gone < 175, "went to sleep %s after the low (grace 120 s)" % ("%.0f s" % gone if gone else "never"))
-        back = None
-        while time.time() - t0 < 360:
-            try:
-                s = status(host)
-                back = time.time() - t0
-                break
-            except Exception:
-                time.sleep(5)
-        check(back is not None and back < 320, "back on the network %s after the low (MBB due at 300 s)" % ("%.0f s" % back if back else "never"))
-        if back:
-            check(s["sleep"]["count"] == before["sleep"]["count"] + 1 and s["sleep"]["last_wake"] == "timer",
-                  "one sleep, woken by the timer: %r" % s["sleep"])
-            check(s["boot"] == before["boot"], "no reboot across the sleep")
+                r = False
+            if r != last:
+                seen.append((round(time.time() - t0), r))
+                last = r
+            time.sleep(2)
+        downs = [t for t, r in seen if not r]
+        ups = [t for t, r in seen if r and t > 0]
+        check(downs and 12 <= downs[0] <= 40, "went to sleep %s after the low (grace 10 s plus the edge)" % ("%d s" % downs[0] if downs else "never"))
+        check(len(downs) >= 2, "a chunk boundary: down, up, down again (%r)" % seen)
+        check(ups and ups[-1] < HIB, "up for good %s after the low, before the MBB is due at %d s" % ("%d s" % ups[-1] if ups else "never", HIB))
+        s = status_retry(host)
+        check(s["sleep"]["count"] >= before["sleep"]["count"] + 2 and s["sleep"]["last_wake"] == "timer",
+              "at least two sleeps, the last woken by the timer: %r" % s["sleep"])
+        check(s["boot"] == before["boot"], "no reboot across the sleeps")
     finally:
         fcntl.ioctl(ad.fd, TIOCCBRK)
     time.sleep(1.5)
-    s = status(host)
+    s = status_retry(host)
     check(s["mbb_awake"], "awake again with the line high")
-    # Second cycle: the same sleep, ended early by pin 8 rising.
-    ad.write(b"Saving Stats, Hibernating for 300 sec\r\n")
+    # A second cycle ended early by pin 8 rising.
+    ad.write(b"Saving Stats, Hibernating for %d sec\r\n" % HIB)
     time.sleep(0.5)
     before = status(host)
     fcntl.ioctl(ad.fd, TIOCSBRK)
     t0 = time.time()
     try:
         gone = None
-        while time.time() - t0 < 180:
+        while time.time() - t0 < 60:
             try:
                 status(host)
-                time.sleep(5)
+                time.sleep(2)
             except Exception:
                 gone = time.time() - t0
                 break
         check(gone is not None, "second sleep started")
-        time.sleep(20)
+        time.sleep(10)
     finally:
         fcntl.ioctl(ad.fd, TIOCCBRK)   # pin 8 high: the wake source that is not the timer
     t1 = time.time()
@@ -309,10 +339,16 @@ def _t_lightsleep(host, ad):
             back = time.time() - t1
             break
         except Exception:
-            time.sleep(3)
+            time.sleep(2)
     check(back is not None, "back on the network %s after pin 8 rose" % ("%.0f s" % back if back else "never"))
     if back:
         check(s["sleep"]["last_wake"] == "pin 8" and s["mbb_awake"], "woken by pin 8 and awake: %r" % s["sleep"])
+        time.sleep(3)
+        s = status(host)
+        heap1 = (s["heap_free"], s["heap_max_alloc"])
+        check(heap1[0] > heap0[0] - 6144 and heap1[1] > heap0[1] - 6144,
+              "three sleep cycles cost the heap nothing lasting: free %d -> %d, largest block %d -> %d" % (heap0[0], heap1[0], heap0[1], heap1[1]))
+        check(s["wifi"]["resume_failures"] == 0, "the WiFi driver restarted cleanly each time")
 
 
 def main():
@@ -331,7 +367,7 @@ def main():
         sys.exit("bench: refusing to run against the bike unit")
     print("bench: %s through %s" % (args.host, dev))
     ad = adapter_open(dev)
-    tests = {"roundtrip": t_roundtrip, "break": t_break, "sleep": t_sleep, "poll": t_poll, "lightsleep": t_lightsleep}
+    tests = {"roundtrip": t_roundtrip, "break": t_break, "poll": t_poll, "sleep": t_sleep, "lightsleep": t_lightsleep}   # poll before sleep: no fresh awake edge to settle after
     for name in (tests if args.test == "all" else [args.test]):
         try:
             tests[name](args.host, ad)
