@@ -80,11 +80,13 @@ early; that costs milliamp-hours, not code. The 32.768 kHz crystal the
 module's pins allow for is not the answer either way: no DevKit-class
 board carries one, selecting it as the slow clock is a build-time option
 the precompiled core does not set, and its pins are GPIO32 and GPIO33,
-the latter being pin 8's input. A DS3231 real-time clock module on I2C, a
-dollar or two, is worth a place on the phase 2 board for two other
-reasons: its thermometer reads the frunk's air rather than the ESP32's
-die, and with a coin cell it keeps time through a power cut, so the
-dongle boots with the time known. Two wires and a small I2C driver.
+the latter being pin 8's input. A board that carries the crystal would
+need pin 8 moved and a full core rebuild to use it, for a timing the
+margin already covers. A DS3231 real-time clock module is not on the
+board either: what it would buy is the time through a power cut, which
+NTP gives back seconds after the join and the MBB's stamps within a
+session, and a thermometer, which the BMS supplies for the pack and the
+die sensor for the board.
 
 ## CAN
 
