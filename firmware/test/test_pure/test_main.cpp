@@ -157,12 +157,21 @@ void test_hibernate_line() {
 }
 
 void test_seconds_until_wake() {
-    TEST_ASSERT_EQUAL(3600, secondsUntilMbbWake(false, 0, 0, 999999, 0, 6, 3600));   // nothing known: the fallback
-    TEST_ASSERT_EQUAL(3600, secondsUntilMbbWake(true, 1000, 3600, 1000, 0, 6, 3600));   // announced just now
-    TEST_ASSERT_EQUAL(3475, secondsUntilMbbWake(true, 1000, 3600, 1125, 0, 6, 3600));   // 125 s later, all awake
-    TEST_ASSERT_EQUAL(-100, secondsUntilMbbWake(true, 0, 3600, 3700, 0, 6, 3600));      // overdue
-    // 2000 s of that elapsed time were RC-clock sleep with no NTP since: assume 6% more really passed.
-    TEST_ASSERT_EQUAL(3600 - 2500 - 120, secondsUntilMbbWake(true, 0, 3600, 2500, 2000, 6, 3600));
+    TEST_ASSERT_EQUAL(3600, secondsUntilMbbWake(false, 0, 0, 999999, 3600));   // nothing known: the fallback
+    TEST_ASSERT_EQUAL(3600, secondsUntilMbbWake(true, 1000, 3600, 1000, 3600));   // announced just now
+    TEST_ASSERT_EQUAL(3475, secondsUntilMbbWake(true, 1000, 3600, 1125, 3600));   // 125 s later
+    TEST_ASSERT_EQUAL(-100, secondsUntilMbbWake(true, 0, 3600, 3700, 3600));      // overdue
+}
+
+void test_sleep_leaves_a_margin_for_the_rc_clock() {
+    TEST_ASSERT_EQUAL(3240, sleepSeconds(3600, 10, 30));   // six minutes early, which a 5% long clock brings to three
+    TEST_ASSERT_EQUAL(135, sleepSeconds(150, 10, 30));
+    TEST_ASSERT_EQUAL(0, sleepSeconds(30, 10, 30));        // too short to be worth it
+    TEST_ASSERT_EQUAL(0, sleepSeconds(-5, 10, 30));        // overdue
+    for (long until = 34; until < 5000; until += 7) {       // a clock 6% long still lands before the MBB
+        long sl = sleepSeconds(until, 10, 30);
+        if (sl) TEST_ASSERT_TRUE(sl + sl * 6 / 100 + 1 <= until);
+    }
 }
 
 void test_attended_lines() {
@@ -175,21 +184,6 @@ void test_attended_lines() {
     TEST_ASSERT_TRUE(isBikeAttended(c, strlen(c)));
     TEST_ASSERT_FALSE(isBikeAttended(d, strlen(d)));
     TEST_ASSERT_FALSE(isBikeAttended("ccm RTC not ready in 31 sec", 27));
-}
-
-void test_sleep_chunks_land_before_the_mbb() {
-    // 6% drift, 10 s lead, 600 s chunks, 30 s minimum.
-    TEST_ASSERT_EQUAL(554, sleepChunk(3600, 10, 600, 6, 30));   // a long wait: one full chunk, shortened
-    TEST_ASSERT_EQUAL(554, sleepChunk(700, 10, 600, 6, 30));
-    TEST_ASSERT_EQUAL(147, sleepChunk(166, 10, 600, 6, 30));    // the bench case: up about 19 s early at worst
-    TEST_ASSERT_EQUAL(0, sleepChunk(40, 10, 600, 6, 30));       // too short to be worth it
-    TEST_ASSERT_EQUAL(0, sleepChunk(10, 10, 600, 6, 30));       // inside the lead
-    TEST_ASSERT_EQUAL(0, sleepChunk(-5, 10, 600, 6, 30));       // overdue
-    // Whatever the drift up to 6%, a chunk's real length stays under the time left.
-    for (long until = 31; until < 5000; until += 7) {
-        long s = sleepChunk(until, 10, 600, 6, 30);
-        if (s) TEST_ASSERT_TRUE(s + s * 6 / 100 + 1 <= until);
-    }
 }
 
 // --- mbb_parse ------------------------------------------------------------
@@ -295,7 +289,7 @@ int main() {
     RUN_TEST(test_json_escape);
     RUN_TEST(test_hibernate_line);
     RUN_TEST(test_seconds_until_wake);
-    RUN_TEST(test_sleep_chunks_land_before_the_mbb);
+    RUN_TEST(test_sleep_leaves_a_margin_for_the_rc_clock);
     RUN_TEST(test_attended_lines);
     RUN_TEST(test_strip_stamps);
     RUN_TEST(test_keeper_learns_and_rebuilds_with_used_lines_kept);

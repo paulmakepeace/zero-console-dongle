@@ -40,9 +40,8 @@ upload and the wait for the board to report the new version;
 [`tools/status.py`](../tools/status.py) `[HOST ...|all] [--watch N]` prints
 one line per board, or only the changes; [`tools/bench.py`](../tools/bench.py)
 runs the regression through the adapter on the bench board (roundtrip,
-break, poll, sleep, and a light-sleep scenario that sets the grace and the
-chunk short for the run and covers a chunk boundary), about four and a
-half minutes in all, and refuses the bike unit. Board names and addresses both
+break, poll, sleep, and a light-sleep scenario that sets the grace short
+for the run), about four minutes in all, and refuses the bike unit. Board names and addresses both
 work; `DONGLE_HOST` and `DONGLE_BOARDS` set the defaults.
 
 ## Tests
@@ -89,9 +88,10 @@ and applied at once, no reboot. Sleep is armed only once the bike has
 gone `sleep_days` days, three by default, without a 12 V top-up or a
 key-on, the signals that say it is being looked after; 0 arms it whenever
 the MBB sleeps. Armed, the dongle light-sleeps once
-the MBB has been asleep for two minutes with nobody using it, timed to be
-up ten seconds before the MBB's own hourly wake, and pin 8 rising wakes it
-regardless; a status check does not count as use, a download, the live
+the MBB has been asleep for two minutes with nobody using it, for nine
+tenths of the time until the MBB's own hourly wake, so it is up a few
+minutes early whatever the sleep timer's clock did, and pin 8 rising wakes
+it regardless; a status check does not count as use, a download, the live
 view, the command page or a console client does. If the stored network
 refuses the password three times running the setup network comes up again
 for ten minutes, after which the retry resumes, since a marginal link can
@@ -118,7 +118,7 @@ replaced from the home network with `POST /api/settings`.
 | `/update`            | POST   | firmware image as `firmware` in a multipart body; the status page has the form |
 | `/api/wifi/reset`    | POST   | forget WiFi and reboot into setup          |
 | `/api/settings`      | GET    | JSON: timezone, NTP server, sleep on or off, days unattended before sleeping, poll interval |
-| `/api/settings`      | POST   | form fields `tz`, `ntp`, `setup_pass`, `sleep` (0 or 1), `sleep_days` (0 for always), `poll` (seconds, 0 for never), any subset, applied at once; `sleep_grace` and `sleep_chunk` (seconds) are bench knobs, applied but not saved |
+| `/api/settings`      | POST   | form fields `tz`, `ntp`, `setup_pass`, `sleep` (0 or 1), `sleep_days` (0 for always), `poll` (seconds, 0 for never), any subset, applied at once; `sleep_grace` (seconds) is a bench knob, applied but not saved |
 | `/cmd`               | GET    | tabbed page of the polled command outputs  |
 | `/api/cmd`           | GET    | JSON list of the polled commands: age and size of the last good output, whether the last attempt succeeded, age of the last failure |
 | `/api/cmd/NAME`      | GET    | the last output of that command, text, with an `X-Age-Seconds` header; 503 until polled, 404 if unknown |

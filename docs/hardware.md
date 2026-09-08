@@ -74,19 +74,17 @@ The internal pulls the firmware enables cover the running case only. External
 parts are unconditional. A 3-pin connector on the plug's pigtail lets the
 CP2102N adapter and the DevKit swap in, and the pull-downs suit both.
 
-The ESP32's internal RC slow clock runs about 5% long, which is why the
-firmware sleeps in ten-minute chunks and corrects from NTP at each wake.
-The fix for that is not the 32.768 kHz crystal the module's pins allow for:
-no DevKit-class board carries one, selecting it as the slow clock is a
-build-time option the precompiled core does not set, and its pins are
-GPIO32 and GPIO33, the latter being pin 8's input. The phase 2 board
-carries a DS3231 real-time clock module on I2C instead, a dollar or two,
-which does three jobs: its alarm output wakes the ESP32 at the MBB's due
-time on a temperature-compensated clock good to a few parts per million,
-so the chunking goes; its thermometer reads the frunk's air rather than the
-ESP32's die; and with a coin cell it keeps time through a power cut, so
-the dongle boots with the time known. Two wires, a pull-down on the alarm
-line, and a small I2C driver.
+The ESP32's internal RC slow clock runs about 5% long, which the firmware
+covers by sleeping for nine tenths of the wait and waking a few minutes
+early; that costs milliamp-hours, not code. The 32.768 kHz crystal the
+module's pins allow for is not the answer either way: no DevKit-class
+board carries one, selecting it as the slow clock is a build-time option
+the precompiled core does not set, and its pins are GPIO32 and GPIO33,
+the latter being pin 8's input. A DS3231 real-time clock module on I2C, a
+dollar or two, is worth a place on the phase 2 board for two other
+reasons: its thermometer reads the frunk's air rather than the ESP32's
+die, and with a coin cell it keeps time through a power cut, so the
+dongle boots with the time known. Two wires and a small I2C driver.
 
 ## CAN
 

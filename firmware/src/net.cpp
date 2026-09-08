@@ -271,7 +271,7 @@ static void handleFile() {
     http.send(405, "text/plain", "method");
 }
 
-static void applySettings(const String& tz, const String& ntp, const String& pass, const String& sleep, const String& poll, const String& days, const String& grace = String(), const String& chunk = String()) {
+static void applySettings(const String& tz, const String& ntp, const String& pass, const String& sleep, const String& poll, const String& days, const String& grace = String()) {
     Preferences p;
     p.begin("dongle", false);
     if (tz.length() && tz != tzSetting) { tzSetting = tz; p.putString("tz", tz); }
@@ -280,12 +280,8 @@ static void applySettings(const String& tz, const String& ntp, const String& pas
     if (sleep == "0" || sleep == "1") { sleepSetEnabled(sleep == "1"); p.putBool("sleep", sleep == "1"); }
     if (poll.length() && poll.toInt() >= 0 && poll.toInt() < 100000) { pollerSetInterval(poll.toInt()); p.putUInt("poll", poll.toInt()); }
     if (days.length() && days.toInt() >= 0 && days.toInt() < 1000) { sleepSetAfterDays(days.toInt()); p.putUInt("sleep_days", days.toInt()); }
-    // Bench knobs, applied but never saved: the grace before a sleep in seconds and the longest chunk in seconds.
-    if (grace.length() || chunk.length()) {
-        uint32_t g = grace.length() ? grace.toInt() * 1000UL : sleepGraceMs();
-        uint32_t c = chunk.length() ? chunk.toInt() : sleepChunkS();
-        if (g >= 5000 && c >= SLEEP_MIN_S + SLEEP_LEAD_S) sleepSetTiming(g, c);
-    }
+    // A bench knob, applied but never saved: the grace before a sleep, in seconds.
+    if (grace.length() && grace.toInt() >= 5) sleepSetGraceMs(grace.toInt() * 1000UL);
     p.end();
     clockApplySettings(tzSetting.c_str(), ntpSetting.c_str());   // live; no restart
     Serial.println("net: settings applied");
@@ -314,12 +310,12 @@ static void setupHttp() {
     http.on("/api/settings", HTTP_GET, []() {
         http.send(200, "application/json", "{\"tz\":\"" + jsonEscape(tzSetting) + "\",\"ntp\":\"" + jsonEscape(ntpSetting) +
                   "\",\"sleep\":" + (sleepEnabled() ? "1" : "0") + ",\"sleep_days\":" + String(sleepAfterDays()) + ",\"poll\":" + String(pollerInterval()) +
-                  ",\"sleep_grace\":" + String(sleepGraceMs() / 1000) + ",\"sleep_chunk\":" + String(sleepChunkS()) + "}");
+                  ",\"sleep_grace\":" + String(sleepGraceMs() / 1000) + "}");
     });
     http.on("/api/settings", HTTP_POST, []() {   // form fields tz, ntp, setup_pass, sleep, poll; any subset
         if (!tokenOk()) return;
         applySettings(http.arg("tz"), http.arg("ntp"), http.arg("setup_pass"), http.arg("sleep"), http.arg("poll"), http.arg("sleep_days"),
-                      http.arg("sleep_grace"), http.arg("sleep_chunk"));
+                      http.arg("sleep_grace"));
         http.send(200, "text/plain", "applied");
     });
     http.on("/cmd", HTTP_GET, []() { touch(); http.send_P(200, "text/html", CMD_PAGE); });

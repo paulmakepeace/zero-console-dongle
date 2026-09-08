@@ -16,15 +16,11 @@
 static bool enabled = false;
 static uint32_t afterDays = 3;
 static uint32_t graceMs = SLEEP_GRACE_MS;
-static uint32_t chunkS = SLEEP_CHUNK_S;
 static long lastAttendedS = 0;    // wall time the bike was last seen attended; 0 for never seen
 static bool attendedDirty = false;   // needs saving, done while the MBB sleeps
 static bool haveHib = false;
 static long hibAtS = 0;          // seconds on the clock the store stamps with; wall time once NTP or the MBB set it
 static long hibSec = 0;
-static bool intermediate = false;   // the last wake was a chunk boundary, not the MBB's due time
-static long sleptUncorrectedS = 0;  // sleep measured by the RC clock and not yet corrected by NTP
-static uint32_t lastWakeMs = 0;
 static bool wasAwake = false;
 static uint32_t asleepSinceMs = 0;
 static uint32_t sleeps = 0;
@@ -46,16 +42,15 @@ void sleepBegin(bool on, uint32_t days, long lastS) {
 void sleepSetEnabled(bool on) { enabled = on; }
 bool sleepEnabled() { return enabled; }
 void sleepSetAfterDays(uint32_t d) { afterDays = d; }
-void sleepSetTiming(uint32_t g, uint32_t c) { graceMs = g; chunkS = c; }
+void sleepSetGraceMs(uint32_t g) { graceMs = g; }
 uint32_t sleepGraceMs() { return graceMs; }
-uint32_t sleepChunkS() { return chunkS; }
 uint32_t sleepAfterDays() { return afterDays; }
 
 static long nowS() { return (long)time(nullptr); }   // advanced across light sleep by the RTC, put right by NTP after each wake
 
 void sleepNoteLine(const char* line, size_t len) {
     long s = parseHibernateSeconds(line, len);
-    if (s > 0) { haveHib = true; hibAtS = nowS(); hibSec = s; sleptUncorrectedS = 0; }
+    if (s > 0) { haveHib = true; hibAtS = nowS(); hibSec = s; }
     if (isBikeAttended(line, len) && clockValid()) { lastAttendedS = nowS(); attendedDirty = true; }
 }
 
@@ -85,15 +80,12 @@ static void doSleep(long seconds, long untilWakeS) {
     esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
     lastWake = cause == ESP_SLEEP_WAKEUP_TIMER ? "timer" : cause == ESP_SLEEP_WAKEUP_GPIO ? "pin 8" : "other";
     lastSleptS = (millis() - before) / 1000;
-    sleptUncorrectedS += seconds;   // what the RC clock claims; NTP may correct it before the next plan
-    lastWakeMs = millis();
     sleeps++;
     Serial.printf("sleep: woke on %s after %lu s\n", lastWake, (unsigned long)lastSleptS);
     netResume();
     String note = clockStamp() + " dongle: slept " + String(lastSleptS) + " s, woke on " + lastWake;
     storeAppend(note, false);
-    intermediate = cause == ESP_SLEEP_WAKEUP_TIMER && seconds < untilWakeS - SLEEP_LEAD_S;
-    asleepSinceMs = millis();   // a fresh grace period: short for a chunk boundary, full when the MBB is due
+    asleepSinceMs = millis();   // a fresh grace period: the MBB is due, and a pull may want the files
 }
 
 void sleepTick(bool mbbAwake, bool busy) {
@@ -109,22 +101,20 @@ void sleepTick(bool mbbAwake, bool busy) {
     }
     if (!enabled || mbbAwake || busy) return;
     if (!unattended()) return;
-    if (now - asleepSinceMs < (intermediate ? SLEEP_REGRACE_MS : graceMs)) return;
-    if (sleptUncorrectedS && clockNtpAgeS() * 1000UL < now - lastWakeMs) sleptUncorrectedS = 0;   // NTP has put the clock right since the wake
-    long until = secondsUntilMbbWake(haveHib, hibAtS, hibSec, nowS(), sleptUncorrectedS, SLEEP_DRIFT_PCT, SLEEP_FALLBACK_S);
-    plannedS = sleepChunk(until, SLEEP_LEAD_S, chunkS, SLEEP_DRIFT_PCT, SLEEP_MIN_S);
+    if (now - asleepSinceMs < graceMs) return;
+    long until = secondsUntilMbbWake(haveHib, hibAtS, hibSec, nowS(), SLEEP_FALLBACK_S);
+    plannedS = sleepSeconds(until, SLEEP_MARGIN_PCT, SLEEP_MIN_S);
     if (plannedS == 0) {
         // The MBB's wake is due or overdue. Stay up for it; if it never comes,
         // the announcement is stale and the fallback timer takes over.
         if (haveHib && until < -60) haveHib = false;
-        intermediate = false;
         return;
     }
     doSleep(plannedS, until);
 }
 
 String sleepStatusJson() {
-    long due = haveHib ? secondsUntilMbbWake(true, hibAtS, hibSec, nowS(), sleptUncorrectedS, SLEEP_DRIFT_PCT, 0) : -1;
+    long due = haveHib ? secondsUntilMbbWake(true, hibAtS, hibSec, nowS(), 0) : -1;
     long since = lastAttendedS && clockValid() ? nowS() - lastAttendedS : -1;
     return String("{\"enabled\":") + (enabled ? "true" : "false") + ",\"after_days\":" + String(afterDays) +
            ",\"attended_age_s\":" + String(since) + ",\"armed\":" + (enabled && unattended() ? "true" : "false") +

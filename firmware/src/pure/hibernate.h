@@ -33,26 +33,18 @@ inline bool isBikeAttended(const char* s, size_t len) {
 }
 
 // Seconds until the MBB's timer fires: its announcement plus its own count,
-// less what has passed. Time spent asleep was measured by the RC clock, so
-// unless NTP has since put the clock right it is assumed to have run long
-// by driftPct: the answer errs early. With no announcement known,
-// fallbackS. Negative means the wake is overdue.
-inline long secondsUntilMbbWake(bool haveHibernate, long hibernateAtS, long hibernateS, long nowS,
-                                long uncorrectedSleptS, long driftPct, long fallbackS) {
+// less what has passed. With no announcement known, fallbackS. Negative
+// means the wake is overdue.
+inline long secondsUntilMbbWake(bool haveHibernate, long hibernateAtS, long hibernateS, long nowS, long fallbackS) {
     if (!haveHibernate) return fallbackS;
-    long elapsed = nowS - hibernateAtS + uncorrectedSleptS * driftPct / 100;
-    return hibernateS - elapsed;
+    return hibernateAtS + hibernateS - nowS;
 }
 
-// How long to sleep now. The sleep timer runs on an RC clock that is a few
-// percent off, so a long wait is taken in chunks, each wake letting NTP put
-// the clock right, and every chunk is shortened by the lead plus the drift
-// it could carry, so the last one still lands before the MBB. 0 means do
-// not sleep: the wake is inside the lead, or the chunk would be too short
-// to be worth the network round trip.
-inline long sleepChunk(long untilWakeS, long leadS, long maxChunkS, long driftPct, long minS) {
-    if (untilWakeS <= leadS) return 0;
-    long chunk = untilWakeS < maxChunkS ? untilWakeS : maxChunkS;
-    long sleep = chunk - leadS - chunk * driftPct / 100;
-    return sleep >= minS ? sleep : 0;
+// How long to sleep: most of the way, with a margin that covers the sleep
+// timer's RC clock running long, and 0 when the wake is too close to be
+// worth the network round trip. Waking a few minutes early costs a few
+// milliamp-hours a day; timing it closely would cost the code its simplicity.
+inline long sleepSeconds(long untilWakeS, long marginPct, long minS) {
+    long s = untilWakeS * (100 - marginPct) / 100;
+    return s >= minS ? s : 0;
 }

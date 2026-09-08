@@ -14,12 +14,11 @@ Usage: tools/bench.py [roundtrip|break|sleep|poll|lightsleep|all] [--host H] [--
              every command's output, keeps the transmit pin held across the
              batch, passes an unsolicited line through to the log, and keeps
              the outputs themselves out of the log
-  lightsleep about three and a half minutes: with the grace and the chunk set
-             short for the run, a fake "Hibernating for 150 sec" then a
-             held low makes the dongle sleep, wake at a chunk boundary,
-             sleep again and be up before the MBB is due; a second cycle
-             wakes it on pin 8 instead; the heap is compared across all
-             three cycles
+  lightsleep about three minutes: with the grace set short for the run, a
+             fake "Hibernating for 150 sec" then a held low makes the
+             dongle sleep and be back before the MBB is due; a second
+             cycle wakes it on pin 8 instead; the heap is compared across
+             both cycles
 
 Defaults: host zero-dongle-ebdc.local (DONGLE_HOST), adapter the first
 /dev/cu.usbserial-* that is not the DevKit's own bridge (DONGLE_ADAPTER).
@@ -263,14 +262,14 @@ def t_poll(host, ad):
 
 
 def t_lightsleep(host, ad):
-    print("lightsleep (about three and a half minutes)")
-    # Sleep whenever the MBB does, a 10 s grace and 45 s chunks: the same code
-    # path as the hour-long sleep, with numbers the bench can wait out.
-    post(host, "/api/settings", b"sleep=1&sleep_days=0&sleep_grace=10&sleep_chunk=45")
+    print("lightsleep (about three minutes)")
+    # Sleep whenever the MBB does, with a 10 s grace: the same code path as
+    # the hour-long sleep, with numbers the bench can wait out.
+    post(host, "/api/settings", b"sleep=1&sleep_days=0&sleep_grace=10")
     try:
         _t_lightsleep(host, ad)
     finally:
-        post(host, "/api/settings", b"sleep_days=3&sleep_grace=120&sleep_chunk=600")
+        post(host, "/api/settings", b"sleep_days=3&sleep_grace=120")
 
 
 def _t_lightsleep(host, ad):
@@ -284,29 +283,25 @@ def _t_lightsleep(host, ad):
     try:
         time.sleep(7)
         check(not status_retry(host)["mbb_awake"], "asleep behind the held low")
-        # Off the network within the grace plus the edge, then a chunk boundary
-        # (up, then down again), then up for good before the MBB is due.
-        seen = []   # (t, reachable)
-        last = None
+        # Off the network within the grace plus the edge, then up again before
+        # the MBB is due, with nine tenths of the wait slept.
+        gone = back = None
         while time.time() - t0 < HIB + 20:
             try:
                 status(host)
-                r = True
+                if gone is not None and back is None:
+                    back = time.time() - t0
+                    break
             except Exception:
-                r = False
-            if r != last:
-                seen.append((round(time.time() - t0), r))
-                last = r
+                if gone is None:
+                    gone = time.time() - t0
             time.sleep(2)
-        downs = [t for t, r in seen if not r]
-        ups = [t for t, r in seen if r and t > 0]
-        check(downs and 12 <= downs[0] <= 40, "went to sleep %s after the low (grace 10 s plus the edge)" % ("%d s" % downs[0] if downs else "never"))
-        check(len(downs) >= 2, "a chunk boundary: down, up, down again (%r)" % seen)
-        check(ups and ups[-1] < HIB, "up for good %s after the low, before the MBB is due at %d s" % ("%d s" % ups[-1] if ups else "never", HIB))
+        check(gone is not None and 12 <= gone <= 40, "went to sleep %s after the low (grace 10 s plus the edge)" % ("%d s" % gone if gone else "never"))
+        check(back is not None and back < HIB, "back on the network %s after the low, before the MBB is due at %d s" % ("%d s" % back if back else "never", HIB))
         s = status_retry(host)
-        check(s["sleep"]["count"] >= before["sleep"]["count"] + 2 and s["sleep"]["last_wake"] == "timer",
-              "at least two sleeps, the last woken by the timer: %r" % s["sleep"])
-        check(s["boot"] == before["boot"], "no reboot across the sleeps")
+        check(s["sleep"]["count"] == before["sleep"]["count"] + 1 and s["sleep"]["last_wake"] == "timer",
+              "one sleep, woken by the timer: %r" % s["sleep"])
+        check(s["boot"] == before["boot"], "no reboot across the sleep")
     finally:
         fcntl.ioctl(ad.fd, TIOCCBRK)
     time.sleep(1.5)
@@ -347,7 +342,7 @@ def _t_lightsleep(host, ad):
         s = status(host)
         heap1 = (s["heap_free"], s["heap_max_alloc"])
         check(heap1[0] > heap0[0] - 6144 and heap1[1] > heap0[1] - 6144,
-              "three sleep cycles cost the heap nothing lasting: free %d -> %d, largest block %d -> %d" % (heap0[0], heap1[0], heap0[1], heap1[1]))
+              "two sleep cycles cost the heap nothing lasting: free %d -> %d, largest block %d -> %d" % (heap0[0], heap1[0], heap0[1], heap1[1]))
         check(s["wifi"]["resume_failures"] == 0, "the WiFi driver restarted cleanly each time")
 
 

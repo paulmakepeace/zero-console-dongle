@@ -82,14 +82,12 @@ its [README](../firmware/README.md):
    The MBB announces `Hibernating for
    3600 sec` and wakes 3600 s later to the second, so the dongle keeps that
    line's time and, once the MBB has been asleep for a grace period with
-   nobody using the dongle, light-sleeps until ten seconds before the MBB
-   is due. The sleep timer runs on the ESP32's internal RC clock, which is
-   a few percent off, so the wait is taken in chunks of at most ten
-   minutes: each wake rejoins WiFi, NTP puts the clock right, and the next
-   chunk is planned against wall time with a margin for the drift, so the
-   last one lands before the MBB whatever the RC clock did. A chunk
-   boundary is a short awake window; a pull that starts in it keeps the
-   dongle up. Pin 8 rising wakes it regardless, for
+   nobody using the dongle, light-sleeps for nine tenths of the time until
+   the MBB is due. The sleep timer runs on the ESP32's internal RC clock,
+   which runs a few percent long, and the tenth covers that with room to
+   spare: the dongle is up a few minutes before the MBB, which costs a few
+   milliamp-hours a day and nothing in code. Pin 8 rising wakes it
+   regardless, for
    wakes it did not schedule, at the cost of the first bytes of the banner,
    because the UART runs from the APB clock, which stops in light sleep.
    With no announcement seen it wakes hourly anyway. The WiFi driver is
