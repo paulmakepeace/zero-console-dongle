@@ -41,9 +41,9 @@ static String lastAwake, lastAsleep;
 static uint32_t awakeCount = 0;
 static String openForRead[4];   // names being streamed out; reclaim and delete leave them alone
 
-struct Lock {
-    Lock() { xSemaphoreTakeRecursive(mtx, portMAX_DELAY); }
-    ~Lock() { xSemaphoreGiveRecursive(mtx); }
+struct Lock {   // a no-op if the mutex was never created, so a failed begin cannot assert later
+    Lock() { if (mtx) xSemaphoreTakeRecursive(mtx, portMAX_DELAY); }
+    ~Lock() { if (mtx) xSemaphoreGiveRecursive(mtx); }
 };
 
 static String pathOf(const String& name) { return String(LOG_DIR) + "/" + name; }
@@ -171,13 +171,18 @@ static void sessionOpen() {
         when = "nosync";
     }
     char b[48];
-    snprintf(b, sizeof b, "b%04lu-%03d-%s.log", (unsigned long)bootCount, seq + 1, when.c_str());
+    int s = seq + 1;
+    // A boot count that failed to save repeats, and a repeated name would
+    // append to an old file the puller may already hold; skip past any name in use.
+    do {
+        snprintf(b, sizeof b, "b%04lu-%03d-%s.log", (unsigned long)bootCount, s, when.c_str());
+    } while (LittleFS.exists(pathOf(b)) && ++s < 1000);
     File f = LittleFS.open(pathOf(b), FILE_APPEND);
     if (!f) {
         Serial.printf("store: cannot open %s\n", b);
         return;   // the sequence number is not spent on a failure
     }
-    seq++;
+    seq = s;
     active = f;
     activeName = b;
     activeBytes = 0;
@@ -216,21 +221,24 @@ static uint32_t countLines(const String& s) {
 
 static void commitPending() {
     if (pending.length() == 0) return;
-    if (!pendingHasMbb && !active) return;   // dongle notes alone wait for a session to join
     if (!ok) { droppedLines += countLines(pending); pending = ""; pendingHasMbb = false; return; }
+    if (!pendingHasMbb && !active) return;   // dongle notes alone wait for a session to join
     if (!active) sessionOpen();
     if (!active) { droppedLines += countLines(pending); pending = ""; pendingHasMbb = false; return; }
     size_t done = writeAll(pending.c_str(), pending.length());
-    if (done < pending.length()) droppedLines += countLines(pending.substring(done));
     // The stdio buffer accepts writes a full filesystem cannot keep; flush()
-    // returns nothing, but the file's size afterwards tells the truth.
+    // returns nothing, but the file's size afterwards tells the truth. The
+    // bytes lost there are the tail of what was written, so the loss is
+    // counted once, from the tail of the buffer that did not reach the flash.
     active.flush();
     size_t onDisk = active.size();
-    if (onDisk < activeBytes) {
-        droppedLines += countLines(pending);
-        Serial.printf("store: commit lost %u byte(s) at the flush, flash full\n", (unsigned)(activeBytes - onDisk));
+    size_t lostAtFlush = onDisk < activeBytes ? activeBytes - onDisk : 0;
+    if (lostAtFlush) {
+        Serial.printf("store: commit lost %u byte(s) at the flush, flash full\n", (unsigned)lostAtFlush);
         activeBytes = onDisk;
     }
+    size_t kept = done > lostAtFlush ? done - lostAtFlush : 0;
+    if (kept < pending.length()) droppedLines += countLines(pending.substring(kept));
     pending = "";
     pendingHasMbb = false;
     if (activeBytes >= SESSION_MAX_BYTES) sessionClose("session continues in the next part");
@@ -241,10 +249,10 @@ void storeAppend(const String& line, bool fromMbb) {
     lastLines[lastHead] = line.length() > LAST_LINE_CHARS ? line.substring(0, LAST_LINE_CHARS) : line;
     lastHead = (lastHead + 1) % LAST_LINES;
     if (lastCount < LAST_LINES) lastCount++;
-    if (pending.length() == 0) {
-        pendingSinceMs = millis();
+    if (pending.length() == 0) pendingSinceMs = millis();
+    if (fromMbb && !pendingHasMbb) {   // the header takes the first MBB line's own stamp, not a waiting note's
         int sp = line.indexOf(' ');
-        pendingFirstStamp = sp > 0 ? line.substring(0, sp) : clockStamp();   // the header takes the first line's own stamp
+        pendingFirstStamp = sp > 0 ? line.substring(0, sp) : clockStamp();
     }
     if (!pending.concat(line) || !pending.concat('\n')) { droppedLines++; return; }   // out of memory
     if (fromMbb) pendingHasMbb = true;
@@ -258,6 +266,7 @@ void storeTick(bool mbbQuiet) {
     lastQuiet = mbbQuiet;
     uint32_t now = millis();
     if (pending.length() && (mbbQuiet || now - pendingSinceMs > MAX_PENDING_MS)) commitPending();
+    if (!ok) return;   // nothing to reclaim on a filesystem that is not there
     if (now - lastRotateMs > 60000 && (mbbQuiet || freeBytes() < FS_MIN_FREE / 2)) {
         lastRotateMs = now;
         ensureSpace();
@@ -299,12 +308,13 @@ StoreDeleteResult storeDelete(const String& name) {
     return LittleFS.remove(pathOf(name)) ? STORE_DELETED : STORE_REFUSED;
 }
 
-File storeOpenRead(const String& name) {
+File storeOpenRead(const String& name, bool* busy) {
     Lock l;
+    if (busy) *busy = false;
     if (!nameOk(name) || name == activeName) return File();
     String* slot = nullptr;
     for (auto& n : openForRead) if (n.length() == 0) { slot = &n; break; }
-    if (!slot) return File();   // unprotected reads are not handed out
+    if (!slot) { if (busy) *busy = true; return File(); }   // unprotected reads are not handed out
     File f = LittleFS.open(pathOf(name), FILE_READ);
     if (f) *slot = name;
     return f;

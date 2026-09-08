@@ -10,37 +10,38 @@
 #include <time.h>
 #include "esp_sntp.h"
 
-static volatile TimeSource source = TIME_NONE;
-static volatile uint32_t lastNtpSyncMs = 0;
+// source and lastNtpSyncMs belong to the loop task; the SNTP callback, on
+// the lwIP task, only raises the flag and the loop promotes it in clockTick.
+static TimeSource source = TIME_NONE;
+static uint32_t lastNtpSyncMs = 0;
 static volatile bool ntpSyncPending = false;
+static uint32_t lastMbbStepMs = 0;
 static ClockNoteHandler noteHandler;
 static bool haveCandidate = false;
 static time_t candidateSec;
 static uint32_t candidateMs;
-static String tzSetting, ntpSetting;
+// Fixed storage: lwIP keeps the server name pointer, so it must never move.
+static char tzSetting[64], ntpSetting[65];
 
-static void onSntpSync(struct timeval*) {
-    source = TIME_NTP;
-    lastNtpSyncMs = millis();
-    ntpSyncPending = true;
-}
+static void onSntpSync(struct timeval*) { ntpSyncPending = true; }
 
 void clockBegin(const char* tz, const char* ntpServer, ClockNoteHandler onNote) {
     noteHandler = onNote;
-    tzSetting = tz;
-    ntpSetting = ntpServer;
+    strlcpy(tzSetting, tz, sizeof tzSetting);
+    strlcpy(ntpSetting, ntpServer, sizeof ntpSetting);
     esp_sntp_set_time_sync_notification_cb(onSntpSync);
-    configTzTime(tzSetting.c_str(), ntpSetting.c_str());
+    configTzTime(tzSetting, ntpSetting);
 }
 
 void clockNetworkUp() {
-    configTzTime(tzSetting.c_str(), ntpSetting.c_str());   // restarts SNTP; the first request goes out now
+    configTzTime(tzSetting, ntpSetting);   // restarts SNTP; the first request goes out now
 }
 
 void clockApplySettings(const char* tz, const char* ntpServer) {
-    tzSetting = tz;
-    ntpSetting = ntpServer;
-    configTzTime(tzSetting.c_str(), ntpSetting.c_str());
+    esp_sntp_stop();   // release the old server name before it is overwritten
+    strlcpy(tzSetting, tz, sizeof tzSetting);
+    strlcpy(ntpSetting, ntpServer, sizeof ntpSetting);
+    configTzTime(tzSetting, ntpSetting);
 }
 
 bool clockValid() { return source != TIME_NONE; }
@@ -134,9 +135,11 @@ void clockMaybeSetFromMbb(const char* line, size_t len) {
         long expected = (long)candidateSec + (long)((nowMs - candidateMs) / 1000);
         long delta = (long)tv.tv_sec - expected;
         if (delta > -5 && delta < 5) {
+            if (ntpSyncPending) { haveCandidate = false; return; }   // NTP just landed; the tick promotes it
             String before = clockStamp();
             settimeofday(&tv, nullptr);
-            if (source != TIME_NTP) source = TIME_MBB;   // an NTP sync may have landed meanwhile
+            source = TIME_MBB;
+            lastMbbStepMs = millis();
             haveCandidate = false;
             if (noteHandler) {
                 String note = "dongle: clock stepped from " + before + " to " + clockStamp() + " by the MBB";
@@ -151,9 +154,14 @@ void clockMaybeSetFromMbb(const char* line, size_t len) {
 }
 
 void clockTick() {
-    if (ntpSyncPending && noteHandler) {
-        ntpSyncPending = false;
+    if (!ntpSyncPending) return;
+    ntpSyncPending = false;
+    bool raced = source == TIME_MBB && millis() - lastMbbStepMs < 2000;   // a step may have overwritten the sync
+    source = TIME_NTP;
+    lastNtpSyncMs = millis();
+    if (noteHandler) {
         String note = "dongle: clock set from ntp, now " + clockStamp();
         noteHandler(note.c_str());
     }
+    if (raced) configTzTime(tzSetting, ntpSetting);   // ask again; the answer wins
 }

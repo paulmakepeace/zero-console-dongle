@@ -16,15 +16,19 @@
 #include "esp_task_wdt.h"
 #include "esp_system.h"
 #include "freertos/stream_buffer.h"
+#include <atomic>
 
 static RawHandler rawHandler;
 static volatile bool awake = false;
+static volatile bool lineHigh = false;   // pin 8 right now, for the transmit gate; awake lags it by 5 s
 static volatile bool txAttached = false;
 static volatile bool driverOk = false;
 static volatile uint32_t lastActivityMs = 0;
 static volatile uint32_t lastByteMs = 0;
 static volatile uint32_t txHoldUntilMs = 0;
-static volatile uint32_t overflows = 0, backpressure = 0, frameErrors = 0, queueDrops = 0;
+static volatile uint32_t overflows = 0, backpressure = 0, frameErrors = 0;
+static std::atomic<uint32_t> queueDrops{0};   // added on the capture task, taken on the loop task
+static TaskHandle_t captureHandle;
 static SemaphoreHandle_t txMtx;
 static QueueHandle_t uartQueue;
 static StreamBufferHandle_t events;   // records: type, length (2 bytes), payload
@@ -68,17 +72,24 @@ static void txDetach() {
     if (inputPulldown(PIN_MBB_TX)) txAttached = false;   // on failure stay attached and try again next pass
 }
 
+// The hold ends on time, or the moment pin 8 is seen low: a MBB that is
+// powering down must not find pin 9 driven.
+static bool holdOver() { return (int32_t)(millis() - txHoldUntilMs) > 0 || !lineHigh; }
+
 static void checkHold() {
-    if (txAttached && (int32_t)(millis() - txHoldUntilMs) > 0) {
+    if (txAttached && holdOver()) {
         xSemaphoreTake(txMtx, portMAX_DELAY);
-        if (txAttached && (int32_t)(millis() - txHoldUntilMs) > 0) txDetach();
+        if (txAttached && holdOver()) txDetach();
         xSemaphoreGive(txMtx);
     }
 }
 
 static void post(uint8_t type, const char* payload, size_t len) {
     uint8_t hdr[3] = {type, (uint8_t)(len & 0xff), (uint8_t)(len >> 8)};
-    if (xStreamBufferSpacesAvailable(events) < 3 + len) { queueDrops = queueDrops + 1; return; }
+    // Lines leave headroom so the awake and asleep edges, which carry no
+    // payload, are never the records that get dropped.
+    size_t need = 3 + len + (len ? 16 : 0);
+    if (xStreamBufferSpacesAvailable(events) < need) { if (len) queueDrops.fetch_add(1); return; }
     xStreamBufferSend(events, hdr, 3, 0);
     if (len) xStreamBufferSend(events, payload, len, 0);
 }
@@ -107,6 +118,7 @@ static void captureTask(void*) {
     static char line[1024];
     size_t llen = 0;
     uint32_t highSinceMs = 0;
+    int lowSamples = 3;
     esp_task_wdt_add(NULL);
     for (;;) {
         esp_task_wdt_reset();
@@ -132,6 +144,10 @@ static void captureTask(void*) {
         } else {
             highSinceMs = 0;
         }
+        // Bytes mean the line is powered even when a sample lands in a low bit;
+        // three quiet low samples (about 60 ms) mean it is not.
+        if (realBytes || level) { lowSamples = 0; lineHigh = true; }
+        else if (lowSamples < 3 && ++lowSamples == 3) lineHigh = false;
         bool nowAwake = (now - lastActivityMs) < SLEEP_AFTER_MS;
         if (nowAwake != awake) {
             if (!nowAwake && llen) { post(EV_LINE, line, llen); llen = 0; }   // a session keeps its own tail
@@ -189,8 +205,11 @@ bool mbbBegin(RawHandler onRaw) {
     uart_flush_input(UART_NUM_2);   // whatever arrived while the pad was routed but unread
     uart_get_tx_buffer_free_size(UART_NUM_2, &txFreeWhenEmpty);
     lastActivityMs = millis() - SLEEP_AFTER_MS - 1;   // start asleep until pin 8 is seen high
+    if (xTaskCreatePinnedToCore(captureTask, "mbb", 6144, nullptr, 3, &captureHandle, 1) != pdPASS) {
+        Serial.println("mbb: capture task not created");
+        return false;
+    }
     driverOk = true;
-    xTaskCreatePinnedToCore(captureTask, "mbb", 6144, nullptr, 3, nullptr, 1);
     return true;
 }
 
@@ -211,9 +230,8 @@ void mbbTick(LineHandler onLine, StateHandler onState) {
             case EV_ASLEEP: if (onState) onState(false); break;
         }
     }
-    if (queueDrops) {   // said once the queue has room again
-        uint32_t d = queueDrops;
-        queueDrops = 0;
+    uint32_t d = queueDrops.exchange(0);
+    if (d) {   // said once the queue has room again
         char msg[64];
         int n = snprintf(msg, sizeof msg, "dongle: %lu line(s) lost, capture queue full", (unsigned long)d);
         if (onLine) onLine(msg, n);
@@ -227,13 +245,15 @@ uint32_t mbbLastByteMs() { return lastByteMs; }
 uint32_t mbbOverflows() { return overflows; }
 uint32_t mbbBackpressure() { return backpressure; }
 uint32_t mbbFrameErrors() { return frameErrors; }
-uint32_t mbbQueueDrops() { return queueDrops; }
+uint32_t mbbQueueDrops() { return queueDrops.load(); }
+bool mbbLineHigh() { return lineHigh; }
+uint32_t mbbCaptureStackFree() { return captureHandle ? uxTaskGetStackHighWaterMark(captureHandle) : 0; }
 
 size_t mbbWrite(const uint8_t* data, size_t len) {
-    if (!driverOk || !awake || len == 0) return 0;
+    if (!driverOk || !awake || !lineHigh || len == 0) return 0;
     if (len > UART_TX_BUF) len = UART_TX_BUF;   // never block on the wire with the mutex held
     xSemaphoreTake(txMtx, portMAX_DELAY);
-    if (!awake) {   // the asleep edge may have landed between the check above and the lock
+    if (!awake || !lineHigh) {   // the edge may have landed between the check above and the lock
         xSemaphoreGive(txMtx);
         return 0;
     }

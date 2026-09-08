@@ -10,7 +10,7 @@ Design in [../docs/firmware.md](../docs/firmware.md).
 |---------|------------|--------------------------------------------------|
 | 5       | GND        |                                                  |
 | 8       | D33        | MBB TX. Internal pull-down; RTC-capable for later |
-| 9       | TX2 (D17)  | MBB RX and wake pin. Driven only while a command is being sent, and only while the MBB is awake |
+| 9       | TX2 (D17)  | MBB RX and wake pin. Driven only while a command is being sent, and only while pin 8 is high |
 
 Power from USB-C for the bench and the frunk socket.
 
@@ -66,7 +66,7 @@ replaced from the home network with `POST /api/settings`.
 | Path                 | Method | What                                      |
 |----------------------|--------|-------------------------------------------|
 | `/`                  | GET    | status page                               |
-| `/api/status`        | GET    | JSON: awake, TX attached, last awake and asleep stamps, time and its source and NTP age, WiFi with mDNS and setup-network state, filesystem, dropped lines, the UART's overrun, back-pressure, frame-error and queue-drop counts, console clients and dropped bytes, watchdog and reset reason |
+| `/api/status`        | GET    | JSON: awake, TX attached, last awake and asleep stamps, time and its source and NTP age, WiFi with mDNS and setup-network state, filesystem, dropped lines, the UART's overrun, back-pressure, frame-error and queue-drop counts, console clients and dropped bytes, heap and stack headroom, watchdog and reset reason |
 | `/logs`              | GET    | JSON list of files with size and active flag |
 | `/logs/NAME`         | GET    | the file; refused with 409 while active    |
 | `/logs/NAME`         | DELETE | remove it; 409 while active or being read, or for a bad name |
@@ -92,7 +92,8 @@ Enter twice for the prompt. The dongle adds the CR the MBB wants and turns
 delete into backspace, so a plain `nc` works. Input is dropped while the MBB is
 asleep, because driving its wake pin would reboot it. The transmit pin is
 attached to the UART only while bytes are being sent and for two seconds
-after, then returns to a pulled-down input: a UART idles high, and a high on
+after, or until pin 8 is seen low if that comes first, then returns to a
+pulled-down input: a UART idles high, and a high on
 pin 9 holds the MBB out of deep sleep. The GPIO is put in that safe state
 before anything else runs at boot. Output a client cannot take right now is
 held for it briefly, then dropped with a `[dongle: N console bytes dropped]`

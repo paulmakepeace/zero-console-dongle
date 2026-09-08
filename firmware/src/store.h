@@ -11,7 +11,7 @@ void storeTick(bool mbbQuiet);   // the caller knows whether the MBB is talking
 String storeActiveName();
 String storeListJson();
 StoreDeleteResult storeDelete(const String& name);
-File storeOpenRead(const String& name);   // pair with storeReadDone; the file is safe from reclaim meanwhile
+File storeOpenRead(const String& name, bool* busy = nullptr);   // pair with storeReadDone; the file is safe from reclaim meanwhile; busy: no free reader
 void storeReadDone(const String& name);
 void storeStats(size_t& total, size_t& used);
 String storeLastLines();

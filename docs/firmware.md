@@ -82,6 +82,12 @@ Phase 2, in likely order:
   stays reachable and flashable over USB. The boot counter itself moves to
   RTC memory with a periodic NVS write, so a loop cannot wear the NVS
   either.
+- **A non-blocking boot connect.** WiFiManager's autoConnect at boot and
+  its connect on a portal save each hold the loop task for about 20 s, the
+  longest stalls the capture queue has to ride out. Starting the join and
+  letting the network tick handle the result removes them. WiFiManager
+  also registers its own update, restart and erase routes on the setup
+  network whatever the menu shows; a replacement (Improv) closes that.
 - **Network on its own task.** The HTTP server, the console and
   WiFiManager all run on the loop task, so a body sent one byte at a time
   holds the loop until the watchdog fires; the LAN-only posture makes that
@@ -107,11 +113,15 @@ flags.
 ## Design rules
 
 - The transmit pin is attached to the UART only while bytes are being sent
-  and for 2 s after, only while the MBB is awake, and is an input with a
-  pull-down otherwise, from the firmware's first instruction and again on
+  and for 2 s after, only while the MBB is awake and pin 8 is high at that
+  instant, and is an input with a pull-down otherwise, from the firmware's first instruction and again on
   every restart; the ROM boot window before that is what the phase 2 10k
   pull-down covers. The hold is checked from both the capture task and the
-  loop task so no single stall can hold the pin high. The drop back to the
+  loop task so no single stall can hold the pin high, and it ends early the
+  moment pin 8 is seen low, within about 60 ms (110 ms measured on the
+  bench, with the hold still running): the awake flag lags pin 8 by 5 s
+  and must not be the transmit gate, or a keystroke as the hibernation
+  line scrolls by would drive pin 9 into a MBB that is powering down. The drop back to the
   pull-down reaches the MBB as one NUL byte, which it answers with a fresh
   prompt; verified on the bike with pin 9 connected.
 - The capture task only reads bytes, frames lines and watches the pins. It

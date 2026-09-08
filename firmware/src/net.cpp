@@ -19,6 +19,7 @@
 #include "freertos/stream_buffer.h"
 #include "lwip/sockets.h"
 #include "esp_mac.h"
+#include <atomic>
 
 static WiFiManager wm;
 static WiFiManagerParameter tzParam("tz", "Timezone, POSIX form", "", 48);
@@ -29,7 +30,7 @@ static WebServer http(HTTP_PORT);
 static WiFiServer console(CONSOLE_PORT);
 static WiFiClient clients[CONSOLE_CLIENTS];
 static StreamBufferHandle_t rawBuf;
-static volatile uint32_t rawDropped = 0;
+static std::atomic<uint32_t> rawDropped{0};   // added on the capture task, taken here
 static bool servicesUp = false;
 static bool mdnsUp = false;
 static uint32_t lastRetryMs = 0;
@@ -39,7 +40,8 @@ static String tzSetting, ntpSetting;
 // Written by the WiFi event task, read by the loop task.
 static volatile uint32_t wifiDisconnects = 0;
 static volatile uint8_t authFailures = 0;   // consecutive authentication-class failures
-static volatile bool gotIp = false;
+static std::atomic<uint32_t> ipEvents{0};   // joins seen by the event task; the loop counts them down
+static uint32_t ipEventsSeen = 0;
 
 // Per console client: CR-LF state, output that did not fit its socket yet,
 // and the last time it was told the MBB is asleep.
@@ -102,6 +104,7 @@ static String statusJson() {
     s += ",\"reset_reason\":\"" + String(sysResetReason()) + "\"";
     s += ",\"watchdog\":" + String(sysWatchdogArmed() ? "true" : "false");
     s += ",\"mbb_awake\":" + String(mbbAwake() ? "true" : "false");
+    s += ",\"line_high\":" + String(mbbLineHigh() ? "true" : "false");
     s += ",\"tx_attached\":" + String(mbbTxAttached() ? "true" : "false");
     s += ",\"time\":\"" + jsonEscape(clockStamp()) + "\",\"time_source\":\"" + clockSourceName() + "\"";
     s += ",\"ntp_age_s\":" + String(clockNtpAgeS() == UINT32_MAX ? -1 : (long)clockNtpAgeS());
@@ -116,8 +119,11 @@ static String statusJson() {
     s += ",\"uart\":{\"ok\":" + String(mbbOk() ? "true" : "false") + ",\"overflows\":" + String(mbbOverflows()) +
          ",\"backpressure\":" + String(mbbBackpressure()) + ",\"frame_errors\":" + String(mbbFrameErrors()) +
          ",\"queue_drops\":" + String(mbbQueueDrops()) + "}";
-    s += ",\"console\":{\"clients\":" + String(consoleClientCount()) + ",\"dropped_bytes\":" + String(rawDropped) + "}";
-    s += ",\"heap_free\":" + String(ESP.getFreeHeap());
+    s += ",\"console\":{\"clients\":" + String(consoleClientCount()) + ",\"dropped_bytes\":" + String(rawDropped.load()) + "}";
+    s += ",\"heap_free\":" + String(ESP.getFreeHeap()) + ",\"heap_min_free\":" + String(ESP.getMinFreeHeap()) +
+         ",\"heap_max_alloc\":" + String(ESP.getMaxAllocHeap());
+    s += ",\"stack_free\":{\"loop\":" + String(uxTaskGetStackHighWaterMark(nullptr)) +
+         ",\"capture\":" + String(mbbCaptureStackFree()) + "}";
     s += "}";
     return s;
 }
@@ -147,9 +153,11 @@ static void handleFile() {
             http.send(409, "text/plain", "file is active; see /live");
             return;
         }
-        File f = storeOpenRead(name);
+        bool busy = false;
+        File f = storeOpenRead(name, &busy);
         if (!f) {
-            http.send(404, "text/plain", "no such file, or no free reader");
+            if (busy) http.send(503, "text/plain", "no free reader; try again");
+            else http.send(404, "text/plain", "no such file");
             return;
         }
         // Chunked by hand so the capture and the console keep running on a slow client.
@@ -291,6 +299,7 @@ static void onParamsSaved() {
 
 void netPrepare() {
     rawBuf = xStreamBufferCreate(8192, 1);
+    if (!rawBuf) Serial.println("net: no memory for the console buffer; console output off");
 }
 
 void netBegin() {
@@ -312,7 +321,7 @@ void netBegin() {
     }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
     WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t) {
         authFailures = 0;
-        gotIp = true;
+        ipEvents.fetch_add(1);
     }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
 
     char defaultPass[16];
@@ -343,7 +352,7 @@ void netBegin() {
     if (bootButtonHeld) {
         startPortal("BOOT button held at power-up");
     } else if (wm.autoConnect(nodeName, setupPass)) {
-        gotIp = true;
+        ipEvents.fetch_add(1);   // in case the event fired before the handler was in place
     } else if (!wm.getWiFiIsSaved()) {
         startPortal("no credentials");
     } else {
@@ -359,9 +368,9 @@ void netPushRaw(const uint8_t* data, size_t len) {
     for (size_t i = 0; i < len; i++) {
         if (data[i] == 0) continue;
         tmp[k++] = data[i];
-        if (k == sizeof tmp) { rawDropped = rawDropped + (k - xStreamBufferSend(rawBuf, tmp, k, 0)); k = 0; }
+        if (k == sizeof tmp) { rawDropped.fetch_add(k - xStreamBufferSend(rawBuf, tmp, k, 0)); k = 0; }
     }
-    if (k) rawDropped = rawDropped + (k - xStreamBufferSend(rawBuf, tmp, k, 0));
+    if (k) rawDropped.fetch_add(k - xStreamBufferSend(rawBuf, tmp, k, 0));
 }
 
 static void consoleSend(size_t ci, const uint8_t* data, size_t len) {
@@ -412,8 +421,17 @@ static bool peerGone(WiFiClient& c) {
     return r == 0 || (r < 0 && errno != EAGAIN && errno != EWOULDBLOCK);
 }
 
+// With nobody listening the stream is thrown away as it arrives, so the
+// first client sees live output and not hours of backlog with a drop marker.
+static void discardRaw() {
+    uint8_t junk[256];
+    while (xStreamBufferReceive(rawBuf, junk, sizeof junk, 0) > 0) {}
+    rawDropped.exchange(0);
+}
+
 static void pumpConsole() {
-    if (!servicesUp) return;
+    if (!rawBuf) return;
+    if (!servicesUp) { discardRaw(); return; }
     for (auto& c : clients) if (c && c.connected() && peerGone(c)) c.stop();
     if (console.hasClient()) {
         WiFiClient c = console.accept();
@@ -437,11 +455,11 @@ static void pumpConsole() {
         }
         if (!placed) { c.print("all console slots are in use\n"); c.stop(); }
     }
+    if (consoleClientCount() == 0) { discardRaw(); return; }
     // Output: an upstream drop marker if any, backlogs, then whatever the MBB said.
-    if (rawDropped) {
+    uint32_t d = rawDropped.exchange(0);
+    if (d) {
         char msg[64];
-        uint32_t d = rawDropped;
-        rawDropped = 0;
         int n = snprintf(msg, sizeof msg, "\n[dongle: %lu console bytes dropped upstream]\n", (unsigned long)d);
         for (size_t ci = 0; ci < CONSOLE_CLIENTS; ci++)
             if (clients[ci] && clients[ci].connected()) consoleSend(ci, (const uint8_t*)msg, n);
@@ -487,8 +505,9 @@ static void pumpConsole() {
 
 void netTick() {
     wm.process();
-    if (gotIp) {
-        gotIp = false;
+    uint32_t joins = ipEvents.load();
+    if (joins != ipEventsSeen) {
+        ipEventsSeen = joins;
         clockNetworkUp();   // on every join, so NTP is not left on a backoff
         startServices();
         Serial.printf("net: connected to %s, %s\n", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
@@ -501,7 +520,7 @@ void netTick() {
         if (authFailures >= AUTH_FAILS_FOR_PORTAL) startPortal("authentication failed repeatedly");
         // With no setup network up, retry the saved network every 30 s. With one up
         // the user is in charge and WiFiManager connects when they save.
-        if (!wm.getConfigPortalActive() && wm.getWiFiIsSaved() && millis() - lastRetryMs > 30000) {
+        if (millis() - lastRetryMs > 30000 && !wm.getConfigPortalActive() && wm.getWiFiIsSaved()) {
             lastRetryMs = millis();
             Serial.println("net: retrying saved WiFi");
             WiFi.begin();

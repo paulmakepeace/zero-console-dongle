@@ -16,4 +16,6 @@ uint32_t mbbLastByteMs();
 uint32_t mbbOverflows();       // FIFO overruns: bytes were lost
 uint32_t mbbBackpressure();    // ring buffer full: bytes were held, none lost
 uint32_t mbbFrameErrors();
-uint32_t mbbQueueDrops();      // lines the loop task was too slow to take
+uint32_t mbbQueueDrops();
+bool mbbLineHigh();               // pin 8 as of the last sample, the transmit gate
+uint32_t mbbCaptureStackFree();   // bytes never used, from the high-water mark      // lines the loop task was too slow to take
