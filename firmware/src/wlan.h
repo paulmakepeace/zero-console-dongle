@@ -9,7 +9,6 @@ void wifiTick();
 void wifiSuspend();   // services down, driver stopped, for a sleep
 void wifiResume();    // driver back on; the join brings the services up
 bool wifiBusy();      // the setup network counts as use while someone is on it or for its first ten minutes
-const char* wifiName();   // zero-dongle-XXXX, from the MAC
 String wifiMac();
 String wifiStatusJson();
 bool wifiResetCredentials();   // forget the home network; false if the erase did not take; the caller restarts

@@ -15,7 +15,6 @@
 #include <Preferences.h>
 #include <dirent.h>
 #include <sys/stat.h>
-#include "esp_mac.h"
 #include "pure/names.h"
 #include "pure/zstream.h"
 #include "pure/dictkeeper.h"
@@ -161,9 +160,7 @@ bool storeBegin(const char* resetReason) {
     mtx = xSemaphoreCreateRecursiveMutex();
     if (!mtx) { Serial.println("store: no memory for the lock"); return false; }
     bootReason = resetReason;
-    uint8_t mac[6];
-    esp_read_mac(mac, ESP_MAC_WIFI_STA);
-    snprintf(boardName, sizeof boardName, "%s-%02x%02x", DONGLE_NAME, mac[4], mac[5]);
+    strlcpy(boardName, sysNodeName(), sizeof boardName);
     Preferences p;
     bool nvs = p.begin("dongle", false);
     bootCount = p.getUInt("boots", 0) + 1;

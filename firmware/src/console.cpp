@@ -4,7 +4,7 @@
 #include "console.h"
 #include "config.h"
 #include "mbb_uart.h"
-#include "wlan.h"
+#include "sys.h"
 #include <WiFi.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/stream_buffer.h"
@@ -139,7 +139,7 @@ void consoleTick() {
             slot.setOption(TCP_KEEPCNT, &count);
             cstate[ci] = ConsoleState();
             char hello[96];
-            int n = snprintf(hello, sizeof hello, "%s console. MBB %s. Enter twice for the prompt.\n", wifiName(),
+            int n = snprintf(hello, sizeof hello, "%s console. MBB %s. Enter twice for the prompt.\n", sysNodeName(),
                              mbbAwake() ? "awake" : "asleep, input dropped until it wakes");
             consoleSend(ci, (const uint8_t*)hello, n);
             placed = true;

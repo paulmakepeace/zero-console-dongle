@@ -6,22 +6,18 @@
 #include "sleep.h"
 #include "poller.h"
 #include "util.h"
+#include "sys.h"
 #include <Preferences.h>
-#include "esp_mac.h"
 
 static String tzSetting, ntpSetting;
 static char setupPass[33];
 
 void settingsBegin() {
-    uint8_t mac[6];
-    esp_read_mac(mac, ESP_MAC_WIFI_STA);   // from the eFuse; valid before the WiFi driver starts
-    char defaultPass[16];
-    snprintf(defaultPass, sizeof defaultPass, "zero-%02x%02x%02x", mac[3], mac[4], mac[5]);
     Preferences p;
     p.begin("dongle", true);
     tzSetting = p.isKey("tz") ? p.getString("tz") : String(TZ_DEFAULT);
     ntpSetting = p.isKey("ntp") ? p.getString("ntp") : String(NTP_SERVER);
-    String pass = p.isKey("setup_pass") ? p.getString("setup_pass") : String(defaultPass);
+    String pass = p.isKey("setup_pass") ? p.getString("setup_pass") : String(sysSetupPassDefault());
     p.end();
     strlcpy(setupPass, pass.c_str(), sizeof setupPass);
 }

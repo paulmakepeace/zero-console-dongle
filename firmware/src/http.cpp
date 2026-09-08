@@ -91,7 +91,7 @@ static String statusJson() {   // a health check is not use: a watcher must not 
     storeStats(total, used);
     String s;
     s.reserve(900);
-    s += "{\"name\":\"" + String(wifiName()) + "\",\"mac\":\"" + wifiMac() + "\",\"fw\":\"" FW_VERSION "\"";
+    s += "{\"name\":\"" + String(sysNodeName()) + "\",\"mac\":\"" + wifiMac() + "\",\"fw\":\"" FW_VERSION "\"";
     s += ",\"uptime_s\":" + String(millis() / 1000);
     s += ",\"boot\":" + String(storeBootCount());
     s += ",\"reset_reason\":\"" + String(sysResetReason()) + "\"";

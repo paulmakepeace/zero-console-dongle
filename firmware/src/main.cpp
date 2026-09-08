@@ -15,6 +15,22 @@
 #include "sleep.h"
 #include "esp_task_wdt.h"
 #include "esp_system.h"
+#include "esp_mac.h"
+
+// The board's identity, derived once from the eFuse MAC before anything
+// else needs it: every owner that names the board takes it from here.
+static char nodeName[32];
+static char setupPassDefault[16];
+const char* sysNodeName() { return nodeName; }
+const char* sysSetupPassDefault() { return setupPassDefault; }
+static void sysIdentity() {
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);   // valid before the WiFi driver starts
+    snprintf(nodeName, sizeof nodeName, "%s-%02x%02x", DONGLE_NAME, mac[4], mac[5]);
+    snprintf(setupPassDefault, sizeof setupPassDefault, "zero-%02x%02x%02x", mac[3], mac[4], mac[5]);
+    Serial.printf("zero-dongle: this board is %s, MAC %02x:%02x:%02x:%02x:%02x:%02x\n", nodeName,
+                  mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
 
 static bool wdtArmed = false;
 bool sysWatchdogArmed() { return wdtArmed; }
@@ -88,7 +104,8 @@ void setup() {
     Serial.begin(CONSOLE_BAUD);
     delay(100);
     const char* reason = sysResetReason();
-    Serial.printf("zero-dongle fw " FW_VERSION ", reset: %s\n", reason);   // the board's own name follows once the MAC is read
+    Serial.printf("zero-dongle fw " FW_VERSION ", reset: %s\n", reason);
+    sysIdentity();
 
     // A hung loop or capture task reboots with a recorded reason instead of
     // sitting dark. Long legitimate work feeds it through sysFeedWatchdog().

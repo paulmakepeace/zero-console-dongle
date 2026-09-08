@@ -15,7 +15,6 @@
 #include <WiFi.h>
 #include <WiFiManager.h>
 #include <ESPmDNS.h>
-#include "esp_mac.h"
 #include "esp_wifi.h"
 #include <atomic>
 
@@ -29,7 +28,6 @@ static WiFiManagerParameter daysParam("sleep_days", "Sleep only after N days una
 static bool servicesUp = false;
 static bool mdnsUp = false;
 static uint32_t lastRetryMs = 0;
-static char nodeName[32];
 static bool credsSaved = false;       // taken once at boot; the driver may be stopped later
 static bool driverStopped = false;    // esp_wifi_stop for a sleep, not yet restarted
 static uint32_t resumeFailures = 0;
@@ -42,7 +40,6 @@ static volatile uint8_t authFailures = 0;   // consecutive authentication-class 
 static std::atomic<uint32_t> ipEvents{0};   // joins seen by the event task; the loop counts them down
 static uint32_t ipEventsSeen = 0;
 
-const char* wifiName() { return nodeName; }
 String wifiMac() { return WiFi.macAddress(); }
 // resetSettings waits 100 ms for the station to drop and gives up silently
 // if it has not; the erase is checked and tried again with a longer wait.
@@ -98,7 +95,7 @@ static uint32_t lastMdnsMs = 0;
 static void startMdns() {
     if (mdnsUp) return;
     lastMdnsMs = millis();
-    mdnsUp = MDNS.begin(nodeName);
+    mdnsUp = MDNS.begin(sysNodeName());
     if (mdnsUp) {
         MDNS.addService("http", "tcp", HTTP_PORT);
         MDNS.addService("zero-console", "tcp", CONSOLE_PORT);
@@ -141,11 +138,11 @@ void wifiResume() { driverStart(); }
 static void startPortal(const char* why, bool forAuth) {
     if (wm.getConfigPortalActive()) return;
     stopServices();   // the setup network carries nothing but the setup page
-    Serial.printf("wifi: setup network %s up (%s)\n", nodeName, why);
+    Serial.printf("wifi: setup network %s up (%s)\n", sysNodeName(), why);
     portalRaisedMs = millis() ? millis() : 1;
     portalForAuth = forAuth;
     fillPortalFields();
-    wm.startConfigPortal(nodeName, settingsSetupPass());
+    wm.startConfigPortal(sysNodeName(), settingsSetupPass());
 }
 
 static void onParamsSaved() {
@@ -153,11 +150,6 @@ static void onParamsSaved() {
 }
 
 void wifiBegin() {
-    uint8_t mac[6];
-    esp_read_mac(mac, ESP_MAC_WIFI_STA);   // from the eFuse; valid before the WiFi driver starts
-    snprintf(nodeName, sizeof nodeName, "%s-%02x%02x", DONGLE_NAME, mac[4], mac[5]);
-    Serial.printf("wifi: this board is %s, MAC %02x:%02x:%02x:%02x:%02x:%02x\n", nodeName,
-                  mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     WiFi.setAutoReconnect(true);
     // The event task owns the failure accounting; the loop task only reads it.
     WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t info) {
@@ -174,7 +166,7 @@ void wifiBegin() {
         ipEvents.fetch_add(1);
     }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
 
-    Serial.printf("wifi: setup network %s, password %s\n", nodeName, settingsSetupPass());
+    Serial.printf("wifi: setup network %s, password %s\n", sysNodeName(), settingsSetupPass());
     fillPortalFields();
     wm.addParameter(&tzParam);
     wm.addParameter(&ntpParam);
@@ -185,14 +177,14 @@ void wifiBegin() {
     wm.setSaveParamsCallback(onParamsSaved);
     wm.setConfigPortalBlocking(false);
     wm.setConnectTimeout(20);
-    wm.setHostname(nodeName);
+    wm.setHostname(sysNodeName());
     wm.setEnableConfigPortal(false);   // we decide when the setup network is worth raising
     pinMode(PIN_BOOT_BUTTON, INPUT_PULLUP);
     bool bootButtonHeld = digitalRead(PIN_BOOT_BUTTON) == LOW;
     sysFeedWatchdog();
     if (bootButtonHeld) {
         startPortal("BOOT button held at power-up", false);
-    } else if (wm.autoConnect(nodeName, settingsSetupPass())) {
+    } else if (wm.autoConnect(sysNodeName(), settingsSetupPass())) {
         ipEvents.fetch_add(1);   // in case the event fired before the handler was in place
         credsSaved = true;
     } else if (!(credsSaved = wm.getWiFiIsSaved())) {
