@@ -69,9 +69,25 @@ Phase 2, in likely order:
   listing grouped by session. Compression belongs at session close, not in
   the commit path, with the on-disk name and size staying authoritative and
   a flag in the listing the puller understands; the loss markers become
-  framed records rather than spliced text. The pending buffer would be a
-  fixed ring rather than a String, so a partial write is charged to exactly
-  the lines lost.
+  framed records rather than spliced text. The buffers become two fixed
+  arrays: an input ring the capture side writes into at one pointer and the
+  compressor reads from at another, and an output array the compressor
+  fills and the store commits by its own policy. A partial write is then
+  charged to exactly the lines lost.
+- **Boot loops.** Two so far, both fixed at the cause (a shrunk filesystem
+  the old image asserted on, and a portal stop with no portal). The control
+  for the next one: count boots that die inside 60 s in RTC memory, which
+  survives a soft reset with no flash wear, and after three of them start
+  in a safe mode with the filesystem and WiFiManager left out so the board
+  stays reachable and flashable over USB. The boot counter itself moves to
+  RTC memory with a periodic NVS write, so a loop cannot wear the NVS
+  either.
+- **Network on its own task.** The HTTP server, the console and
+  WiFiManager all run on the loop task, so a body sent one byte at a time
+  holds the loop until the watchdog fires; the LAN-only posture makes that
+  acceptable for now. An async server, or the network on its own task with
+  a queue to the store, removes the dependence. The console and the poller
+  then need an explicit arbiter for the transmit pin.
 
 ## Implementation choice
 

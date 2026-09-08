@@ -49,29 +49,34 @@ serial console at boot, and can be replaced from the setup page.
 With no WiFi stored the dongle raises the setup network. Join it from a
 phone, pick the home network and enter its password; the same page takes
 the timezone in POSIX form, the NTP server and a new setup password, all
-stored in flash. If the stored network fails for a wrong password the setup
-network comes up again; if it fails because the network is out of reach the
-dongle just retries every 30 s with no setup network, however long that
-lasts. If the home network was renamed, hold the DevKit's BOOT button while
-powering up and the setup network comes up. The setup network carries nothing
-but the setup page: the log server and the console exist only on the home
-network. Capture runs regardless of WiFi state. `POST /api/wifi/reset`
-clears the credentials.
+stored in flash and applied at once, no reboot. If the stored network
+refuses the password three times running the setup network comes up again;
+if the network is out of reach the dongle just retries every 30 s with no
+setup network, however long that lasts, and one failed handshake on a good
+password raises nothing. If the home network was renamed, hold the DevKit's
+BOOT button while powering up and the setup network comes up. The setup
+network carries nothing but the setup page: the log server and the console
+come up on every join of the home network and go down whenever the setup
+network is raised. Capture runs regardless of WiFi state. `POST
+/api/wifi/reset` clears the credentials. A forgotten setup password can be
+replaced from the home network with `POST /api/settings`.
 
 ## Endpoints
 
 | Path                 | Method | What                                      |
 |----------------------|--------|-------------------------------------------|
 | `/`                  | GET    | status page                               |
-| `/api/status`        | GET    | JSON: awake, TX attached, last awake and asleep stamps, time and its source and NTP age, WiFi, filesystem, dropped lines, the UART's overrun, back-pressure, frame-error and queue-drop counts, watchdog and reset reason |
+| `/api/status`        | GET    | JSON: awake, TX attached, last awake and asleep stamps, time and its source and NTP age, WiFi with mDNS and setup-network state, filesystem, dropped lines, the UART's overrun, back-pressure, frame-error and queue-drop counts, console clients and dropped bytes, watchdog and reset reason |
 | `/logs`              | GET    | JSON list of files with size and active flag |
 | `/logs/NAME`         | GET    | the file; refused with 409 while active    |
 | `/logs/NAME`         | DELETE | remove it; refused while active            |
 | `/live`              | GET    | the last lines received                    |
 | `/update`            | POST   | firmware image as `firmware` in a multipart body; the status page has the form |
 | `/api/wifi/reset`    | POST   | forget WiFi and reboot into setup          |
+| `/api/settings`      | GET    | JSON: timezone and NTP server              |
+| `/api/settings`      | POST   | form fields `tz`, `ntp`, `setup_pass`, any subset, applied at once |
 
-DELETE, `/update` and `/api/wifi/reset` change state and require the header
+DELETE, `/update`, `/api/wifi/reset` and `POST /api/settings` change state and require the header
 `X-Dongle: 1`, which a form on another website cannot send from your
 browser; the status page and `pull-logs.py` add it, and so does
 `curl -H 'X-Dongle: 1'`. There is no other authentication on the home
@@ -91,8 +96,10 @@ after, then returns to a pulled-down input: a UART idles high, and a high on
 pin 9 holds the MBB out of deep sleep. The GPIO is put in that safe state
 before anything else runs at boot. Output a client cannot take right now is
 held for it briefly, then dropped with a `[dongle: N console bytes dropped]`
-marker once it catches up, so the dongle never stalls on a client. Clients
-that vanish without closing are found by TCP keepalive within a minute.
+marker once it catches up, so the dongle never stalls on a client. Two
+clients take turns at input. A client that closes is noticed at once and a
+client that vanishes without closing is found by TCP keepalive within about
+90 s.
 
 ## Files
 
@@ -117,8 +124,9 @@ under 96 KB; a file that cannot be deleted is skipped. Lines that cannot be
 written are counted in `/api/status` as `dropped_lines`; UART overruns and
 frame errors each leave a marker line in the file and a count in the
 status; a filesystem that had to be formatted is counted there too. The
-pull script reads the status first and warns about any of them. `tools/pull-logs.py` fetches and deletes
-them from the homelab.
+pull script reads the status first and warns about any of them.
+`tools/pull-logs.py` fetches and deletes them from the homelab into
+`logs/dongle/NAME/`, one directory per board.
 
 The log area is 896 KB with a 96 KB reserve. LittleFS counts in 4 KB
 blocks, so a 6 KB timeout wake costs 8 KB and a parked day about 200 KB;

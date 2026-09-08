@@ -34,6 +34,7 @@ static bool pendingHasMbb = false;
 static uint32_t pendingSinceMs = 0;
 static String pendingFirstStamp;
 static uint32_t droppedLines = 0;
+static bool lastQuiet = true;
 static String lastLines[LAST_LINES];
 static int lastHead = 0, lastCount = 0;
 static String lastAwake, lastAsleep;
@@ -247,11 +248,14 @@ void storeAppend(const String& line, bool fromMbb) {
     }
     if (!pending.concat(line) || !pending.concat('\n')) { droppedLines++; return; }   // out of memory
     if (fromMbb) pendingHasMbb = true;
-    if (pending.length() >= PENDING_MAX) commitPending();   // on the loop task, so this is allowed
+    // On the loop task, so a commit here is allowed; but only while the MBB is
+    // quiet, unless the buffer has grown past the hard cap regardless.
+    if (pending.length() >= PENDING_MAX && (lastQuiet || pending.length() >= PENDING_MAX * 2)) commitPending();
 }
 
 void storeTick(bool mbbQuiet) {
     Lock l;
+    lastQuiet = mbbQuiet;
     uint32_t now = millis();
     if (pending.length() && (mbbQuiet || now - pendingSinceMs > MAX_PENDING_MS)) commitPending();
     if (now - lastRotateMs > 60000 && (mbbQuiet || freeBytes() < FS_MIN_FREE / 2)) {

@@ -37,6 +37,12 @@ void clockNetworkUp() {
     configTzTime(tzSetting.c_str(), ntpSetting.c_str());   // restarts SNTP; the first request goes out now
 }
 
+void clockApplySettings(const char* tz, const char* ntpServer) {
+    tzSetting = tz;
+    ntpSetting = ntpServer;
+    configTzTime(tzSetting.c_str(), ntpSetting.c_str());
+}
+
 bool clockValid() { return source != TIME_NONE; }
 TimeSource clockSource() { return source; }
 

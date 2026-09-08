@@ -14,3 +14,4 @@ String clockStamp();        // "2026-09-06T09:48:02.343", or "u000123.456" secon
 void clockMaybeSetFromMbb(const char* line, size_t len);
 void clockTick();           // from loop(): reports an NTP sync into the log
 void clockNetworkUp();      // WiFi just connected: restart NTP so the first sync is not on a backoff
+void clockApplySettings(const char* tz, const char* ntpServer);   // live, from the settings page

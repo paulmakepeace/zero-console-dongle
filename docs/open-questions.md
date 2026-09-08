@@ -17,7 +17,7 @@
 - The bike unit once went dark on the network mid console session with its
   power LED on and no reboot, and needed a key cycle. Not reproduced on the
   bench with a large response or a stalled client, nor on the bike after.
-  The firmware now reboots a hung task after 30 s and reports the reset
+  The firmware now reboots a hung task after 120 s and reports the reset
   reason and WiFi disconnect count, so a recurrence leaves evidence.
 - Is the CAN bus on pins 6 and 14 active while the MBB hibernates?
 - Which of the bike's CAN networks is on OBD pins 6 and 14, and at what

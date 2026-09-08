@@ -1,6 +1,6 @@
 #pragma once
 
-#define FW_VERSION      "0.4.1"
+#define FW_VERSION      "0.4.2"
 #define DONGLE_NAME     "zero-dongle"      // base of the hostname, mDNS name and setup AP name; the last four hex digits of the MAC are appended
 // The setup network's password defaults to "zero-" plus the last six hex digits
 // of the MAC, printed at boot, and can be replaced from the setup page.
@@ -19,6 +19,7 @@
 #define HTTP_PORT       80
 #define CONSOLE_PORT    6638
 #define CONSOLE_CLIENTS 2
+#define AUTH_FAILS_FOR_PORTAL 3   // consecutive authentication failures before the setup network is raised
 
 #define LOG_DIR         "/logs"
 #define FS_MIN_FREE     (96 * 1024)   // delete the oldest file below this much free space

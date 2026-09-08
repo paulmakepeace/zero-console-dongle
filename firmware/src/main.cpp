@@ -85,6 +85,7 @@ void setup() {
     String ntp = p.isKey("ntp") ? p.getString("ntp") : String(NTP_SERVER);
     p.end();
     clockBegin(tz.c_str(), ntp.c_str(), onClockNote);
+    netPrepare();   // the raw stream buffer exists before the capture task can push into it
     if (!mbbBegin(onRaw)) Serial.println("mbb: capture not running");
     netBegin();
     sysFeedWatchdog();
