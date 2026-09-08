@@ -49,14 +49,15 @@ the long-term storage mode's state, DIS for disabled and EN for enabled.
 `bms` shows the same state under Module Management, and the module's own
 `storage mode Inactive` or `Active` in its snapshot. Either is the bike's
 own statement of whether it has been put into storage. Switching it on
-from the app reaches the MBB as the command `ltsm en mod 2`, which the MBB
-logs with a stamp like a line of its own; `bms` then shows `LTSM state:
-EN` and `storage mode Active`, the two rows taking the new state a
-fraction of a second apart. The mode ends when the bike moves: side
-stand up and a touch of throttle takes the MBB from STOP to RUN, and it
-prints `LTSM state: EN to DIS_PEND`, its own `ltsm dis mod 2`, and `LTSM
-state: DIS_PEND to DIS` a tenth of a second later. The wake-time line
-with the mode on is not captured yet.
+from the app prints `LTSM state: DIS to EN_PEND`, the command `ltsm en
+mod 2` stamped like a line of the MBB's own, and `LTSM state: EN_PEND to
+EN`; `bms` then shows `LTSM state: EN` and `storage mode Active`, the two
+rows taking the new state a fraction of a second apart. The mode ends
+when the bike moves or a charger is plugged in: side stand up and a
+touch of throttle takes the MBB from STOP to RUN, a plug takes it from
+STOP to CHRG, and either prints `LTSM state: EN to DIS_PEND`, `ltsm dis
+mod 2`, and `LTSM state: DIS_PEND to DIS` a tenth of a second later. The
+wake-time line with the mode on is not captured yet.
 
 - **Timeout.** `ccm RTC not ready in 31 sec`, `Timed out in PW Startup` at
   60 s, PWSU to HIB, the 30-second countdown, deep sleep again. No
