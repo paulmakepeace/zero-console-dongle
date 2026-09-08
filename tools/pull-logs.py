@@ -25,6 +25,8 @@ NAME_OK = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
 
 def fetch(url, method="GET", timeout=60):
     req = urllib.request.Request(url, method=method)
+    if method != "GET":
+        req.add_header("X-Dongle", "1")   # state changes need this; a cross-site form cannot send it
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.read()
 

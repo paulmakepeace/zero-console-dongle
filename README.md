@@ -90,3 +90,6 @@ console is on the network:
 ```bash
 nc zero-dongle-a12c.local 6638
 ```
+
+The console and the log server live on the home network only; the
+board's setup network serves nothing but its setup page.

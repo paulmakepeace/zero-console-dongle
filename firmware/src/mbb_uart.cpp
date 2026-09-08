@@ -22,6 +22,7 @@ static volatile uint32_t txHoldUntilMs = 0;
 static volatile uint32_t overflows = 0;
 static SemaphoreHandle_t txMtx;
 static QueueHandle_t uartQueue;
+static size_t txFreeWhenEmpty = 0;   // the driver's idea of an empty TX ring, measured at start
 
 static void inputPulldown(int pin) {
     gpio_config_t c = {};
@@ -50,7 +51,7 @@ static void txDetach() {
     // Let the software ring buffer drain into the FIFO, then the FIFO onto the wire.
     size_t freeBytes = 0;
     for (int i = 0; i < 200; i++) {
-        if (uart_get_tx_buffer_free_size(UART_NUM_2, &freeBytes) != ESP_OK || freeBytes >= UART_TX_BUF) break;
+        if (uart_get_tx_buffer_free_size(UART_NUM_2, &freeBytes) != ESP_OK || freeBytes >= txFreeWhenEmpty) break;
         vTaskDelay(pdMS_TO_TICKS(1));
     }
     uart_wait_tx_done(UART_NUM_2, pdMS_TO_TICKS(200));
@@ -88,7 +89,7 @@ static void captureTask(void*) {
         drainEvents();
         bool realBytes = false;
         for (int i = 0; i < n; i++) if (buf[i] != 0) { realBytes = true; break; }
-        if (n > 0) lastByteMs = now;
+        if (realBytes) lastByteMs = now;   // NUL-only reads are line noise and do not count as talk
         if (realBytes) {
             lastActivityMs = now;   // a lone NUL is a break or noise, not the MBB talking
             highRun = 0;
@@ -143,6 +144,7 @@ void mbbBegin(LineHandler onLine, RawHandler onRaw, StateHandler onState) {
     uart_set_pin(UART_NUM_2, UART_PIN_NO_CHANGE, PIN_MBB_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
     gpio_set_pull_mode((gpio_num_t)PIN_MBB_RX, GPIO_PULLDOWN_ONLY);   // uart_set_pin leaves a pull-up
     uart_driver_install(UART_NUM_2, UART_RX_BUF, UART_TX_BUF, UART_EVENT_QUEUE, &uartQueue, 0);
+    uart_get_tx_buffer_free_size(UART_NUM_2, &txFreeWhenEmpty);
     lastActivityMs = millis() - SLEEP_AFTER_MS - 1;   // start asleep until pin 8 is seen high
 
     xTaskCreatePinnedToCore(captureTask, "mbb", 8192, nullptr, 3, nullptr, 1);

@@ -1,7 +1,10 @@
-// One file per MBB session in LittleFS, oldest deleted when space runs low.
-// Called from the capture task and the network loop, so everything takes the
-// mutex. A session that opens before the clock is set gets a placeholder name
-// and is renamed once the first MBB stamp or NTP arrives.
+// One file per MBB session in LittleFS, named bBBBB-SS-<time>.log so that
+// names sort by creation whether or not the clock was known when the file
+// opened; the oldest by that order is deleted when space runs low. Lines
+// wait in RAM and reach the flash only while the MBB is quiet, because a
+// flash erase holds the UART interrupt off long enough to overrun its FIFO.
+// Called from the capture task and the network loop, so everything takes
+// the mutex.
 #include "store.h"
 #include "config.h"
 #include "clock.h"
@@ -16,26 +19,23 @@ struct Entry { String name; size_t size; };
 static SemaphoreHandle_t mtx;
 static File active;
 static String activeName;
-static bool activeUnsynced = false;
-static uint32_t activeOpenMs = 0;
+static size_t activeBytes = 0;
 static int seq = 0;
 static uint32_t bootCount = 0;
-static bool dirty = false;
-static uint32_t lastRotateMs = 0;
-// Lines wait here and reach the flash only while the MBB is quiet: a flash
-// erase holds the UART interrupt off long enough to overrun its FIFO, and
-// the interrupt cannot be moved into IRAM under the precompiled core.
-static String pending;
-static uint32_t pendingSinceMs = 0;
-static String pendingFirstStamp;   // the header carries the first line's time, not the commit's
-static String lastLines[LAST_LINES];
-static int lastHead = 0, lastCount = 0;
-static uint32_t droppedLines = 0;
-static uint32_t lastReclaimMs = 0;
 static uint32_t formats = 0;
 static bool ok = false;
+static const char* bootReason = "";
+static bool dirty = false;
+static uint32_t lastRotateMs = 0, lastReclaimMs = 0;
+static String pending;
+static uint32_t pendingSinceMs = 0;
+static String pendingFirstStamp;
+static uint32_t droppedLines = 0;
+static String lastLines[LAST_LINES];
+static int lastHead = 0, lastCount = 0;
 static String lastAwake, lastAsleep;
 static uint32_t awakeCount = 0;
+static String openForRead[4];   // names being streamed out; reclaim and delete leave them alone
 
 struct Lock {
     Lock() { xSemaphoreTakeRecursive(mtx, portMAX_DELAY); }
@@ -44,6 +44,11 @@ struct Lock {
 
 static String pathOf(const String& name) { return String(LOG_DIR) + "/" + name; }
 static void commitPending();
+
+static bool isOpenForRead(const String& name) {
+    for (auto& n : openForRead) if (n == name) return true;
+    return false;
+}
 
 static std::vector<Entry> listEntries() {
     std::vector<Entry> out;
@@ -60,20 +65,11 @@ static std::vector<Entry> listEntries() {
     return out;
 }
 
-static String timeName(uint32_t openedMs) {
-    time_t t = time(nullptr) - (time_t)((millis() - openedMs) / 1000);
-    struct tm tm;
-    localtime_r(&t, &tm);
-    char b[24];
-    strftime(b, sizeof b, "%Y%m%d-%H%M%S", &tm);
-    return String(b);
-}
-
 static void ensureSpace() {
     size_t total = LittleFS.totalBytes(), used = LittleFS.usedBytes();
     if (total - used >= FS_MIN_FREE) return;
     for (auto& e : listEntries()) {   // oldest first; skip what cannot go
-        if (e.name == activeName) continue;
+        if (e.name == activeName || isOpenForRead(e.name)) continue;
         if (!LittleFS.remove(pathOf(e.name))) {
             Serial.printf("store: cannot delete %s\n", e.name.c_str());
             continue;
@@ -84,8 +80,9 @@ static void ensureSpace() {
     }
 }
 
-bool storeBegin() {
+bool storeBegin(const char* resetReason) {
     mtx = xSemaphoreCreateRecursiveMutex();
+    bootReason = resetReason;
     Preferences p;
     p.begin("dongle", false);
     bootCount = p.getUInt("boots", 0) + 1;
@@ -112,7 +109,9 @@ bool storeBegin() {
 }
 
 // Write all of buf, retrying the unwritten remainder once after reclaiming
-// space, so a partial first attempt is never duplicated.
+// space, so a partial first attempt is never duplicated. On failure the
+// partial text is closed off with a marker so it cannot splice into the
+// next line.
 static bool writeAll(const char* buf, size_t len) {
     size_t done = 0;
     for (int attempt = 0; attempt < 2 && done < len; attempt++) {
@@ -126,6 +125,11 @@ static bool writeAll(const char* buf, size_t len) {
             }
         }
     }
+    if (done < len && done > 0) {
+        static const char marker[] = " [dongle: truncated, flash full]\n";
+        active.write((const uint8_t*)marker, sizeof marker - 1);
+    }
+    activeBytes += done;
     return done == len;
 }
 
@@ -136,22 +140,25 @@ static void writeLine(const String& line) {
         Serial.printf("store: %lu line(s) dropped, flash full\n", (unsigned long)droppedLines);
 }
 
-void storeSessionOpen() {
-    Lock l;
+static void sessionOpen() {
     if (active) return;
     ensureSpace();
-    activeOpenMs = millis();
     seq++;
+    String when;
     if (clockValid()) {
-        activeName = timeName(activeOpenMs) + ".log";
-        activeUnsynced = false;
+        time_t t = time(nullptr);
+        struct tm tm;
+        localtime_r(&t, &tm);
+        char b[24];
+        strftime(b, sizeof b, "%Y%m%d-%H%M%S", &tm);
+        when = b;
     } else {
-        char b[40];
-        snprintf(b, sizeof b, "0000-b%lu-%d-u%lu.log", (unsigned long)bootCount, seq,
-                 (unsigned long)(activeOpenMs / 1000));
-        activeName = b;
-        activeUnsynced = true;
+        when = "nosync";
     }
+    char b[48];
+    snprintf(b, sizeof b, "b%04lu-%02d-%s.log", (unsigned long)bootCount, seq, when.c_str());
+    activeName = b;
+    activeBytes = 0;
     active = LittleFS.open(pathOf(activeName), FILE_APPEND);
     if (!active) {
         Serial.printf("store: cannot open %s\n", activeName.c_str());
@@ -159,57 +166,47 @@ void storeSessionOpen() {
         return;
     }
     writeLine((pendingFirstStamp.length() ? pendingFirstStamp : clockStamp()) +
-              " dongle: session start, boot " + String(bootCount) +
-              ", time " + clockSourceName() + ", fw " FW_VERSION);
+              " dongle: session start, boot " + String(bootCount) + " (" + bootReason + "), time " +
+              clockSourceName() + ", fw " FW_VERSION);
     Serial.printf("store: session %s\n", activeName.c_str());
 }
 
-static void renameIfSynced() {
-    if (!active || !activeUnsynced || !clockValid()) return;
-    String oldName = activeName;
-    String newName = timeName(activeOpenMs) + ".log";
-    writeLine(clockStamp() + " dongle: clock set from " + clockSourceName() + ", was " + oldName);
-    active.close();
-    if (LittleFS.rename(pathOf(oldName), pathOf(newName))) activeName = newName;
-    else Serial.printf("store: rename %s failed, keeping the name\n", oldName.c_str());
-    active = LittleFS.open(pathOf(activeName), FILE_APPEND);
-    if (!active) {
-        Serial.printf("store: reopen %s failed\n", activeName.c_str());
-        activeName = "";   // the next line starts a new file
-    }
-    activeUnsynced = false;
-}
-
-void storeSessionClose() {
-    Lock l;
-    commitPending();   // the MBB has been quiet for SLEEP_AFTER_MS, so this is a safe time
+static void sessionClose(const char* why) {
     if (!active) return;
-    writeLine(clockStamp() + " dongle: session end");
+    writeLine(clockStamp() + " dongle: " + why);
     active.close();
     Serial.printf("store: closed %s\n", activeName.c_str());
     activeName = "";
     dirty = false;
 }
 
+void storeSessionClose() {
+    Lock l;
+    commitPending();   // the MBB has been quiet for SLEEP_AFTER_MS, so this is a safe time
+    sessionClose("session end");
+}
+
+static uint32_t countLines(const String& s) {
+    uint32_t n = 0;
+    for (size_t i = 0; i < s.length(); i++) if (s[i] == '\n') n++;
+    return n;
+}
+
 static void commitPending() {
     if (pending.length() == 0) return;
-    if (!ok) { droppedLines += 1; pending = ""; return; }
-    if (!active) storeSessionOpen();
-    if (!active) { droppedLines += 1; pending = ""; return; }
-    renameIfSynced();
-    if (!writeAll(pending.c_str(), pending.length())) {
-        droppedLines++;
-        if (droppedLines == 1 || droppedLines % 100 == 0)
-            Serial.printf("store: %lu write(s) lost, flash full\n", (unsigned long)droppedLines);
-    }
+    if (!ok) { droppedLines += countLines(pending); pending = ""; return; }
+    if (!active) sessionOpen();
+    if (!active) { droppedLines += countLines(pending); pending = ""; return; }
+    if (!writeAll(pending.c_str(), pending.length())) droppedLines += countLines(pending);
     pending = "";
     active.flush();
     dirty = false;
+    if (activeBytes >= SESSION_MAX_BYTES) sessionClose("session continues in the next file");
 }
 
 void storeAppend(const String& line) {
     Lock l;
-    lastLines[lastHead] = line;
+    lastLines[lastHead] = line.length() > LAST_LINE_CHARS ? line.substring(0, LAST_LINE_CHARS) : line;
     lastHead = (lastHead + 1) % LAST_LINES;
     if (lastCount < LAST_LINES) lastCount++;
     if (pending.length() == 0) { pendingSinceMs = millis(); pendingFirstStamp = clockStamp(); }
@@ -223,7 +220,6 @@ void storeTick() {
     uint32_t now = millis();
     bool quiet = now - mbbLastByteMs() > IDLE_COMMIT_MS;
     if (pending.length() && (quiet || now - pendingSinceMs > MAX_PENDING_MS)) commitPending();
-    if (quiet) renameIfSynced();   // a quiet session still gets its real name once the clock is known
     if (quiet && active && dirty) { active.flush(); dirty = false; }
     if (quiet && now - lastRotateMs > 60000) {
         lastRotateMs = now;
@@ -250,16 +246,32 @@ String storeListJson() {
     return out;
 }
 
+static bool nameOk(const String& name) {
+    if (name.length() == 0 || name.length() > 64) return false;
+    for (size_t i = 0; i < name.length(); i++) {
+        char c = name[i];
+        if (!(isalnum((unsigned char)c) || c == '-' || c == '_' || c == '.')) return false;
+    }
+    return name.indexOf("..") < 0;
+}
+
 bool storeDelete(const String& name) {
     Lock l;
-    if (name.length() == 0 || name.indexOf('/') >= 0 || name == activeName) return false;
+    if (!nameOk(name) || name == activeName || isOpenForRead(name)) return false;
     return LittleFS.remove(pathOf(name));
 }
 
 File storeOpenRead(const String& name) {
     Lock l;
-    if (name.length() == 0 || name.indexOf('/') >= 0) return File();
-    return LittleFS.open(pathOf(name), FILE_READ);
+    if (!nameOk(name)) return File();
+    File f = LittleFS.open(pathOf(name), FILE_READ);
+    if (f) for (auto& n : openForRead) if (n.length() == 0) { n = name; break; }
+    return f;
+}
+
+void storeReadDone(const String& name) {
+    Lock l;
+    for (auto& n : openForRead) if (n == name) n = "";
 }
 
 void storeStats(size_t& total, size_t& used) {

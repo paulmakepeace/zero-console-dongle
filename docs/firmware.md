@@ -33,10 +33,15 @@ its [README](../firmware/README.md):
 
 Phase 2, in likely order:
 
-- **Deep sleep between sessions**, woken by pin 8 rising. Pin 8 is wired to
-  an RTC-capable GPIO for this. The MBB raises pin 8 on its own hourly wake
-  with pin 9 left low, so this captures every wake; see the sleep and wake
-  section of [mbb-reference.md](mbb-reference.md).
+- **Light sleep between sessions.** The MBB announces `Hibernating for
+  3600 sec` and wakes 3600 s later to the second, so the dongle parses that
+  line and sets a timer for ten seconds less, and is listening before the
+  MBB boots. Pin 8 rising is the backstop for wakes it did not schedule.
+  The ESP32 cannot wake from UART2, the port the MBB is on, so the UART is
+  not a wake source. Light rather than deep sleep because this DevKit's
+  regulator draws 5 mA regardless, and light sleep keeps WiFi associated.
+- **A tabbed page of command outputs**, `pdu`, `in`, `bms`, `faults -v`,
+  each refreshed by the poller and served raw at `/api/cmd/NAME`.
 - **CAN as a second stream.** TWAI in listen-only mode, frames stamped and
   written raw in a candump-style line format for SavvyCAN or a script. Which
   bus is on pins 6 and 14, and at what rate, is the first thing it tells us.

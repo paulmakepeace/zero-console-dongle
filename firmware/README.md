@@ -31,21 +31,31 @@ cd firmware && ~/.platformio/penv/bin/pio device monitor
 The monitor has to run from inside `firmware/`; with `-d` its exception
 decoder looks for the project in the wrong place.
 
-Later builds can go over the air: `pio run -d firmware -t upload --upload-port zero-dongle-a12c.local`,
-or the form at `http://zero-dongle-a12c.local/update`.
+Later builds go over the air through the status page's upload, or:
+
+```bash
+curl -H 'X-Dongle: 1' -F firmware=@firmware/.pio/build/devkit/firmware.bin http://zero-dongle-a12c.local/update
+```
 
 ## First boot
 
 Every board names itself `zero-dongle-XXXX`, the last four hex digits of
 its MAC, and uses that name for its hostname, mDNS name and setup network,
 so several boards can share a network. The bike's unit is
-`zero-dongle-a12c`; write the suffix on each board. With no WiFi stored the
-dongle raises an access point of that name, password `zerodongle`. Join it from a phone, pick the home network and enter
-its password; the dongle stores it and joins. If the stored network is out of
-reach at boot, the setup network stays up and the dongle retries the stored
-one every 30 s whenever nobody is on the setup network, then shuts the setup
-network once joined. Capture runs regardless of WiFi state. `POST
-/api/wifi/reset` clears the credentials.
+`zero-dongle-a12c`; write the suffix on each board. The setup network's
+password is `zero-` plus the last six hex digits of the MAC, printed on the
+serial console at boot, and can be replaced from the setup page.
+
+With no WiFi stored the dongle raises the setup network. Join it from a
+phone, pick the home network and enter its password; the same page takes
+the timezone in POSIX form, the NTP server and a new setup password, all
+stored in flash. If the stored network fails for a wrong password the setup
+network comes up again; if it fails because the network is out of reach the
+dongle just retries every 30 s with no setup network, and raises it after an
+hour of not finding the network at all. The setup network carries nothing
+but the setup page: the log server and the console exist only on the home
+network. Capture runs regardless of WiFi state. `POST /api/wifi/reset`
+clears the credentials.
 
 ## Endpoints
 
@@ -57,8 +67,14 @@ network once joined. Capture runs regardless of WiFi state. `POST
 | `/logs/NAME`         | GET    | the file; refused with 409 while active    |
 | `/logs/NAME`         | DELETE | remove it; refused while active            |
 | `/live`              | GET    | the last lines received                    |
-| `/update`            | GET, POST | firmware upload form and handler        |
+| `/update`            | POST   | firmware image as `firmware` in a multipart body; the status page has the form |
 | `/api/wifi/reset`    | POST   | forget WiFi and reboot into setup          |
+
+DELETE, `/update` and `/api/wifi/reset` change state and require the header
+`X-Dongle: 1`, which a form on another website cannot send from your
+browser; the status page and `pull-logs.py` add it, and so does
+`curl -H 'X-Dongle: 1'`. There is no other authentication on the home
+network.
 
 TCP console on port 6638:
 
@@ -79,8 +95,11 @@ that vanish without closing are found by TCP keepalive within a minute.
 
 ## Files
 
-One file per MBB session, `YYYYMMDD-HHMMSS.log`, created when the first
-lines are committed and closed five seconds after pin 8 goes low. Lines wait
+One file per MBB session, `bBBBB-SS-YYYYMMDD-HHMMSS.log` with the boot
+count and a sequence number first so that names sort by creation, and
+`nosync` in place of the time when the clock was not yet known. A file is
+created when the first lines are committed and closed five seconds after
+pin 8 goes low, or rolled into the next sequence number at 256 KB. Lines wait
 in RAM and reach the flash once the MBB has been quiet for 3 s, or after
 15 s or 12 KB regardless, because a flash erase holds the UART interrupt off
 long enough to overrun the chip's receive FIFO, and the MBB tends to follow
@@ -100,7 +119,17 @@ them from the homelab.
 The log area is 896 KB: a timeout wake is 6 KB, a ride about 40 KB an hour,
 so parked days cost about 150 KB and the area holds six of them between
 pulls. The app slots are 1.5 MB each. Changing the partition table needs a
-USB flash and formats the log area, which is counted in `fs_formats`.
+USB flash and formats the log area, which is counted in the status.
+
+The clock comes from NTP while that fix is under six hours old, and from
+the MBB's own stamps otherwise. A stamp counts only at the start of a line,
+and two consecutive stamps have to agree before the clock moves, so a dump
+of old log entries or one corrupted digit cannot move it. Every step is
+written into the log as a `dongle: clock stepped` line.
+
+A 120 s task watchdog covers the loop and the capture task and is fed
+through long downloads and uploads; a hung task reboots with the reason in
+the status and in the next session header.
 
 The state-changing endpoints, firmware upload and WiFi reset, require the
 request's Host header to name the dongle, which stops a web page on another

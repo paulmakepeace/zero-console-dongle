@@ -1,5 +1,5 @@
-// WiFi with a setup portal, mDNS, OTA, the HTTP server for the log files,
-// and a raw TCP console onto the MBB.
+// WiFi with a setup portal, mDNS, the HTTP server for the log files and
+// firmware updates, and a raw TCP console onto the MBB.
 #include "net.h"
 #include "config.h"
 #include "clock.h"
@@ -8,21 +8,32 @@
 #include <WiFi.h>
 #include <WiFiManager.h>
 #include <ESPmDNS.h>
-#include <ArduinoOTA.h>
 #include <WebServer.h>
 #include <Update.h>
+#include <Preferences.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/stream_buffer.h"
 #include "lwip/sockets.h"
 #include "esp_mac.h"
 
 static WiFiManager wm;
+static WiFiManagerParameter tzParam("tz", "Timezone, POSIX form", "", 48);
+static WiFiManagerParameter ntpParam("ntp", "NTP server", "", 64);
+static WiFiManagerParameter passParam("setup_pass", "Setup network password, 8+ characters", "", 32);
+static char setupPass[33];
 static WebServer http(HTTP_PORT);
 static WiFiServer console(CONSOLE_PORT);
 static WiFiClient clients[CONSOLE_CLIENTS];
 static StreamBufferHandle_t rawBuf;
 static bool servicesStarted = false;
 static uint32_t lastAsleepNoteMs = 0;
+static uint32_t lastConnectedMs = 0;
+static uint32_t lastRetryMs = 0;
+static uint32_t restartAtMs = 0;
+static uint32_t wifiDisconnects = 0;
+static volatile bool authFailed = false;   // wrong password: the setup network is the way out
+static uint32_t firstFailMs = 0;
+static char nodeName[32];
 
 // Per console client: CR-LF state and output that did not fit its socket yet.
 struct ConsoleState {
@@ -32,37 +43,36 @@ struct ConsoleState {
     uint32_t lost = 0;
 };
 static ConsoleState cstate[CONSOLE_CLIENTS];
-static char nodeName[32];
-static uint32_t wifiDisconnects = 0;
-extern const char* lastResetReason;
 
 const char* netName() { return nodeName; }
 String netMac() { return WiFi.macAddress(); }
-static uint32_t lastConnectedMs = 0;
-static uint32_t lastRetryMs = 0;
 
 static const char PAGE[] PROGMEM = R"HTML(<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>zero-dongle</title>
 <style>body{font:14px system-ui,sans-serif;margin:1em;max-width:60em}pre{background:#f4f4f4;padding:.5em;overflow-x:auto;font-size:12px}table{border-collapse:collapse}td{padding:.1em .8em .1em 0}a{margin-right:1em}</style>
-<h2>zero-dongle</h2><table id=s></table>
+<h2 id=t>zero-dongle</h2><table id=s></table>
 <h3>Files</h3><div id=f></div>
 <h3>Last lines</h3><pre id=l></pre>
-<p><a href=/update>Firmware update</a></p>
+<h3>Firmware update</h3>
+<input type=file id=fw accept=.bin> <button id=go>Flash</button> <span id=fwmsg></span>
 <script>
 async function j(u){return (await fetch(u)).json()}
 async function refresh(){
- const s=await j('/api/status');
+ const s=await j('/api/status'); document.getElementById('t').textContent=s.name;
  document.getElementById('s').innerHTML=Object.entries(s).map(([k,v])=>`<tr><td>${k}</td><td>${typeof v=='object'?JSON.stringify(v):v}</td></tr>`).join('');
  const f=await j('/logs');
  document.getElementById('f').innerHTML=f.map(x=>x.active?`<div>${x.name} ${x.size} bytes (active, see last lines)</div>`:`<div><a href="/logs/${x.name}">${x.name}</a> ${x.size} bytes</div>`).join('')||'none';
  document.getElementById('l').textContent=await (await fetch('/live')).text();
 }
+document.getElementById('go').onclick=async()=>{
+ const f=document.getElementById('fw').files[0]; if(!f) return;
+ const fd=new FormData(); fd.append('firmware',f);
+ document.getElementById('fwmsg').textContent='uploading '+f.size+' bytes';
+ const r=await fetch('/update',{method:'POST',body:fd,headers:{'X-Dongle':'1'}});
+ document.getElementById('fwmsg').textContent=await r.text();
+};
 refresh();setInterval(refresh,5000);
 </script>)HTML";
-
-static const char UPDATE_FORM[] PROGMEM =
-    "<form method=POST action=/update enctype=multipart/form-data>"
-    "<input type=file name=firmware accept=.bin> <input type=submit value=Flash></form>";
 
 static String jsonEscape(const String& in) {
     String out;
@@ -83,30 +93,30 @@ static String statusJson() {
     s += "\"name\":\"" + String(nodeName) + "\",\"mac\":\"" + netMac() + "\",\"fw\":\"" FW_VERSION "\"";
     s += ",\"uptime_s\":" + String(millis() / 1000);
     s += ",\"boot\":" + String(storeBootCount());
+    s += ",\"reset_reason\":\"" + String(sysResetReason()) + "\"";
+    s += ",\"watchdog\":" + String(sysWatchdogArmed() ? "true" : "false");
     s += ",\"mbb_awake\":" + String(mbbAwake() ? "true" : "false");
     s += ",\"tx_attached\":" + String(mbbTxAttached() ? "true" : "false");
     s += ",\"time\":\"" + clockStamp() + "\",\"time_source\":\"" + clockSourceName() + "\"";
+    s += ",\"ntp_age_s\":" + String(clockNtpAgeS() == UINT32_MAX ? -1 : (long)clockNtpAgeS());
     s += ",\"wifi\":{\"ssid\":\"" + jsonEscape(WiFi.SSID()) + "\",\"rssi\":" + String(WiFi.RSSI()) +
-         ",\"ip\":\"" + WiFi.localIP().toString() + "\"}";
-    s += ",\"fs\":{\"total\":" + String(total) + ",\"used\":" + String(used) + "}";
+         ",\"ip\":\"" + WiFi.localIP().toString() + "\",\"disconnects\":" + String(wifiDisconnects) + "}";
+    s += ",\"fs\":{\"total\":" + String(total) + ",\"used\":" + String(used) + ",\"ok\":" +
+         (storeOk() ? "true" : "false") + ",\"formats\":" + String(storeFormats()) + "}";
     s += ",\"active\":\"" + storeActiveName() + "\"";
     s += "," + storeEdges();
     s += ",\"dropped_lines\":" + String(storeDroppedLines());
     s += ",\"uart_overflows\":" + String(mbbOverflows());
-    s += ",\"fs_ok\":" + String(storeOk() ? "true" : "false");
-    s += ",\"fs_formats\":" + String(storeFormats());
     s += ",\"heap_free\":" + String(ESP.getFreeHeap());
-    s += ",\"wifi_disconnects\":" + String(wifiDisconnects);
-    s += ",\"reset_reason\":\"" + String(lastResetReason) + "\"";
     s += "}";
     return s;
 }
 
-// A cross-site form on another origin can POST here from the owner's browser.
-// Requiring our own name or address in the Host header shuts that door.
-static bool hostOk() {
-    String h = http.header("Host");
-    return h.startsWith(nodeName) || h.startsWith(WiFi.localIP().toString());
+// State-changing requests need a header a cross-site form cannot set.
+static bool tokenOk() {
+    if (http.header("X-Dongle") == "1") return true;
+    http.send(403, "text/plain", "missing X-Dongle: 1 header");
+    return false;
 }
 
 static void handleFile() {
@@ -116,10 +126,6 @@ static void handleFile() {
         return;
     }
     String name = uri.substring(6);
-    if (name.length() == 0 || name.indexOf('/') >= 0 || name.indexOf("..") >= 0) {
-        http.send(400, "text/plain", "bad name");
-        return;
-    }
     if (http.method() == HTTP_GET) {
         if (name == storeActiveName()) {
             http.send(409, "text/plain", "file is active; see /live");
@@ -130,11 +136,22 @@ static void handleFile() {
             http.send(404, "text/plain", "no such file");
             return;
         }
-        http.streamFile(f, "text/plain");
+        // Chunked by hand so the watchdog is fed on a slow client.
+        http.setContentLength(f.size());
+        http.send(200, "text/plain", "");
+        WiFiClient c = http.client();
+        uint8_t buf[1024];
+        while (f.available() && c.connected()) {
+            size_t n = f.read(buf, sizeof buf);
+            if (c.write(buf, n) != n) break;
+            sysFeedWatchdog();
+        }
         f.close();
+        storeReadDone(name);
         return;
     }
     if (http.method() == HTTP_DELETE) {
+        if (!tokenOk()) return;
         if (name == storeActiveName()) {
             http.send(409, "text/plain", "file is active");
             return;
@@ -151,17 +168,17 @@ static void setupHttp() {
     http.on("/logs", HTTP_GET, []() { http.send(200, "application/json", storeListJson()); });
     http.on("/live", HTTP_GET, []() { http.send(200, "text/plain", storeLastLines()); });
     http.on("/api/wifi/reset", HTTP_POST, []() {
-        if (!hostOk()) { http.send(403, "text/plain", "host"); return; }
+        if (!tokenOk()) return;
         http.send(200, "text/plain", "credentials cleared, rebooting into setup");
         delay(300);
+        storeSessionClose();
         wm.resetSettings();
         ESP.restart();
     });
-    http.on("/update", HTTP_GET, []() { http.send_P(200, "text/html", UPDATE_FORM); });
     http.on("/update", HTTP_POST,
         []() {
             http.sendHeader("Connection", "close");
-            if (!hostOk()) { http.send(403, "text/plain", "host"); return; }
+            if (http.header("X-Dongle") != "1") { http.send(403, "text/plain", "missing X-Dongle: 1 header"); return; }
             http.send(200, "text/plain", Update.hasError() ? "update failed" : "ok, rebooting");
             delay(300);
             if (!Update.hasError()) {
@@ -171,7 +188,8 @@ static void setupHttp() {
         },
         []() {
             HTTPUpload& up = http.upload();
-            if (!hostOk()) return;
+            if (http.header("X-Dongle") != "1") return;
+            sysFeedWatchdog();   // a slow link can take minutes
             if (up.status == UPLOAD_FILE_START) {
                 Serial.printf("ota: %s\n", up.filename.c_str());
                 if (Update.isRunning()) Update.abort();
@@ -186,22 +204,40 @@ static void setupHttp() {
                 Serial.println("ota: upload aborted");
             }
         });
-    const char* headers[] = {"Host"};
+    const char* headers[] = {"X-Dongle"};
     http.collectHeaders(headers, 1);
     http.onNotFound(handleFile);
 }
 
 static void startServices() {
-    if (servicesStarted) return;   // mDNS and OTA survive a reconnect
+    if (servicesStarted) return;   // mDNS survives a reconnect
     servicesStarted = true;
     Serial.printf("net: connected to %s, %s\n", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
     if (wm.getConfigPortalActive()) wm.stopConfigPortal();   // left over from a failed join; frees port 80
     http.begin();   // after the portal, which holds port 80 while it is up
+    console.begin();   // the console exists only on the home network, never on the setup one
+    console.setNoDelay(true);
     MDNS.begin(nodeName);
     MDNS.addService("http", "tcp", HTTP_PORT);
     MDNS.addService("zero-console", "tcp", CONSOLE_PORT);
-    ArduinoOTA.setHostname(nodeName);
-    ArduinoOTA.begin();
+}
+
+static void startPortal(const char* why) {
+    if (wm.getConfigPortalActive()) return;
+    Serial.printf("net: setup network %s up (%s)\n", nodeName, why);
+    wm.startConfigPortal(nodeName, setupPass);
+}
+
+static void saveSettings() {
+    Preferences p;
+    p.begin("dongle", false);
+    String tz = tzParam.getValue(), ntp = ntpParam.getValue(), pass = passParam.getValue();
+    if (tz.length()) p.putString("tz", tz);
+    if (ntp.length()) p.putString("ntp", ntp);
+    if (pass.length() >= 8) p.putString("setup_pass", pass);
+    p.end();
+    Serial.println("net: settings saved, restarting to apply");
+    restartAtMs = millis() + 2000;
 }
 
 void netBegin() {
@@ -216,19 +252,46 @@ void netBegin() {
     WiFi.setAutoReconnect(true);
     WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t info) {
         wifiDisconnects++;
-        Serial.printf("net: WiFi disconnected, reason %d\n", info.wifi_sta_disconnected.reason);
+        uint8_t r = info.wifi_sta_disconnected.reason;
+        // A bad password shows as a failed handshake or authentication; anything
+        // else (not found, beacon timeout, DHCP) is worth retrying quietly.
+        if (r == WIFI_REASON_AUTH_FAIL || r == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT ||
+            r == WIFI_REASON_HANDSHAKE_TIMEOUT) authFailed = true;
+        Serial.printf("net: WiFi disconnected, reason %d%s\n", r, authFailed ? " (authentication)" : "");
     }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+
+    char defaultPass[16];
+    snprintf(defaultPass, sizeof defaultPass, "zero-%02x%02x%02x", mac[3], mac[4], mac[5]);
+    Preferences p;
+    p.begin("dongle", true);
+    String tz = p.isKey("tz") ? p.getString("tz") : String(TZ_DEFAULT);
+    String ntp = p.isKey("ntp") ? p.getString("ntp") : String(NTP_SERVER);
+    String pass = p.isKey("setup_pass") ? p.getString("setup_pass") : String(defaultPass);
+    p.end();
+    strlcpy(setupPass, pass.c_str(), sizeof setupPass);
+    Serial.printf("net: setup network %s, password %s\n", nodeName, setupPass);
+    tzParam.setValue(tz.c_str(), 48);
+    ntpParam.setValue(ntp.c_str(), 64);
+    passParam.setValue(setupPass, 32);
+    wm.addParameter(&tzParam);
+    wm.addParameter(&ntpParam);
+    wm.addParameter(&passParam);
+    wm.setSaveParamsCallback(saveSettings);
+    wm.setSaveConfigCallback(saveSettings);
     wm.setConfigPortalBlocking(false);
     wm.setConnectTimeout(20);
     wm.setHostname(nodeName);
+    wm.setEnableConfigPortal(false);   // we decide when the setup network is worth raising
     setupHttp();   // routes only; the server starts once WiFi is up
-    if (wm.autoConnect(nodeName, SETUP_AP_PASS)) {
+    sysFeedWatchdog();
+    if (wm.autoConnect(nodeName, setupPass)) {
         startServices();
     } else {
-        Serial.printf("net: no WiFi yet; setup AP %s is up\n", nodeName);
+        firstFailMs = millis();
+        if (!wm.getWiFiIsSaved() || authFailed) startPortal("no usable credentials");
+        else Serial.println("net: saved network not reachable; retrying without the setup network");
     }
-    console.begin();
-    console.setNoDelay(true);
+    sysFeedWatchdog();
 }
 
 void netPushRaw(const uint8_t* data, size_t len) {
@@ -285,11 +348,7 @@ static void consoleSend(size_t ci, const uint8_t* data, size_t len) {
 
 static void pumpConsole() {
     if (console.hasClient()) {
-#if ESP_ARDUINO_VERSION_MAJOR >= 3
         WiFiClient c = console.accept();
-#else
-        WiFiClient c = console.available();
-#endif
         bool placed = false;
         for (size_t ci = 0; ci < CONSOLE_CLIENTS; ci++) {
             WiFiClient& slot = clients[ci];
@@ -310,6 +369,10 @@ static void pumpConsole() {
         }
         if (!placed) c.stop();
     }
+    // Output: drain backlogs, then whatever the MBB said since last pass.
+    for (size_t ci = 0; ci < CONSOLE_CLIENTS; ci++) {
+        if (clients[ci] && clients[ci].connected() && cstate[ci].pendLen) consoleSend(ci, nullptr, 0);
+    }
     uint8_t buf[512];
     size_t n;
     while ((n = xStreamBufferReceive(rawBuf, buf, sizeof buf, 0)) > 0) {
@@ -317,16 +380,15 @@ static void pumpConsole() {
             if (clients[ci] && clients[ci].connected()) consoleSend(ci, buf, n);
         }
     }
+    // Input: the first client with something typed gets to talk this pass.
     for (size_t ci = 0; ci < CONSOLE_CLIENTS; ci++) {
         WiFiClient& slot = clients[ci];
-        if (!slot || !slot.connected()) continue;
-        if (cstate[ci].pendLen) consoleSend(ci, nullptr, 0);   // keep draining
-        if (!slot.available()) continue;
-        uint8_t in[128], out[256];
+        if (!slot || !slot.connected() || !slot.available()) continue;
+        uint8_t in[128], out[256];   // every byte can become two; sizes must keep that ratio
         int got = slot.read(in, sizeof in);
         size_t k = 0;
         uint8_t prev = cstate[ci].prev;
-        for (int i = 0; i < got; i++) {
+        for (int i = 0; i < got && k + 2 <= sizeof out; i++) {
             uint8_t b = in[i];
             if (b == 0x7f) b = 0x08;                            // delete to backspace
             if (b == '\n' && prev != '\r') out[k++] = '\r';     // the MBB wants CR LF
@@ -340,21 +402,31 @@ static void pumpConsole() {
             lastAsleepNoteMs = millis();
             slot.print("(MBB asleep, input dropped)\n");
         }
-        break;   // only the first client with input gets to talk
+        break;
     }
 }
 
 void netTick() {
     wm.process();
     if (WiFi.status() == WL_CONNECTED) {
+        if (!servicesStarted) clockNetworkUp();
         startServices();
-        ArduinoOTA.handle();
         lastConnectedMs = millis();
+        authFailed = false;
+        firstFailMs = 0;
     } else {
+        // Raise the setup network for a bad password straight away, and for
+        // an hour of never finding the network at all, in case it was renamed.
+        if (authFailed) startPortal("authentication failed");
+        else if (firstFailMs && millis() - firstFailMs > 3600000UL && wm.getWiFiIsSaved())
+            startPortal("network not found for an hour");
         // A failed join at boot leaves the setup AP up and nothing retrying the
         // saved network. Retry it ourselves every 30 s; the setup AP stays up.
-        // Not while someone is on the setup AP: a station join would drag the AP's channel with it.
-        if (wm.getWiFiIsSaved() && WiFi.softAPgetStationNum() == 0 &&
+        // Not while someone is on the setup AP: a station join would drag the
+        // AP's channel with it. A station that never leaves cannot hold that
+        // forever, so after ten minutes retry anyway.
+        bool apBusy = WiFi.softAPgetStationNum() > 0 && millis() - lastConnectedMs < 600000;
+        if (wm.getWiFiIsSaved() && !apBusy &&
             millis() - lastConnectedMs > 30000 && millis() - lastRetryMs > 30000) {
             lastRetryMs = millis();
             Serial.println("net: retrying saved WiFi");
@@ -363,4 +435,8 @@ void netTick() {
     }
     http.handleClient();
     pumpConsole();
+    if (restartAtMs && (int32_t)(millis() - restartAtMs) > 0) {
+        storeSessionClose();
+        ESP.restart();
+    }
 }
