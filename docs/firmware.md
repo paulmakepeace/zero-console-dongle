@@ -73,7 +73,16 @@ Phase 2, in likely order:
   arrays: an input ring the capture side writes into at one pointer and the
   compressor reads from at another, and an output array the compressor
   fills and the store commits by its own policy. A partial write is then
-  charged to exactly the lines lost.
+  charged to exactly the lines lost. Measured on 46 pulled sessions
+  (676 KB): deflate with a 4 KB window gets 8.8x on whole files and 8.3x on
+  independent 12 KB commit blocks, so blocks can be compressed as they are
+  committed and the file never re-read. A dictionary trained on earlier
+  captures adds little at that block size (8.9x with 8 KB, 10.1x with 32 KB
+  and a 32 KB window) and earns its keep only on small blocks: 1 KB blocks
+  go from 4.5x to 6.4x. If one is baked in, it is versioned by id in the
+  file header, the puller holds each version, and the training set is
+  scrubbed of the VIN and serials first, since a trained dictionary carries
+  literal fragments of its input.
 - **Boot loops.** Two so far, both fixed at the cause (a shrunk filesystem
   the old image asserted on, and a portal stop with no portal). The control
   for the next one: count boots that die inside 60 s in RTC memory, which
