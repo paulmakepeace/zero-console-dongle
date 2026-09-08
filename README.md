@@ -7,10 +7,13 @@ sniffer. The immediate motivation is clearing the "bulb out" fault
 from aftermarket LED turn signals without a dealer visit.
 
 Status: LED mode is on and the bulb-out fault is gone with rear LEDs and
-front incandescents. The phase 1 firmware runs on a DevKit wired to pins 5
-and 8 of the bike, has captured an hourly wake from deep sleep end to end,
-and serves the files over WiFi. The MBB's sleep, wake and console-pin
-behaviour is characterised and the CAN and buck parts are on order. See
+front incandescents. The phase 1 firmware runs on a DevKit wired to pins 5,
+8 and 9 of the bike, captures every MBB session including the hourly wakes
+from deep sleep, serves the files over WiFi and carries the console onto the
+home network. It runs from the frunk USB socket while the bike is on and
+from a wall supply while the bike sleeps, until the always-on supply from
+pin 16 is built. The MBB's sleep, wake and console-pin behaviour is
+characterised and the CAN and buck parts are on order. See
 [docs/open-questions.md](docs/open-questions.md) for what is unproven.
 
 ## Layout
@@ -30,7 +33,7 @@ behaviour is characterised and the CAN and buck parts are on order. See
   adds, the Arduino choice and the design rules.
 - [docs/sources.md](docs/sources.md): references.
 - [firmware/](firmware/): the PlatformIO project, Arduino framework. Its
-  README has the wiring, build, first boot and endpoints.
+  README has the build, the tests, first boot and the endpoints.
 - [tools/](tools/): `console.sh` opens a legible, logged console session;
   `capture.py` is a read-only capture with a timestamp on every line;
   `pull-logs.py` fetches the dongle's files over WiFi; `status.py` is one
@@ -44,42 +47,27 @@ behaviour is characterised and the CAN and buck parts are on order. See
   regexes the pre-commit gate refuses; install the gate once per clone with
   `ln -sf ../../tools/check-private.sh .git/hooks/pre-commit`.
 
-## Where this stands
+## Next, in order
 
-Done: console access proven, LED mode on and the bulb-out fault gone, the
-console catalogue and the bike's state captured, the app logs characterised,
-the hourly wake and the console pins characterised, the power design settled
-as always-on from pin 16 with the dongle sleeping on pin 8, the phase 1
-firmware written, bench-tested, reviewed, and proven on the bike across a
-wake from deep sleep with pin 9 open.
+1. Keep the dongle on the bike collecting wakes, and ride and pull the files
+   with `tools/pull-logs.py`. The open question the captures serve is what
+   sets the cellular module's schedule, since the 12 V charge rides on it;
+   see [docs/open-questions.md](docs/open-questions.md).
+2. When the CAN and buck parts land, build the second shell with the phase 2
+   wiring and bench-test CAN first, both in
+   [docs/hardware.md](docs/hardware.md).
+3. Fit the front LEDs and answer the LED questions in
+   [docs/open-questions.md](docs/open-questions.md).
+4. Phase 2 firmware: light sleep between sessions, CAN as a second stream,
+   the poller. See [docs/firmware.md](docs/firmware.md).
 
-Next, in order:
-
-1. Leave the dongle on pins 5 and 8 collecting wakes; the question now is
-   what sets the cellular module's schedule, since the 12 V charge rides on
-   it.
-2. Pin 9 is connected and the console works from the house over `nc` on
-   frunk USB; ride and pull the files with `tools/pull-logs.py`.
-3. When the CAN and buck parts land, build the second shell with the phase 2
-   wiring in [docs/hardware.md](docs/hardware.md), and bench-test CAN first:
-   termination removed, driver input tied recessive, listen-only at
-   500 kbit/s, then 250k and 125k. That identifies the bus on pins 6 and 14.
-4. Fit the front LEDs, indicate with the console open, and read the current.
-   Fit the 80 ohm resistors only if the fault returns.
-5. Phase 2 firmware: deep sleep on pin 8, CAN as a second stream, the
-   poller. See [docs/firmware.md](docs/firmware.md).
-
-## Talking to the console today
+## Talking to the console
 
 With a 3.3 V USB-UART on OBD pins 5 (GND), 8 (MBB TX) and 9 (MBB RX):
 
 ```bash
 tools/console.sh
 ```
-
-Press Enter twice for the `ZERO MBB>` prompt. `help` lists commands. `config`
-works without a login; most other changes need `login`, whose passwords are not
-public.
 
 For a hands-off capture with a timestamp on every line, nothing sent to the
 bike:
@@ -88,14 +76,7 @@ bike:
 tools/capture.py
 ```
 
-Connecting a powered adapter to a sleeping bike reboots the MBB and holds it
-out of deep sleep for as long as the adapter is attached; see
-[docs/hardware.md](docs/hardware.md). With the dongle flashed, the same
-console is on the network:
-
-```bash
-nc zero-dongle-a12c.local 6638
-```
-
-The console and the log server live on the home network only; the
-board's setup network serves nothing but its setup page.
+The port, the prompt, and what an attached adapter does to a sleeping bike
+are in [docs/console-port.md](docs/console-port.md). With the dongle
+flashed, the same console is on the home network; see the firmware
+[README](firmware/README.md).

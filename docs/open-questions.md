@@ -17,11 +17,11 @@
 - The bike unit once went dark on the network mid console session with its
   power LED on and no reboot, and needed a key cycle. Not reproduced on the
   bench with a large response or a stalled client, nor on the bike after.
-  The firmware now reboots a hung task after 120 s and reports the reset
-  reason and WiFi disconnect count, so a recurrence leaves evidence.
+  A recurrence leaves evidence: the watchdog reboots a hung task and the
+  status carries the reset reason and the WiFi disconnect count.
 - Is the CAN bus on pins 6 and 14 active while the MBB hibernates?
 - Which of the bike's CAN networks is on OBD pins 6 and 14, and at what
-  bitrate. Try 500k, then 250k, then 125k, listen-only.
+  bitrate. The bench plan is in hardware.md.
 - What DTC `B1A0F` means.
 - Current available on pin 16 and the fuse size upstream of it.
 - Rear LED draw on its own. Indicate with the rear signal unplugged and

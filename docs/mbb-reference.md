@@ -31,16 +31,16 @@ MBB wakes itself by RTC timer. From deep sleep that is a full boot: the
 banner with `Reset Source: Hib Wake RTC`, self-test, `State change from STRT
 to PWSU`, LSS assigning the BMS node 0x0A, module registered. From the
 shallow hibernation it is `State change from HIB to PWSU` with no banner.
-Then one of two things happens, and the app's own logs say the first is the
-normal one by about forty to one:
+Then one of two things happens. The console captures and the app's own logs
+agree that the first is the normal one: a charge on roughly one wake in
+twenty-five to fifty, a timeout on the rest.
 
 - **Timeout.** `ccm RTC not ready in 31 sec`, `Timed out in PW Startup` at
   60 s, PWSU to HIB, the 30-second countdown, deep sleep again. No
   contactor, no charge, 96 s awake. The app log records a `Requesting 12v
   charge` and a `Stopping 12v charge` around this with the DC-DC at a
-  fraction of a volt, so the request is made and never served. Twelve
-  consecutive overnight wakes with the dongle on pins 5 and 8 went this way
-  except one.
+  fraction of a volt, so the request is made and never served. Eleven of
+  twelve consecutive overnight wakes went this way.
 - **Charge.** `CCM RTC verified OK`, PWSU to WAKE in 5 s, the two charger
   nodes 0x10 and 0x11 assigned, precharge, contactor closed, about 30
   minutes of charging the 12 V battery from the pack, `12V successfully
@@ -53,13 +53,15 @@ So the wake-to-wake interval is an hour of sleep plus however long the wake
 took: 96 s for a timeout, half an hour or so for a charge. The 12 V battery
 sits near 12.95 to 13.0 V through the timeouts, so it is not starved; the
 charge appears to ride on the cellular module being up rather than on the
-battery asking for it, and the module is up for roughly one wake in a dozen
-to fifty. What sets the module's schedule is not known.
+battery asking for it. What sets the module's schedule is an open question
+([open-questions.md](open-questions.md)).
 
 A high level on pin 9 wakes the MBB from either depth with a full reset:
 banner, `Reset Source: Hib Wake Pin`, `State change from STRT to WAIT`, then
-STOP and HIB about 30 s later. A reset that lands during the hourly wake
-abandons the top-up.
+STOP and HIB about 30 s later, and the shallow hibernation with the console
+up for as long as pin 9 stays high. When pin 9 drops from that state, pin 8
+follows about 25 s later. A reset that lands during the hourly wake abandons
+the top-up.
 
 Key-on from deep sleep is the same reset with the same wake-pin source,
 then `Key Sw = ON`, immobiliser unlocked, STRT to WAIT, the BMS assigned,
@@ -253,5 +255,6 @@ record and the console's `bms` view is a summary.
 Four are named in the fault list: POWERTRAIN_CAN, MSC_CAN, OBD_CCM_CAN and
 CHARGER_DASH_CAN, and the console mentions a `CAN2txQ`. The BMS module and
 the chargers join by CANopen LSS node assignment at key-on. Which of these
-buses reaches OBD pins 6 and 14 is not established; the name OBD_CCM_CAN and
-the `obd` DTC facility make it the likely one.
+buses reaches OBD pins 6 and 14 is an open question
+([open-questions.md](open-questions.md)); the name OBD_CCM_CAN and the `obd`
+DTC facility make it the likely one.

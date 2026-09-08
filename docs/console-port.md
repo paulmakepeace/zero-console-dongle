@@ -72,8 +72,8 @@ line after the gap is stamped before the gap, not after. Read gaps from the
 next line down, or use `capture.py`, which skips the NULs before stamping.
 
 Other terminals: `idf.py monitor` comes with ESP-IDF and is a good fit for
-the DevKit's own USB port once that toolchain is installed. CoolTerm is no
-longer in Homebrew, which dropped it for lack of Apple-signed builds.
+the DevKit's own USB port once that toolchain is installed. CoolTerm is not
+in Homebrew.
 
 ## Captures
 
@@ -83,11 +83,10 @@ The raw log carries a NUL after most lines. Clean it before reading:
 tools/log-clean.sh logs/mbb-DATE.log > logs/mbb-DATE.txt
 ```
 
-There is no event-log export from the console on firmware revision 44: the
-text dump commands published for other revisions are rejected, and the hex
-dump answers "log printing not supported". Bike logs come from the Zero app
-(Support, Email bike logs), which sends `.bin` files for the MBB and BMS.
-Read-only snapshot commands still work; see [mbb-reference.md](mbb-reference.md).
+There is no event-log export from the console on this firmware revision
+(see the command table in [mbb-reference.md](mbb-reference.md)). Bike logs
+come from the Zero app (Support, Email bike logs), which sends `.bin` files
+for the MBB and BMS.
 
 File types to expect:
 
@@ -97,16 +96,18 @@ File types to expect:
 | Zero app "Email bike logs"      | `.bin`, binary, MBB and BMS     |
 | zero-log-parser output          | `.txt`, `.csv`, `.tsv`, `.json`, `.html` |
 
-Everything under `logs/` and all of those extensions are ignored by git. The
-`version` header and the `bms` snapshot print the VIN and serial numbers, so
-treat any capture as private.
+Everything under `logs/` is ignored by git, as are `.bin`, `.log`, `.txt`,
+`.csv` and `.tsv` anywhere in the repo; `.json` and `.html` parser output is
+ignored only inside `logs/`. The `version` header, the `bms` snapshot and
+the `charging` table print the VIN and serial numbers, so treat any capture
+as private.
 
 Parsers: zero-log-parser (zero-motorcycle-community on GitHub) for `.bin` and
 console text; zerologs.bike decodes a `.bin` in the browser without upload.
 
 ## Pinout
 
-Measured 2026-09-05 on the MY2020 SR/S, all voltages relative to pin 5.
+Measured on the MY2020 SR/S, all voltages relative to pin 5.
 
 | Pin | Function                  | Measured                              |
 |-----|---------------------------|---------------------------------------|
@@ -123,10 +124,8 @@ is top-left, 8 top-right, 9 bottom-left, 16 bottom-right. The back of a male
 plug viewed the same way has the same layout. Trust the moulded numbers on the
 plug over any diagram.
 
-Pin 8 is a logic output, never a supply, and not a key sense: it is high
-whenever the MBB's console block is powered, which includes hibernation for
-as long as pin 9 is held high. Pin 9 high resets a sleeping MBB and keeps it
-out of deep sleep. The details and what they mean for a dongle are in
+Pin 8 is a logic output, never a supply, and pin 9 is the hibernation wake
+pin; how they behave and what that means for a dongle are in
 [hardware.md](hardware.md).
 
 ## Adapters
@@ -135,11 +134,11 @@ Any 3.3 V-logic USB-UART works: CP2102/CP2102N (native 3.3 V), or an FT232
 board set to 3.3 V. Verify TX idles at about 3.3 V before connecting. A 5 V-only
 adapter does not talk to the MBB and risks the RX pin.
 
-A powered adapter's TX idles high, and that level on pin 9 reboots a sleeping
-MBB and holds it in hibernation with the console up, hourly wakes counted
-from the moment of connection. Plugging in during a wake abandons the 12 V
-top-up. Connect with the key on if the natural cycle matters, and unplug the
-adapter, or at least pin 9, when done.
+A powered adapter's TX idles high, and that level on pin 9 reboots a
+sleeping MBB and holds it out of deep sleep, abandoning a 12 V top-up if one
+is under way (see [hardware.md](hardware.md)). Connect with the key on if
+the natural cycle matters, and unplug the adapter, or at least pin 9, when
+done.
 
 On hand: DSD TECH SH-U09B3 (CP2102N, USB-C, header pins), enumerates as cp210x.
 Its bottom header reads 5V0, GND, TXD, RXD, RTS, CTS; the side header 3V3, RI,

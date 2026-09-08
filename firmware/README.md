@@ -4,14 +4,12 @@ Arduino framework under PlatformIO. Captures the MBB console to flash whenever
 the MBB is awake, serves the files over WiFi, and offers a raw TCP console.
 Design in [../docs/firmware.md](../docs/firmware.md).
 
-## Wiring, phase 1
+## Wiring
 
-| OBD pin | DevKit pin | Note                                             |
-|---------|------------|--------------------------------------------------|
-| 5       | GND        |                                                  |
-| 8       | D33        | MBB TX. Internal pull-down; RTC-capable for later |
-| 9       | TX2 (D17)  | MBB RX and wake pin. Driven only while a command is being sent, and only while pin 8 is high |
-
+OBD 5 to GND, OBD 8 to D33 (GPIO33, UART2 RX), OBD 9 to TX2 (GPIO17); the
+pin numbers are in `config.h`, the table and the phase 2 parts in
+[../docs/hardware.md](../docs/hardware.md), and the rule for when pin 9 is
+driven in the design rules of [../docs/firmware.md](../docs/firmware.md).
 Power from USB-C for the bench and the frunk socket.
 
 ## Build, flash, monitor
@@ -65,7 +63,7 @@ What only hardware can prove, the transmit gate and the sleep edge, is
 `tools/bench.py` on the bench board through the adapter.
 
 Every version bump in `config.h` is an annotated tag `vX.Y.Z` whose body
-rolls up the commits since the previous version; `git tag -n99 v0.4.4`
+rolls up the commits since the previous version; `git tag -n99 v0.4.5`
 reads one, and `git push --follow-tags` sends them with the branch.
 
 ## First boot
@@ -97,9 +95,9 @@ replaced from the home network with `POST /api/settings`.
 | Path                 | Method | What                                      |
 |----------------------|--------|-------------------------------------------|
 | `/`                  | GET    | status page                               |
-| `/api/status`        | GET    | JSON: awake, TX attached, last awake and asleep stamps, time and its source and NTP age, WiFi with mDNS and setup-network state, filesystem, dropped lines, the UART's overrun, back-pressure, frame-error and queue-drop counts, console clients and dropped bytes, heap and stack headroom, watchdog and reset reason |
+| `/api/status`        | GET    | JSON: board name, MAC, firmware version, uptime, boot count and reset reason, awake, pin 8 level, TX attached, last awake and asleep stamps and the awake count, the active file, time and its source and NTP age, WiFi with mDNS and setup-network state, filesystem, dropped lines, the UART's overrun, back-pressure, frame-error and queue-drop counts, console clients and dropped bytes, heap and stack headroom, watchdog |
 | `/logs`              | GET    | JSON list of files with size and active flag |
-| `/logs/NAME`         | GET    | the file; refused with 409 while active    |
+| `/logs/NAME`         | GET    | the file; 409 while active, 503 when all four readers are busy, 404 if absent |
 | `/logs/NAME`         | DELETE | remove it; 409 while active or being read, or for a bad name |
 | `/live`              | GET    | the last lines received                    |
 | `/update`            | POST   | firmware image as `firmware` in a multipart body; the status page has the form |
@@ -113,25 +111,21 @@ browser; the status page and `pull-logs.py` add it, and so does
 `curl -H 'X-Dongle: 1'`. There is no other authentication on the home
 network.
 
-TCP console on port 6638:
+TCP console on port 6638, advertised over mDNS as `_zero-console._tcp`:
 
 ```bash
 nc zero-dongle-a12c.local 6638
 ```
 
 Enter twice for the prompt. The dongle adds the CR the MBB wants and turns
-delete into backspace, so a plain `nc` works. Input is dropped while the MBB is
-asleep, because driving its wake pin would reboot it. The transmit pin is
-attached to the UART only while bytes are being sent and for two seconds
-after, or until pin 8 is seen low if that comes first, then returns to a
-pulled-down input: a UART idles high, and a high on
-pin 9 holds the MBB out of deep sleep. The GPIO is put in that safe state
-before anything else runs at boot. Output a client cannot take right now is
-held for it briefly, then dropped with a `[dongle: N console bytes dropped]`
-marker once it catches up, so the dongle never stalls on a client. Two
-clients take turns at input. A client that closes is noticed at once and a
-client that vanishes without closing is found by TCP keepalive within about
-90 s.
+delete into backspace, so a plain `nc` works. Input is dropped while the MBB
+is asleep, and the transmit pin is driven only under the rule in the design
+rules of [../docs/firmware.md](../docs/firmware.md). Output a client cannot
+take right now is held for it briefly, then dropped with a `[dongle: N
+console bytes dropped]` marker once it catches up, so the dongle never
+stalls on a client. Two clients take turns at input. A client that closes
+is noticed at once and a client that vanishes without closing is found by
+TCP keepalive within about 90 s.
 
 ## Files
 
@@ -144,14 +138,13 @@ number; every header carries the board name and `id bBBBB-SSS, part N`,
 the id being the first part's stem, so parts join by identity and a pulled
 file says which board wrote it. Lines the dongle writes
 about itself, clock steps and loss markers, never open a file on their
-own; they wait for the next session. Lines wait
-in RAM and reach the flash once the MBB has been quiet for 3 s, or after
-15 s or 12 KB regardless, because a flash erase holds the UART interrupt off
-long enough to overrun the chip's receive FIFO, and the MBB tends to follow
-a lone line with a burst a second later. A power cut loses at most that
-much. Pin 8 has to read high
-for three consecutive 20 ms samples, or deliver a byte, before the MBB counts
-as awake. Each line carries the dongle's
+own; they wait for the next session. Lines wait in RAM and reach the flash
+once the MBB has been quiet for 3 s, or after 15 s or 24 KB regardless, with
+12 KB bringing a commit forward only while it is quiet, because a flash
+erase holds the UART interrupt off long enough to overrun the chip's receive
+FIFO, and the MBB tends to follow a lone line with a burst a second later. A
+power cut loses at most that much. What counts as awake is in the design
+rules of [../docs/firmware.md](../docs/firmware.md). Each line carries the dongle's
 stamp then the MBB text, the same format as `tools/capture.py` once the
 clock is known (an uptime stamp `u000016.875` before that). Oldest files go when free space drops
 under 96 KB; a file that cannot be deleted is skipped. Lines that cannot be
@@ -172,7 +165,8 @@ The clock comes from NTP while that fix is under six hours old, and from
 the MBB's own stamps otherwise. A stamp counts only at the start of a line,
 and two consecutive stamps have to agree before the clock moves, so a dump
 of old log entries or one corrupted digit cannot move it. Every step is
-written into the log as a `dongle: clock stepped` line.
+written into the log: `dongle: clock stepped ... by the MBB`, or `dongle:
+clock set from ntp`.
 
 A 120 s task watchdog covers the loop and the capture task and is fed
 through long downloads and uploads; a hung task reboots with the reason in

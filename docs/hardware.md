@@ -29,35 +29,32 @@ This decides the wiring and the power design.
   is not a key sense. With nothing driving pin 9 a sleeping MBB leaves it at
   0 V, or about 0.5 V if an adapter's input pull-up is back-feeding it.
 - **Pin 9, MBB RX, is also the hibernation wake pin.** A high level on it
-  resets a sleeping MBB: the boot banner prints with `Reset Source: Hib Wake
-  Pin`, the MBB self-tests, goes STRT to WAIT, then STOP and HIB within about
-  30 s, and stays in HIB with its console up for as long as pin 9 is high.
-  About 25 s after pin 9 drops, pin 8 drops. A reset that lands during the
-  hourly wake abandons the 12 V top-up.
+  resets a sleeping MBB and then holds it in a shallow hibernation with its
+  console up and pin 8 high for as long as pin 9 stays high; the sequence
+  and the timings are in the sleep and wake section of
+  [mbb-reference.md](mbb-reference.md).
 
 So a dongle must never drive pin 9 while the MBB sleeps, and must not hold
 it high while the MBB is awake either, because a UART idles high and that
-level is what keeps the MBB in its shallow hibernation after key-off. The
-firmware attaches the transmit pin only while bytes are being sent and for
-two seconds after, only while pin 8 is high, and a sleeping MBB cannot be
-commanded without booting it. The drop back to the pull-down reaches the
-MBB as one NUL byte, which its console answers with a fresh prompt and
-nothing else; commands before and after it are handled normally. Pin 8 does rise on the MBB's own hourly wake with pin 9 left low, from
-the first byte of the boot banner, and drops again about 5 s after the MBB
-announces its hibernation, so a dongle sleeping on pin 8 sees every wake.
+level is what keeps the MBB in its shallow hibernation after key-off. A
+sleeping MBB cannot be commanded without booting it. The rule the firmware
+follows is the transmit-pin rule in the design rules of
+[firmware.md](firmware.md). Pin 8 rises on the MBB's own hourly wake with
+pin 9 left low, from the first byte of the boot banner, so a dongle sleeping
+on pin 8 sees every wake.
 
 ## Wiring
-
-Phase 1, bench and frunk USB, no added parts:
 
 | OBD pin | Goes to                                                        |
 |---------|----------------------------------------------------------------|
 | 5       | GND                                                            |
-| 8       | GPIO33 (D33). UART2 RX through the matrix, internal pull-down. RTC-capable, so it can wake the ESP32 from deep sleep later |
-| 9       | GPIO17 (TX2). UART2 TX only while pin 8 is high; otherwise an input with the internal pull-down |
-| 6       | SN65HVD230 CANH                                                |
-| 14      | SN65HVD230 CANL                                                |
-| 16      | phase 2 supply, below                                          |
+| 8       | GPIO33 (D33). UART2 RX through the matrix, internal pull-down. RTC-capable, so it can wake the ESP32 from light sleep later |
+| 9       | GPIO17 (TX2). UART2 TX under the transmit-pin rule; otherwise an input with the internal pull-down |
+| 6       | SN65HVD230 CANH, phase 2                                       |
+| 14      | SN65HVD230 CANL, phase 2                                       |
+| 16      | the phase 2 supply, below                                      |
+
+Phase 1 is pins 5, 8 and 9 with no added parts, powered over USB-C.
 
 Phase 2 adds, at the plug end:
 
@@ -81,22 +78,23 @@ bike's bus is terminated at both ends already and a third 120 ohm loads the
 pair to 40 ohms. The board straps RS low through 10k, so the driver is live;
 for a hardware guarantee of listen-only tie CTX to 3V3 through 10k, since a
 high driver input is recessive and the part then cannot assert a dominant bit
-whatever the ESP32 does. CRX to GPIO4 or GPIO5, both RTC-capable in case CAN
-activity becomes a wake source. RS to a GPIO is the later upgrade if transmit
-is ever wanted. TWAI in listen-only mode on the ESP32 side as well.
+whatever the ESP32 does. CRX to GPIO4, RTC-capable in case CAN activity
+becomes a wake source. RS to a GPIO is the later upgrade if transmit is ever
+wanted. TWAI in listen-only mode on the ESP32 side as well.
 
-The bike has at least four CAN networks (see the CAN section of
-[mbb-reference.md](mbb-reference.md)). The pair on OBD pins 6 and 14 is
-probably the OBD/CCM bus rather than the powertrain bus, so the sniffer may
-see diagnostics and telematics traffic rather than motor and BMS frames. If
-that bus follows the OBD-II convention it runs at 500 kbit/s, which is the
-first rate to try.
+Bench test before the bike: termination removed, driver input tied
+recessive, listen-only at 500 kbit/s, then 250k and 125k. That identifies
+which of the bike's CAN networks (listed in
+[mbb-reference.md](mbb-reference.md)) is on OBD pins 6 and 14, which is an
+open question; the name OBD_CCM_CAN makes it the likely one, so the sniffer
+may see diagnostics and telematics traffic rather than motor and BMS frames.
 
 ## Power
 
 Phase 1: 5 V into the DevKit's USB-C, from the frunk socket on the bike or
-a wall supply. The frunk socket is key-switched, so nothing runs while the
-bike sleeps. Powerbanks are no good: at the dongle's 50 mA they decide
+a wall supply. The frunk socket is key-switched: it comes up about 11 s
+after key-on and dies at key-off, so a capture across the bike's sleep needs
+the wall supply. Powerbanks are no good: at the dongle's draw they decide
 nothing is connected and switch off, and one that pulses its output to check
 resets the dongle.
 
@@ -109,17 +107,18 @@ varnish the pot. The 18 V part stands off anything the bike's charging does
 and clamps near 25 V, under the buck's rating; a 24 V part clamps near 39 V,
 which is not.
 
-A key-switched supply sensed from pin 8 was designed and dropped: pin 8 does
-not distinguish key on from off. Instead the dongle gates its own activity on
-pin 8 and sleeps between MBB sessions. Drain: a DevKit V1 in deep sleep draws
-about 10 mA through its linear regulator, about 4 mA from the 13 V side or
-100 mAh a day, and an always-awake ESP32 with WiFi idling about 20 mA from
-13 V. The MBB checks the 12 V battery every hour and charges it from the
-pack for half an hour when it can, about once a day, so either is
-affordable; the master switch covers long-term storage. The 5 V rail sees
-150 to 250 mA average with WiFi up and peaks near 500 mA on transmit, plus
-about 20 mA for the CP2102 and the transceiver, which the frunk socket and
-any 1 A buck cover.
+Pin 8 does not distinguish key on from off, so the supply is not
+key-switched; the dongle gates its own activity on pin 8 and sleeps between
+MBB sessions. Drain: the DevKit's linear regulator and USB bridge take about
+5 mA whatever the ESP32 does, so a DevKit V1 in light sleep draws about
+10 mA at 5 V, about 4 mA from the 13 V side or 100 mAh a day, and an
+always-awake ESP32 with WiFi idling about 20 mA from 13 V. The MBB charges
+the 12 V battery from the pack on a minority of its hourly wakes (see
+[mbb-reference.md](mbb-reference.md)), so either is affordable; the master
+switch covers long-term storage. The 5 V rail sees about 50 mA average with
+WiFi associated, 0.25 W at the socket, with transmit peaks of a few hundred
+milliamps, plus about 20 mA for the CP2102 and the transceiver, which the
+frunk socket and any 1 A buck cover.
 
 ## Parts
 
