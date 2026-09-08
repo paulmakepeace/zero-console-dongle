@@ -17,7 +17,7 @@ inline bool logNameOk(const char* name, size_t len) {
     return true;
 }
 
-// bBBBB-SSS-<when>.log: boot count and sequence first so names sort by creation.
+// bBBBB-SSS-<when>.log.gz: boot count and sequence first so names sort by creation.
 inline int sessionName(char* out, size_t cap, unsigned long boot, int seq, const char* when) {
-    return snprintf(out, cap, "b%04lu-%03d-%s.log", boot, seq, when);
+    return snprintf(out, cap, "b%04lu-%03d-%s.log.gz", boot, seq, when);
 }

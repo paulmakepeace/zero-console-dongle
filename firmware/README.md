@@ -139,21 +139,32 @@ TCP keepalive within about 90 s.
 
 ## Files
 
-One file per MBB session, `bBBBB-SSS-YYYYMMDD-HHMMSS.log` with the boot
-count and a sequence number first so that names sort by creation, and
-`nosync` in place of the time when the clock was not yet known. A file is
-created when the first MBB lines are committed and closed five seconds
-after pin 8 goes low. At 256 KB a session rolls into the next sequence
+One gzip file per MBB session, `bBBBB-SSS-YYYYMMDD-HHMMSS.log.gz` with the
+boot count and a sequence number first so that names sort by creation, and
+`nosync` in place of the time when the clock was not yet known. Lines are
+compressed as they arrive, against the whole file's history, on fixed
+arrays; the file is created when the first compressed bytes are committed
+and closed five seconds after pin 8 goes low, with the gzip trailer.
+`gunzip` reads a file; the pull script inflates each one and stores the
+plain `.log`. A file cut off by a power loss decodes up to its last
+commit, and the puller says how many lines it recovered. At 256 KB a session rolls into the next sequence
 number; every header carries the board name and `id bBBBB-SSS, part N`,
-the id being the first part's stem, so parts join by identity and a pulled
-file says which board wrote it. Lines the dongle writes
+the id being the first part's boot count and sequence, so parts join by
+identity and a pulled file says which board wrote it. A boot count that
+failed to save can move a file's sequence number past its id; the id
+still joins the parts. Lines the dongle writes
 about itself, clock steps and loss markers, never open a file on their
-own; they wait for the next session. Lines wait in RAM and reach the flash
-once the MBB has been quiet for 3 s, or after 15 s or 24 KB regardless, with
-12 KB bringing a commit forward only while it is quiet, because a flash
-erase holds the UART interrupt off long enough to overrun the chip's receive
-FIFO, and the MBB tends to follow a lone line with a burst a second later. A
-power cut loses at most that much. What counts as awake is in the design
+own; they wait for the next session, and may precede its header in the
+file. Only if a week of them fills the buffer do they get a file of their
+own. Compressed bytes wait in RAM and
+reach the flash once the MBB has been quiet for 3 s, or 15 s after its
+first waiting line regardless, or when the 4 KB output buffer is full
+whatever it is doing, because a flash erase holds the UART interrupt off long enough to
+overrun the chip's receive FIFO, and the MBB tends to follow a lone line
+with a burst a second later. A power cut loses at most that much. A write
+that fails part-way breaks the stream, so that part closes and the session
+continues in the next one, with the lines that were waiting counted as
+lost. What counts as awake is in the design
 rules of [../docs/firmware.md](../docs/firmware.md). Each line carries the dongle's
 stamp then the MBB text, the same format as [`tools/capture.py`](../tools/capture.py) once the
 clock is known (an uptime stamp `u000016.875` before that). Oldest files go when free space drops
@@ -165,10 +176,10 @@ pull script reads the status first and warns about any of them.
 [`tools/pull-logs.py`](../tools/pull-logs.py) fetches and deletes them from the homelab into
 `logs/dongle/NAME/`, one directory per board.
 
-The log area is 896 KB with a 96 KB reserve. LittleFS counts in 4 KB
-blocks, so a 6 KB timeout wake costs 8 KB and a parked day about 200 KB;
-the area holds four of them between pulls, a ride costs about 40 KB an
-hour. The app slots are 1.5 MB each. Changing the partition table needs a
+The log area is 896 KB with a 96 KB reserve. The stream compresses the
+console about 6.8 times, so a timeout wake costs one 4 KB block and a
+parked day about 30 KB; the area holds a few weeks between pulls, and a
+ride costs about 6 KB an hour. The app slots are 1.5 MB each. Changing the partition table needs a
 USB flash and formats the log area, which is counted in the status.
 
 The clock comes from NTP while that fix is under six hours old, and from

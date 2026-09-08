@@ -57,9 +57,9 @@ void sysFeedWatchdog() { if (wdtArmed) esp_task_wdt_reset(); }
 // Capture housekeeping that a long HTTP transfer must keep running.
 void sysTickCapture() {
     sysFeedWatchdog();
+    clockTick();   // an NTP fix that has landed is used by the lines in this pass
     mbbTick(onLine, onState);
     storeTick(millis() - mbbLastByteMs() > IDLE_COMMIT_MS);
-    clockTick();
 }
 
 void setup() {

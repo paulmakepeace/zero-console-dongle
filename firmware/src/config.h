@@ -1,6 +1,6 @@
 #pragma once
 
-#define FW_VERSION      "0.5.0"
+#define FW_VERSION      "0.6.0"
 #define DONGLE_NAME     "zero-dongle"      // base of the hostname, mDNS name and setup AP name; the last four hex digits of the MAC are appended
 // The setup network's password defaults to "zero-" plus the last six hex digits
 // of the MAC, printed at boot, and can be replaced from the setup page.
@@ -49,8 +49,13 @@
 #define TX_HOLD_MS      2000   // TX stays attached this long after the last byte sent
 #define RECLAIM_GAP_MS  2000   // a failed write retries reclamation at most this often
 #define IDLE_COMMIT_MS  3000   // lines reach flash once the MBB has been quiet this long
-#define MAX_PENDING_MS  15000  // or after this long regardless
-#define PENDING_MAX     12288  // or when this much is waiting in RAM
+#define MAX_PENDING_MS  15000  // or after this long regardless, or when the output buffer is full
+// The session stream's fixed arrays: history window, longest line, output buffer, hash table.
+#define GZ_HISTORY      4096
+#define GZ_LINE_CAP     1100
+#define GZ_OUT          4096
+#define GZ_HASH_BITS    10
+#define GZ_HEADER_ROOM  200    // kept spare until the session header is in: the header is at most about 160 characters, 180 bytes at 9-bit literals
 #define LOOP_WDT_S      120    // loop() or the capture task silent this long: panic and reboot
 
 #define TZ_DEFAULT      "PST8PDT,M3.2.0,M11.1.0"

@@ -1,0 +1,13 @@
+uzlib, the compression side, from github.com/pfalcon/uzlib (zlib license).
+Files: genlz77.c, defl_static.c, defl_static.h, crc32.c, uzlib.h (trimmed
+to the compression API).
+
+Changes for the dongle:
+- outbits() writes into a caller-sized buffer and sets `overflow` instead
+  of growing it with realloc.
+- zlib_start_block() marks blocks as not final; zlib_sync_flush() ends a
+  block with an empty stored block so the stream decodes up to that point;
+  zlib_finish_stream() ends the stream with a final empty stored block.
+  zlib_finish_block() is gone.
+- uzlib_hash_add() enters bytes into the hash table without emitting,
+  used after the window slides.

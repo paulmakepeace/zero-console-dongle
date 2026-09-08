@@ -6,7 +6,6 @@
 #include "framer.h"
 #include "names.h"
 #include "json_escape.h"
-#include "commit_account.h"
 #include "hibernate.h"
 #include "mbb_parse.h"
 
@@ -126,7 +125,7 @@ void test_session_name_sorts_by_creation() {
     sessionName(a, sizeof a, 99, 12, "20260907-191951");
     sessionName(b, sizeof b, 100, 1, "nosync");
     sessionName(c, sizeof c, 100, 2, "20260907-194117");
-    TEST_ASSERT_EQUAL_STRING("b0099-012-20260907-191951.log", a);
+    TEST_ASSERT_EQUAL_STRING("b0099-012-20260907-191951.log.gz", a);
     TEST_ASSERT_TRUE(strcmp(a, b) < 0);
     TEST_ASSERT_TRUE(strcmp(b, c) < 0);
     TEST_ASSERT_TRUE(ok(a) && ok(b) && ok(c));
@@ -144,18 +143,6 @@ void test_json_escape() {
     TEST_ASSERT_EQUAL_STRING("\\u00c3", esc("\xc3").c_str());                    // truncated sequence
 }
 
-// --- commit_account -------------------------------------------------------
-void test_commit_account_counts_loss_once() {
-    CommitAccount a = commitAccount(100, 1100, 1100);
-    TEST_ASSERT_EQUAL(100, a.kept); TEST_ASSERT_EQUAL(0, a.lostAtFlush);
-    a = commitAccount(100, 1100, 1060);          // 40 bytes of the tail did not reach the flash
-    TEST_ASSERT_EQUAL(60, a.kept); TEST_ASSERT_EQUAL(40, a.lostAtFlush);
-    a = commitAccount(30, 1030, 900);            // more lost than written this time: nothing kept
-    TEST_ASSERT_EQUAL(0, a.kept);
-    const char* pending = "l1\nl2\nl3\n";
-    TEST_ASSERT_EQUAL(3, countLines(pending, 9));
-    TEST_ASSERT_EQUAL(2, countLines(pending + 3, 6));   // the lines after the kept prefix
-}
 
 // --- hibernate ------------------------------------------------------------
 static long hib(const char* s) { return parseHibernateSeconds(s, strlen(s)); }
@@ -233,7 +220,6 @@ int main() {
     RUN_TEST(test_log_names);
     RUN_TEST(test_session_name_sorts_by_creation);
     RUN_TEST(test_json_escape);
-    RUN_TEST(test_commit_account_counts_loss_once);
     RUN_TEST(test_hibernate_line);
     RUN_TEST(test_seconds_until_wake);
     RUN_TEST(test_sleep_chunks_land_before_the_mbb);

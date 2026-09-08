@@ -6,6 +6,7 @@ enum StoreDeleteResult { STORE_DELETED, STORE_NOT_FOUND, STORE_REFUSED };
 
 bool storeBegin(const char* resetReason);
 void storeSessionClose();
+void storeShutdown();   // before a deliberate restart: end the session, drop waiting notes counted
 void storeAppend(const String& line, bool fromMbb = true);   // notes alone never open a session
 void storeTick(bool mbbQuiet);   // the caller knows whether the MBB is talking
 String storeActiveName();

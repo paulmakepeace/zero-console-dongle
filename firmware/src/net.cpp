@@ -215,7 +215,7 @@ static void handleFile() {
         }
         // Chunked by hand so the capture and the console keep running on a slow client.
         http.setContentLength(f.size());
-        http.send(200, "text/plain", "");
+        http.send(200, name.endsWith(".gz") ? "application/gzip" : "text/plain", "");
         WiFiClient c = http.client();
         uint8_t buf[1024];
         bool whole = true;
@@ -281,7 +281,8 @@ static void setupHttp() {
     http.on("/api/wifi/reset", HTTP_POST, []() {
         if (!tokenOk()) return;
         http.send(200, "text/plain", "credentials cleared, rebooting into setup");
-        storeSessionClose();
+        sysTickCapture();   // lines framed but not yet delivered
+        storeShutdown();
         wm.resetSettings();
         delay(500);   // let the WiFi task commit the erase before the reset
         ESP.restart();
@@ -293,7 +294,8 @@ static void setupHttp() {
             http.send(200, "text/plain", Update.hasError() ? "update failed" : "ok, rebooting");
             delay(300);
             if (!Update.hasError()) {
-                storeSessionClose();   // end the file cleanly rather than mid-line
+                sysTickCapture();   // lines framed but not yet delivered
+                storeShutdown();    // end the file cleanly rather than mid-line
                 ESP.restart();
             }
         },

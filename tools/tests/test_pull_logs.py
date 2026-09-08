@@ -6,6 +6,7 @@ import json
 import os
 import threading
 import urllib.request
+import zlib
 
 import pytest
 
@@ -214,3 +215,58 @@ def test_default_dest_is_one_directory_per_board(dongle, tmp_path, monkeypatch):
         pull_logs.main()
     assert e.value.code == 0
     assert (tmp_path / "logs" / "dongle" / "zero-dongle-test" / "b0001-001-20260907-120000.log").exists()
+
+
+def gz(payload, complete=True):
+    """A gzip stream as the dongle writes it: a sync flush per commit, the trailer only at close."""
+    c = zlib.compressobj(6, zlib.DEFLATED, 31)
+    body = c.compress(payload) + c.flush(zlib.Z_SYNC_FLUSH)
+    return body + c.flush() if complete else body
+
+
+def test_gzip_file_is_inflated_and_stored_plain(dongle, tmp_path):
+    dongle.files = {"b0002-001-20260908-000100.log.gz": gz(b"first\nsecond\n")}
+    code, out, err = run(dongle, tmp_path)
+    assert code == 0, err
+    assert (tmp_path / "out" / "b0002-001-20260908-000100.log").read_bytes() == b"first\nsecond\n"
+    assert not (tmp_path / "out" / "b0002-001-20260908-000100.log.gz").exists()
+    assert dongle.deleted == ["b0002-001-20260908-000100.log.gz"]
+
+
+def test_truncated_gzip_is_kept_as_far_as_it_decodes(dongle, tmp_path):
+    dongle.files = {"b0002-001-20260908-000100.log.gz": gz(b"one\ntwo\nthree\n", complete=False)}
+    code, out, err = run(dongle, tmp_path)
+    assert code == 0, err
+    assert (tmp_path / "out" / "b0002-001-20260908-000100.log").read_bytes() == b"one\ntwo\nthree\n"
+    assert "truncated; 3 line(s) recovered" in out
+    assert dongle.deleted == ["b0002-001-20260908-000100.log.gz"]
+
+
+def test_damaged_gzip_is_salvaged_with_the_raw_kept(dongle, tmp_path):
+    good = gz(b"one\ntwo\n", complete=False)
+    dongle.files = {"b0002-001-20260908-000100.log.gz": good + b"\xff\xfe\xfd\xfc" * 200}
+    code, out, err = run(dongle, tmp_path)
+    assert code == 0, err
+    assert (tmp_path / "out" / "b0002-001-20260908-000100.log").read_bytes() == b"one\ntwo\n"
+    assert (tmp_path / "out" / "b0002-001-20260908-000100.log.gz").exists()
+    assert "8 byte(s) decoded, then the stream fails" in err
+    assert dongle.deleted == ["b0002-001-20260908-000100.log.gz"]
+
+
+def test_bytes_after_the_trailer_are_reported(dongle, tmp_path):
+    dongle.files = {"b0002-001-20260908-000100.log.gz": gz(b"one\n") + b"junk"}
+    code, out, err = run(dongle, tmp_path)
+    assert code == 0 and "bytes after the gzip trailer" in err
+    assert (tmp_path / "out" / "b0002-001-20260908-000100.log").read_bytes() == b"one\n"
+
+
+def test_damaged_raw_follows_the_suffix_of_its_log(dongle, tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "b0002-001-20260908-000100.log").write_bytes(b"different earlier content\n")
+    dongle.files = {"b0002-001-20260908-000100.log.gz": gz(b"one\n", complete=False) + b"\xff" * 50}
+    code, _, err = run(dongle, tmp_path)
+    assert code == 0, err
+    assert (out / "b0002-001-20260908-000100-2.log").read_bytes() == b"one\n"
+    assert (out / "b0002-001-20260908-000100-2.log.gz").exists()
+    assert not (out / "b0002-001-20260908-000100.log.gz").exists()

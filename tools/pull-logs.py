@@ -9,9 +9,12 @@ default host is this bike's unit and DONGLE_HOST in the environment
 overrides it. Files go to logs/dongle/NAME/, one directory per board, unless
 --dest names a directory, which is then used as given.
 
-Skips the file the dongle is still writing. A file is deleted from the
-dongle only after the download's size matches what the dongle reported and
-the file and its directory entry are on disk. --keep downloads without
+Skips the file the dongle is still writing. A `.log.gz` file is inflated
+and stored as the plain `.log`; one without its gzip trailer, cut off by a
+power loss, is stored as far as it decodes and reported as truncated. A
+file is deleted from the dongle only after the download's size matches
+what the dongle reported, the stream decodes, and the file and its
+directory entry are on disk. --keep downloads without
 deleting. One run at a time per destination; a second run exits at once.
 Exit status is non-zero if the dongle's status or listing could not be read
 or any file failed. Needs Python 3.6 or later and nothing outside the
@@ -20,6 +23,7 @@ standard library.
 import argparse
 import fcntl
 import glob
+import http.client
 import json
 import os
 import re
@@ -28,6 +32,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import zlib
 
 NAME_OK = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")   # what the firmware accepts
 
@@ -53,11 +58,36 @@ def fetch(url, method="GET", timeout=60, tries=2):
                 return r.read()
         except urllib.error.HTTPError as exc:
             raise HttpFail(exc.code, exc.read().decode("utf-8", "replace").strip()) from None
-        except (OSError, ValueError) as exc:   # timeouts, resets, short bodies
+        except (OSError, ValueError, http.client.HTTPException) as exc:   # timeouts, resets, short bodies
             if attempt + 1 == tries:
                 raise
             warn("pull-logs: %s %s: %s; retrying" % (method, url, exc))
             time.sleep(2)
+
+
+def inflate(data):
+    """A gzip stream to its bytes. Returns (bytes, complete, note): a stream
+    cut off before its trailer still yields everything up to the last flush;
+    a stream that fails part-way (a flash bit error) yields what decoded
+    before the error, with a note saying so."""
+    d = zlib.decompressobj(31)
+    out = b""
+    for k in range(0, len(data), 512):   # in pieces, so a late error keeps the early bytes
+        before = d.copy()
+        try:
+            out += d.decompress(data[k:k + 512])
+        except zlib.error as exc:
+            d = before   # back to the last good state, then byte by byte up to the error
+            for b in range(k, min(k + 512, len(data))):
+                try:
+                    out += d.decompress(data[b:b + 1])
+                except zlib.error:
+                    break
+            if "data check" in str(exc):
+                return out, False, "%d byte(s) decoded but the trailer's check failed, so the content may be wrong anywhere: %s" % (len(out), exc)
+            return out, False, "%d byte(s) decoded, then the stream fails: %s" % (len(out), exc)
+    note = "bytes after the gzip trailer" if d.unused_data else ""
+    return out, d.eof, note
 
 
 def resolve(host):
@@ -156,6 +186,18 @@ def main():
             continue
         if size == 0:
             print("note  %s is empty" % name)
+        local = name
+        raw = None
+        if name.endswith(".gz"):
+            local = name[:-3]
+            raw = data
+            data, complete, note = inflate(raw)
+            if note:
+                warn("note  %s: %s; the raw .gz is kept beside the .log" % (name, note))
+            elif not complete and size:
+                print("note  %s is truncated; %d line(s) recovered" % (name, data.count(b"\n")))
+            if not note:
+                raw = None   # a clean stream: the plain file is the record
 
         def same(path):
             if not os.path.isfile(path):
@@ -163,7 +205,7 @@ def main():
             with open(path, "rb") as existing:
                 return existing.read() == data
 
-        dest = os.path.join(args.dest, name)
+        dest = os.path.join(args.dest, local)
         try:
             if os.path.exists(dest) and not same(dest):
                 stem, ext = os.path.splitext(dest)
@@ -178,6 +220,14 @@ def main():
                     out.flush()
                     os.fsync(out.fileno())
                 os.replace(tmp, dest)
+                if raw is not None:   # the damaged stream itself, for a second look, beside its .log
+                    rawdest = dest + ".gz"
+                    rawtmp = "%s.part.%d" % (rawdest, os.getpid())
+                    with open(rawtmp, "wb") as out:
+                        out.write(raw)
+                        out.flush()
+                        os.fsync(out.fileno())
+                    os.replace(rawtmp, rawdest)
                 d = os.open(args.dest, os.O_RDONLY)   # the rename itself, before the dongle copy goes
                 try:
                     os.fsync(d)

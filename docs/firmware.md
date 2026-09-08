@@ -80,6 +80,29 @@ its [README](../firmware/README.md):
    of [hardware.md](hardware.md)), and light sleep keeps RAM and the
    peripherals as they were.
 
+9. **Compressed session files.** A session file is one gzip stream: the
+   gzip header at open, deflate blocks with fixed Huffman codes as lines
+   arrive, a sync flush (an empty stored block) at every commit so the file
+   decodes up to the last commit after a power cut, and the gzip trailer,
+   CRC-32 and length, at session close. Names end `.log.gz`; `gunzip` reads
+   them, the puller inflates and verifies each one and stores the plain
+   `.log`, and a file without its trailer is reported as truncated with the
+   lines recovered. The compressor is uzlib's, patched for a fixed output
+   buffer and for the flushes (see `firmware/lib/uzlib/NOTES`), on fixed
+   arrays: a 4 KB history window plus one line, a 4 KB hash table, and a
+   4 KB output buffer, about 13 KB in all and none of it on the heap. Lines
+   are compressed as they arrive, against the history of the whole file,
+   so the buffer that waits for a commit holds compressed bytes and the
+   commit rule becomes: 3 s of MBB quiet, 15 s, or a full 4 KB buffer. A short
+   write breaks the stream from that point, so it closes the part and the
+   session continues in the next one, with the lines that were in the
+   buffer counted as lost. Measured at the store's real commit boundaries
+   on 48 pulled sessions, the median commit being 300 bytes: 6.8x this way,
+   against 5.7x with every commit its own block and 8.4x for zlib's dynamic
+   Huffman codes, which need 30 KB. A trained dictionary was measured too
+   and earns its keep only on blocks under 1 KB, which the stream's own
+   history already covers.
+
 Phase 2, in likely order:
 
 - **CAN as a second stream.** TWAI in listen-only mode, frames stamped and
@@ -89,26 +112,11 @@ Phase 2, in likely order:
   files.
 - **A fixed firmware other owners can flash** and configure from a browser:
   Improv WiFi with esp-web-tools.
-- **Store shape for CAN and compression.** A second file per session needs
-  a store handle per stream with one commit and reclaim policy, reclaim by
-  session rather than by name so a session's files go together, and the
-  listing grouped by session. Compression belongs at session close, not in
-  the commit path, with the on-disk name and size staying authoritative and
-  a flag in the listing the puller understands; the loss markers become
-  framed records rather than spliced text. The buffers become two fixed
-  arrays: an input ring the capture side writes into at one pointer and the
-  compressor reads from at another, and an output array the compressor
-  fills and the store commits by its own policy. A partial write is then
-  charged to exactly the lines lost. Measured on 46 pulled sessions
-  (676 KB): deflate with a 4 KB window gets 8.8x on whole files and 8.3x on
-  independent 12 KB commit blocks, so blocks can be compressed as they are
-  committed and the file never re-read. A dictionary trained on earlier
-  captures adds little at that block size (8.9x with 8 KB, 10.1x with 32 KB
-  and a 32 KB window) and earns its keep only on small blocks: 1 KB blocks
-  go from 4.5x to 6.4x. If one is baked in, it is versioned by id in the
-  file header, the puller holds each version, and the training set is
-  scrubbed of the VIN and serials first, since a trained dictionary carries
-  literal fragments of its input.
+- **Store shape for CAN.** A second file per session needs a store handle
+  per stream with one commit and reclaim policy, reclaim by session rather
+  than by name so a session's files go together, and the listing grouped
+  by session; the loss markers become framed records rather than spliced
+  text.
 - **Boot-loop control.** Count boots that die inside 60 s in RTC memory, which
   survives a soft reset with no flash wear, and after three of them start
   in a safe mode with the filesystem and WiFiManager left out so the board
@@ -171,7 +179,9 @@ flags.
 - The loop task never blocks on a network client. Console output to a client
   that cannot take it is dropped.
 - Flash writes happen only after the MBB has been quiet for 3 s, plus at
-  session end, with a 15 s or 24 KB bound, because a flash erase holds the
+  session end, with a 15 s bound from the first waiting MBB line and the
+  4 KB output buffer as the hard one; the space reclaim also runs regardless
+  once free space is under half the reserve. That is because a flash erase holds the
   UART interrupt off for longer than the receive FIFO covers and the
   precompiled core keeps that interrupt out of IRAM. Frunk USB dies at
   key-off without warning and the phase 2 supply is cut by a switch, so the
