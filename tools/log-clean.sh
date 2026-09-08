@@ -15,4 +15,6 @@ if [ $# -eq 1 ]; then
     exec < "$1"
 fi
 
-tr -d '\000\r' | sed 's/[[:space:]]*$//'
+# Bytes only: a raw capture carries stray bytes from frame errors and power
+# transitions, and BSD sed under a UTF-8 locale aborts on them.
+LC_ALL=C tr -d '\000\r' | LC_ALL=C sed 's/[[:space:]]*$//'

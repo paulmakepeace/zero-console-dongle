@@ -3,7 +3,8 @@
 #
 # Usage: tools/console.sh [DEVICE]
 #   DEVICE defaults to the first CP2102 found: /dev/cu.usbserial-* on macOS,
-#   /dev/ttyUSB* on Linux.
+#   /dev/ttyUSB* on Linux. With a DevKit on the same Mac that can be the
+#   DevKit's own bridge, so name the adapter's device when both are attached.
 #
 # The MBB ends lines with LF only, expects CR+LF from the terminal, and wants
 # backspace rather than delete. The session is logged raw to logs/ beside this
@@ -21,6 +22,11 @@ if [ -z "$dev" ]; then
 fi
 if [ -z "$dev" ]; then
     echo "console.sh: no serial device found; pass one as the first argument" >&2
+    exit 2
+fi
+
+if ! command -v picocom >/dev/null 2>&1; then
+    echo "console.sh: picocom is not installed (brew install picocom)" >&2
     exit 2
 fi
 

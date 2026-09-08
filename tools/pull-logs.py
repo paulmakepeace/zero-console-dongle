@@ -2,126 +2,207 @@
 """Fetch the dongle's log files over WiFi and delete them from the dongle
 once safely stored.
 
-Usage: tools/pull-logs.py [--host zero-dongle-a12c.local] [--dest logs/dongle] [--keep]
+Usage: tools/pull-logs.py [--host zero-dongle-a12c.local] [--dest DIR] [--keep]
 
 Each board names itself from the last four hex digits of its MAC; the
-default host is this bike's unit. DONGLE_HOST in the environment overrides
-it.
+default host is this bike's unit and DONGLE_HOST in the environment
+overrides it. Files go to logs/dongle/NAME/, one directory per board, unless
+--dest names a directory, which is then used as given.
 
-Skips the file the dongle is still writing. A file is deleted from the dongle
-only after the download's size matches what the dongle reported. --keep
-downloads without deleting. Exit status is non-zero if the dongle could not
-be reached or any file failed.
+Skips the file the dongle is still writing. A file is deleted from the
+dongle only after the download's size matches what the dongle reported and
+the file and its directory entry are on disk. --keep downloads without
+deleting. One run at a time per destination; a second run exits at once.
+Exit status is non-zero if the dongle's status or listing could not be read
+or any file failed. Needs Python 3.6 or later and nothing outside the
+standard library.
 """
 import argparse
+import fcntl
+import glob
 import json
 import os
 import re
+import socket
 import sys
+import time
+import urllib.error
 import urllib.request
 
-NAME_OK = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\Z")
+NAME_OK = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")   # what the firmware accepts
 
 
-def fetch(url, method="GET", timeout=60):
+def warn(text):
+    print(text, file=sys.stderr, flush=True)
+
+
+class HttpFail(Exception):
+    """An HTTP error with the dongle's own reason text."""
+    def __init__(self, code, reason):
+        super().__init__("%d %s" % (code, reason))
+        self.code = code
+
+
+def fetch(url, method="GET", timeout=60, tries=2):
     req = urllib.request.Request(url, method=method)
     if method != "GET":
         req.add_header("X-Dongle", "1")   # state changes need this; a cross-site form cannot send it
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return r.read()
+    for attempt in range(tries):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return r.read()
+        except urllib.error.HTTPError as exc:
+            raise HttpFail(exc.code, exc.read().decode("utf-8", "replace").strip()) from None
+        except (OSError, ValueError) as exc:   # timeouts, resets, short bodies
+            if attempt + 1 == tries:
+                raise
+            warn("pull-logs: %s %s: %s; retrying" % (method, url, exc))
+            time.sleep(2)
+
+
+def resolve(host):
+    """One name lookup per run: mDNS can take seconds, and the firmware ignores the Host header."""
+    try:
+        infos = socket.getaddrinfo(host, 80, socket.AF_INET, socket.SOCK_STREAM)
+        return infos[0][4][0]
+    except OSError:
+        return host
 
 
 def main():
     repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    ap = argparse.ArgumentParser()
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--host", default=os.environ.get("DONGLE_HOST", "zero-dongle-a12c.local"))
-    ap.add_argument("--dest", default=None)
+    ap.add_argument("--dest", default=None, help="directory, used as given (default logs/dongle/NAME)")
     ap.add_argument("--keep", action="store_true", help="do not delete from the dongle")
     args = ap.parse_args()
-    args.dest_given = args.dest is not None
-    if not args.dest_given:
-        args.dest = os.path.join(repo, "logs", "dongle")
-    base = "http://%s" % args.host
-    status_failed = False
+    base = "http://%s" % resolve(args.host)
 
     try:
         st = json.loads(fetch(base + "/api/status", timeout=15))
-        fs, uart = st.get("fs", {}), st.get("uart", {})
-        if not fs.get("ok", True):
-            print("pull-logs: WARNING the dongle reports no working filesystem")
-        if fs.get("formats"):
-            print("pull-logs: note: the dongle has formatted its log area %s time(s)" % fs["formats"])
-        if st.get("dropped_lines"):
-            print("pull-logs: WARNING %s line(s) dropped on the dongle since it booted" % st["dropped_lines"])
-        if uart.get("overflows") or uart.get("queue_drops") or uart.get("frame_errors"):
-            print("pull-logs: note: UART overruns %s, frame errors %s, queue drops %s since boot"
-                  % (uart.get("overflows"), uart.get("frame_errors"), uart.get("queue_drops")))
-        if not args.dest_given and st.get("name"):
-            args.dest = os.path.join(args.dest, st["name"])   # one directory per board
     except Exception as exc:
-        print("pull-logs: status not readable: %s" % exc)
-        status_failed = True
+        sys.exit("pull-logs: status of %s not readable: %s" % (args.host, exc))
+    fs, uart = st.get("fs", {}), st.get("uart", {})
+    if not fs.get("ok", True):
+        warn("pull-logs: WARNING the dongle reports no working filesystem")
+    if fs.get("formats"):
+        warn("pull-logs: note: the dongle has formatted its log area %s time(s)" % fs["formats"])
+    if st.get("dropped_lines"):
+        warn("pull-logs: WARNING %s line(s) dropped on the dongle since it booted" % st["dropped_lines"])
+    if uart.get("overflows") or uart.get("queue_drops") or uart.get("frame_errors"):
+        warn("pull-logs: note: UART overruns %s, frame errors %s, queue drops %s since boot"
+             % (uart.get("overflows"), uart.get("frame_errors"), uart.get("queue_drops")))
+    if args.dest is None:
+        board = st.get("name")
+        if not isinstance(board, str) or not NAME_OK.match(board):
+            sys.exit("pull-logs: the dongle's name %r is not usable as a directory" % (board,))
+        args.dest = os.path.join(repo, "logs", "dongle", board)
     os.makedirs(args.dest, exist_ok=True)
+
+    lock = open(os.path.join(args.dest, ".pull-lock"), "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        warn("pull-logs: another pull is running for %s" % args.dest)
+        sys.exit(0)
+    for stale in glob.glob(os.path.join(args.dest, "*.part.*")):
+        os.remove(stale)
+
     try:
         files = json.loads(fetch(base + "/logs", timeout=15))
         if not isinstance(files, list) or not all(isinstance(f, dict) for f in files):
             raise ValueError("listing is not a list of objects")
     except Exception as exc:
-        sys.exit("pull-logs: cannot list %s: %s" % (base, exc))
+        sys.exit("pull-logs: cannot list %s: %s" % (args.host, exc))
 
     failed = 0
     got = 0
     for f in sorted(files, key=lambda x: str(x.get("name", ""))):
-        name = str(f.get("name", ""))
+        name = f.get("name")
+        if not isinstance(name, str) or not NAME_OK.match(name) or ".." in name:
+            warn("FAIL  %r: name rejected" % (name,))
+            failed += 1
+            continue
         try:
             size = int(f.get("size"))
+            if size < 0:
+                raise ValueError
         except (TypeError, ValueError):
-            size = -1
-        if not NAME_OK.match(name) or ".." in name or size < 0:
-            print("FAIL  %r: name rejected" % name)
+            warn("FAIL  %s: size %r rejected" % (name, f.get("size")))
             failed += 1
             continue
         if f.get("active"):
             print("skip  %s (active)" % name)
             continue
-        dest = os.path.join(args.dest, name)
         try:
             data = fetch("%s/logs/%s" % (base, name))
+        except HttpFail as exc:
+            if exc.code == 409:
+                print("skip  %s (became active)" % name)
+            elif exc.code == 404:
+                warn("LOST  %s: gone from the dongle since the listing (%s)" % (name, exc))
+                failed += 1
+            else:
+                warn("FAIL  %s: %s" % (name, exc))
+                failed += 1
+            continue
         except Exception as exc:
-            print("FAIL  %s: %s" % (name, exc))
+            warn("FAIL  %s: %s" % (name, exc))
             failed += 1
             continue
         if len(data) != size:
-            print("FAIL  %s: got %d bytes, dongle reports %d" % (name, len(data), size))
+            warn("FAIL  %s: got %d bytes, dongle reports %d" % (name, len(data), size))
             failed += 1
             continue
+        if size == 0:
+            print("note  %s is empty" % name)
+
         def same(path):
-            return os.path.exists(path) and open(path, "rb").read() == data
-        if os.path.exists(dest) and not same(dest):
-            stem, ext = os.path.splitext(dest)
-            n = 2
-            while os.path.exists("%s-%d%s" % (stem, n, ext)) and not same("%s-%d%s" % (stem, n, ext)):
-                n += 1
-            dest = "%s-%d%s" % (stem, n, ext)
-        if not same(dest):
-            tmp = dest + ".part"
-            with open(tmp, "wb") as out:
-                out.write(data)
-                out.flush()
-                os.fsync(out.fileno())
-            os.replace(tmp, dest)
+            if not os.path.isfile(path):
+                return False
+            with open(path, "rb") as existing:
+                return existing.read() == data
+
+        dest = os.path.join(args.dest, name)
+        try:
+            if os.path.exists(dest) and not same(dest):
+                stem, ext = os.path.splitext(dest)
+                n = 2
+                while os.path.exists("%s-%d%s" % (stem, n, ext)) and not same("%s-%d%s" % (stem, n, ext)):
+                    n += 1
+                dest = "%s-%d%s" % (stem, n, ext)
+            if not same(dest):
+                tmp = "%s.part.%d" % (dest, os.getpid())
+                with open(tmp, "wb") as out:
+                    out.write(data)
+                    out.flush()
+                    os.fsync(out.fileno())
+                os.replace(tmp, dest)
+                d = os.open(args.dest, os.O_RDONLY)   # the rename itself, before the dongle copy goes
+                try:
+                    os.fsync(d)
+                finally:
+                    os.close(d)
+        except OSError as exc:
+            warn("FAIL  %s: local write: %s" % (name, exc))
+            failed += 1
+            continue
         got += 1
         if args.keep:
             print("saved %s, %d bytes" % (name, size))
             continue
         try:
-            fetch("%s/logs/%s" % (base, name), method="DELETE", timeout=15)
+            try:
+                fetch("%s/logs/%s" % (base, name), method="DELETE", timeout=15)
+            except HttpFail as exc:
+                if exc.code != 404:   # a lost reply to a delete that happened is not a failure
+                    raise
             print("moved %s, %d bytes" % (name, size))
         except Exception as exc:
-            print("saved %s but delete failed: %s" % (name, exc))
+            warn("saved %s but delete failed: %s" % (name, exc))
             failed += 1
     print("pull-logs: %d file(s) fetched, %d failed" % (got, failed))
-    sys.exit(1 if failed or status_failed else 0)
+    sys.exit(1 if failed else 0)
 
 
 if __name__ == "__main__":

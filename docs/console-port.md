@@ -36,7 +36,7 @@ tools/console.sh
 By hand, the same thing is:
 
 ```bash
-picocom -b 115200 --omap crcrlf,delbs --imap lfcrlf --logfile logs/mbb-$(date +%F).log /dev/cu.usbserial-0001
+picocom -b 115200 --omap crcrlf,delbs --imap lfcrlf --logfile logs/mbb-$(date +%Y-%m-%d_%H%M%S).log /dev/cu.usbserial-0001
 ```
 
 Unsolicited `DEBUG:` lines interleave with what you type; that is the MBB, not

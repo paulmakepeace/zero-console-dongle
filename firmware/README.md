@@ -69,7 +69,7 @@ replaced from the home network with `POST /api/settings`.
 | `/api/status`        | GET    | JSON: awake, TX attached, last awake and asleep stamps, time and its source and NTP age, WiFi with mDNS and setup-network state, filesystem, dropped lines, the UART's overrun, back-pressure, frame-error and queue-drop counts, console clients and dropped bytes, watchdog and reset reason |
 | `/logs`              | GET    | JSON list of files with size and active flag |
 | `/logs/NAME`         | GET    | the file; refused with 409 while active    |
-| `/logs/NAME`         | DELETE | remove it; refused while active            |
+| `/logs/NAME`         | DELETE | remove it; 409 while active or being read, or for a bad name |
 | `/live`              | GET    | the last lines received                    |
 | `/update`            | POST   | firmware image as `firmware` in a multipart body; the status page has the form |
 | `/api/wifi/reset`    | POST   | forget WiFi and reboot into setup          |
@@ -119,7 +119,8 @@ a lone line with a burst a second later. A power cut loses at most that
 much. Pin 8 has to read high
 for three consecutive 20 ms samples, or deliver a byte, before the MBB counts
 as awake. Each line carries the dongle's
-stamp then the MBB text, the same format as `tools/capture.py`. Oldest files go when free space drops
+stamp then the MBB text, the same format as `tools/capture.py` once the
+clock is known (an uptime stamp `u000016.875` before that). Oldest files go when free space drops
 under 96 KB; a file that cannot be deleted is skipped. Lines that cannot be
 written are counted in `/api/status` as `dropped_lines`; UART overruns and
 frame errors each leave a marker line in the file and a count in the
