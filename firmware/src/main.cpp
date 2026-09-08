@@ -35,7 +35,7 @@ static void onLine(const char* line, size_t len) {
 }
 
 static void onRaw(const uint8_t* data, size_t len) {
-    netPushRaw(data, len);
+    netPushRaw(data, len);   // from the capture task; the stream buffer is lock-free for one writer
 }
 
 static void onState(bool awake) {
@@ -77,13 +77,14 @@ void setup() {
     String ntp = p.isKey("ntp") ? p.getString("ntp") : String(NTP_SERVER);
     p.end();
     clockBegin(tz.c_str(), ntp.c_str(), onClockNote);
-    mbbBegin(onLine, onRaw, onState);
+    if (!mbbBegin(onRaw)) Serial.println("mbb: capture not running");
     netBegin();
     sysFeedWatchdog();
 }
 
 void loop() {
     sysFeedWatchdog();
+    mbbTick(onLine, onState);   // lines, markers and edges, in order, on this task
     netTick();
     storeTick();
     clockTick();

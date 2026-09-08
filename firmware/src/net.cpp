@@ -106,7 +106,9 @@ static String statusJson() {
     s += ",\"active\":\"" + storeActiveName() + "\"";
     s += "," + storeEdges();
     s += ",\"dropped_lines\":" + String(storeDroppedLines());
-    s += ",\"uart_overflows\":" + String(mbbOverflows());
+    s += ",\"uart\":{\"ok\":" + String(mbbOk() ? "true" : "false") + ",\"overflows\":" + String(mbbOverflows()) +
+         ",\"backpressure\":" + String(mbbBackpressure()) + ",\"frame_errors\":" + String(mbbFrameErrors()) +
+         ",\"queue_drops\":" + String(mbbQueueDrops()) + "}";
     s += ",\"heap_free\":" + String(ESP.getFreeHeap());
     s += "}";
     return s;

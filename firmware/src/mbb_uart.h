@@ -6,9 +6,14 @@ typedef void (*RawHandler)(const uint8_t* data, size_t len);
 typedef void (*StateHandler)(bool awake);
 
 void mbbPinsSafe();   // both console pins as inputs with pull-downs; call first thing in setup()
-void mbbBegin(LineHandler onLine, RawHandler onRaw, StateHandler onState);
+bool mbbBegin(RawHandler onRaw);   // raw bytes are pushed straight from the capture task; false if the driver failed
+void mbbTick(LineHandler onLine, StateHandler onState);   // from loop(): delivers lines, markers and edges in order
+bool mbbOk();
 bool mbbAwake();
 bool mbbTxAttached();
-uint32_t mbbOverflows();
+size_t mbbWrite(const uint8_t* data, size_t len);   // bytes queued; 0 while the MBB is asleep
 uint32_t mbbLastByteMs();
-size_t mbbWrite(const uint8_t* data, size_t len);   // 0 while the MBB is asleep
+uint32_t mbbOverflows();       // FIFO overruns: bytes were lost
+uint32_t mbbBackpressure();    // ring buffer full: bytes were held, none lost
+uint32_t mbbFrameErrors();
+uint32_t mbbQueueDrops();      // lines the loop task was too slow to take

@@ -221,14 +221,14 @@ void storeAppend(const String& line) {
     if (pending.length() == 0) { pendingSinceMs = millis(); pendingFirstStamp = clockStamp(); }
     pending += line;
     pending += '\n';
-    if (pending.length() >= PENDING_MAX) commitPending();
 }
 
 void storeTick() {
     Lock l;
     uint32_t now = millis();
     bool quiet = now - mbbLastByteMs() > IDLE_COMMIT_MS;
-    if (pending.length() && (quiet || now - pendingSinceMs > MAX_PENDING_MS)) commitPending();
+    if (pending.length() && (quiet || now - pendingSinceMs > MAX_PENDING_MS || pending.length() >= PENDING_MAX))
+        commitPending();
     if (quiet && active && dirty) { active.flush(); dirty = false; }
     if (quiet && now - lastRotateMs > 60000) {
         lastRotateMs = now;

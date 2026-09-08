@@ -63,7 +63,7 @@ clears the credentials.
 | Path                 | Method | What                                      |
 |----------------------|--------|-------------------------------------------|
 | `/`                  | GET    | status page                               |
-| `/api/status`        | GET    | JSON: awake, TX attached, last awake and asleep stamps, time and its source, WiFi, space, dropped lines, UART overflows, filesystem state |
+| `/api/status`        | GET    | JSON: awake, TX attached, last awake and asleep stamps, time and its source and NTP age, WiFi, filesystem, dropped lines, the UART's overrun, back-pressure, frame-error and queue-drop counts, watchdog and reset reason |
 | `/logs`              | GET    | JSON list of files with size and active flag |
 | `/logs/NAME`         | GET    | the file; refused with 409 while active    |
 | `/logs/NAME`         | DELETE | remove it; refused while active            |
@@ -114,9 +114,9 @@ stamp then the MBB text, the same format as `tools/capture.py`. A session that
 starts before the clock is known is named `0000-bBOOT-N.log` and renamed once
 the first MBB stamp or NTP arrives. Oldest files go when free space drops
 under 96 KB; a file that cannot be deleted is skipped. Lines that cannot be
-written are counted in `/api/status` as `dropped_lines`, UART overruns as
-`uart_overflows` with a marker line in the file, and a filesystem that had
-to be formatted as `fs_formats`. `tools/pull-logs.py` fetches and deletes
+written are counted in `/api/status` as `dropped_lines`; UART overruns and
+frame errors each leave a marker line in the file and a count in the
+status; a filesystem that had to be formatted is counted there too. `tools/pull-logs.py` fetches and deletes
 them from the homelab.
 
 The log area is 896 KB: a timeout wake is 6 KB, a ride about 40 KB an hour,

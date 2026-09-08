@@ -42,6 +42,16 @@ Phase 2, in likely order:
   regulator draws 5 mA regardless, and light sleep keeps WiFi associated.
 - **A tabbed page of command outputs**, `pdu`, `in`, `bms`, `faults -v`,
   each refreshed by the poller and served raw at `/api/cmd/NAME`.
+- **The poller needs a transaction**: send, hold the transmit pin attached
+  across the whole batch, read until the prompt with a timeout, and stand
+  aside while a console client is connected. The detach's own NUL makes the
+  MBB print a prompt, so a framer that counts prompts must not see a detach
+  in the middle of a batch. The capture module's line queue is the seam.
+- **Light sleep needs the core's power management**, which the precompiled
+  core leaves off, the same wall as the IRAM interrupt; and the UART runs
+  from the APB clock, which stops in light sleep, so an unscheduled wake on
+  pin 8 loses the first bytes of the banner. The timer wake, which has the
+  dongle up before the MBB boots, avoids both.
 - **CAN as a second stream.** TWAI in listen-only mode, frames stamped and
   written raw in a candump-style line format for SavvyCAN or a script. Which
   bus is on pins 6 and 14, and at what rate, is the first thing it tells us.
@@ -73,9 +83,17 @@ flags.
 
 - The transmit pin is attached to the UART only while bytes are being sent
   and for 2 s after, only while the MBB is awake, and is an input with a
-  pull-down otherwise, from the first instruction of boot. The drop back to
-  the pull-down reaches the MBB as one NUL byte, which it answers with a
-  fresh prompt; verified on the bike with pin 9 connected. This is the one rule that keeps the
+  pull-down otherwise, from the firmware's first instruction and again on
+  every restart; the ROM boot window before that is what the phase 2 10k
+  pull-down covers. The hold is checked from both the capture task and the
+  loop task so no single stall can hold the pin high. The drop back to the
+  pull-down reaches the MBB as one NUL byte, which it answers with a fresh
+  prompt; verified on the bike with pin 9 connected.
+- The capture task only reads bytes, frames lines and watches the pins. It
+  never takes a mutex and never writes flash: lines, loss markers and the
+  awake and asleep edges go through a queue, in order, to the loop task,
+  which does the clock parse and the store append. That is what keeps a
+  slow filesystem from stalling the reader into a false sleep. This is the one rule that keeps the
   dongle from waking the bike or holding it awake. Every future feature that
   sends anything goes through the same gate.
 - The loop task never blocks on a network client. Console output to a client
@@ -95,6 +113,14 @@ flags.
   interrupt out of IRAM. Frunk USB dies at key-off without warning, and the
   phase 2 supply is cut by a switch, so the bound is also the most a power
   cut can lose.
+- Awake means the MBB's console block is powered: real bytes arriving with
+  the line idling high behind them, or the line high for 60 ms with nothing
+  arriving. A lone byte on a dead line is noise and does not count.
+- Loss is marked in the file where it happened: a FIFO overrun (bytes lost)
+  and a frame error (a nearby line may be corrupt) each write a marker line
+  and count in the status; the driver's buffer-full event is back-pressure,
+  counted but not a loss; the break the MBB makes as it sleeps is expected
+  and silent.
 - The sniffer never ACKs or transmits on the bike's bus. TWAI listen-only in
   the driver, and the transceiver's driver input tied recessive in hardware.
 - CAN bitrate is unknown. Try 500k, then 250k, then 125k.

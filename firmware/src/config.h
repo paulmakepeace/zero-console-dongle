@@ -1,6 +1,6 @@
 #pragma once
 
-#define FW_VERSION      "0.3.2"
+#define FW_VERSION      "0.4.0"
 #define DONGLE_NAME     "zero-dongle"      // base of the hostname, mDNS name and setup AP name; the last four hex digits of the MAC are appended
 // The setup network's password defaults to "zero-" plus the last six hex digits
 // of the MAC, printed at boot, and can be replaced from the setup page.
@@ -13,7 +13,8 @@
 #define CONSOLE_BAUD    115200   // the DevKit's own USB port; platformio.ini monitor_speed matches
 #define UART_RX_BUF     16384
 #define UART_TX_BUF     1024
-#define UART_EVENT_QUEUE 16
+#define UART_EVENT_QUEUE 64
+#define EVENT_BUF       16384  // framed lines and edges waiting for the loop task
 
 #define HTTP_PORT       80
 #define CONSOLE_PORT    6638
@@ -27,7 +28,7 @@
 
 #define IDLE_FLUSH_MS   2000   // a partial line (the prompt) is written after this much silence
 #define SLEEP_AFTER_MS  5000   // MBB counted asleep after this long with pin 8 low and no bytes
-#define AWAKE_SAMPLES   3      // consecutive 20 ms samples of pin 8 high before it counts as awake
+#define AWAKE_HIGH_MS   60     // pin 8 high this long with nothing arriving counts as awake
 #define TX_HOLD_MS      2000   // TX stays attached this long after the last byte sent
 #define RECLAIM_GAP_MS  10000  // a failed write retries reclamation at most this often
 #define IDLE_COMMIT_MS  3000   // lines reach flash once the MBB has been quiet this long
