@@ -58,11 +58,16 @@ its [README](../firmware/README.md):
    where the dongle's 20 mA would otherwise drain a 12 V battery that
    nothing is refilling; the rest of the time it stays awake and
    reachable. The time of the last such line is kept in flash, written
-   while the MBB sleeps. The MBB also prints its long-term storage mode's
-   state at every wake, `LTSM state: INIT to DIS`, and `bms`, which the
-   poller runs, reports it as `storage mode Inactive`, so storage mode
-   being enabled is the other trigger worth wiring in: the owner's own
-   statement that the bike is parked. Two things sleep in this design and
+   while the MBB sleeps. The other trigger is the bike's own statement
+   that it is parked: the MBB prints its long-term storage mode's state at
+   every wake, `LTSM state: INIT to DIS` while it is off, and `bms`, which
+   the poller runs, reports it as `storage mode Inactive`. Any state but
+   DIS, or `storage mode Active`, arms the sleep at once whatever the
+   days count, and a key-on forgets it until the MBB restates it at its
+   next wake, so the dongle stays reachable for the hour after a ride.
+   Nothing about storage mode is kept in flash: the MBB says it again
+   within the hour, and the status JSON's `sleep.storage` shows what it
+   last said. Two things sleep in this design and
    the words mean different things for each. The MBB's two depths, shallow
    hibernation and deep sleep, are its own and are defined in the sleep
    section of [mbb-reference.md](mbb-reference.md). The ESP32's are
@@ -83,13 +88,24 @@ its [README](../firmware/README.md):
    3600 sec` and wakes 3600 s later to the second, so the dongle keeps that
    line's time and, once the MBB has been asleep for a grace period with
    nobody using the dongle, light-sleeps for nine tenths of the time until
-   the MBB is due. The sleep timer runs on the ESP32's internal RC clock,
-   which runs a few percent long, and the tenth covers that with room to
-   spare: the dongle is up a few minutes before the MBB, which costs a few
-   milliamp-hours a day and nothing in code. Pin 8 rising wakes it
+   the MBB is due, once per announcement. The sleep timer runs on the
+   ESP32's internal RC clock, which runs a few percent long, and the tenth
+   covers that with room to spare: the dongle is up a few minutes before
+   the MBB, which costs a few milliamp-hours a day and nothing in code. It
+   then stays up for the MBB rather than planning again on the remainder,
+   because the sleep advances its own clock by the planned time, not the
+   real one, so the remainder it reads is too long by the timer's error
+   and a second sleep would land on or after the MBB. For the same reason
+   a sleep makes the NTP fix stale, so the MBB's stamps may put the clock
+   right before NTP does, and the NTP note in the log carries the size of
+   its step, which is that error measured. Pin 8 rising wakes it
    regardless, for
    wakes it did not schedule, at the cost of the first bytes of the banner,
-   because the UART runs from the APB clock, which stops in light sleep.
+   because the UART runs from the APB clock, which stops in light sleep;
+   a pin 8 wake leaves the plan open, so a glitch with no MBB session
+   behind it does not cost the rest of the hour. A sleep is never entered
+   with pin 8 high or without its timer, and a transfer counts as use to
+   its end, so a pull that runs past the grace is not cut off.
    With no announcement seen it wakes hourly anyway. The WiFi driver is
    stopped for the sleep and started after, never torn down, so its
    buffers are not re-allocated into a fragmented heap; a start that

@@ -17,6 +17,7 @@ static TimeSource source = TIME_NONE;
 static uint32_t lastNtpSyncMs = 0;
 static volatile bool ntpSyncPending = false;
 static uint32_t lastMbbStepMs = 0;
+static int64_t seenWallUs = 0, seenMonoUs = 0;   // the clock against the monotonic timer at the last tick, for the size of an NTP step
 static ClockNoteHandler noteHandler;
 static StampConsensus consensus;
 // Fixed storage: lwIP keeps the server name pointer, so it must never move.
@@ -61,6 +62,10 @@ uint32_t clockNtpAgeS() {
 
 static bool ntpFresh() {
     return source == TIME_NTP && (millis() - lastNtpSyncMs) < NTP_FRESH_S * 1000UL;
+}
+
+void clockSlept() {
+    if (source == TIME_NTP) lastNtpSyncMs = millis() - NTP_FRESH_S * 1000UL;
 }
 
 String clockStamp() {
@@ -122,13 +127,22 @@ void clockMaybeSetFromMbb(const char* line, size_t len) {
 }
 
 void clockTick() {
-    if (!ntpSyncPending) return;
+    struct timeval now;
+    gettimeofday(&now, nullptr);
+    int64_t wallUs = (int64_t)now.tv_sec * 1000000LL + now.tv_usec;
+    int64_t monoUs = esp_timer_get_time();
+    if (!ntpSyncPending) { seenWallUs = wallUs; seenMonoUs = monoUs; return; }
     ntpSyncPending = false;
+    // The step: where the clock is now against where the last tick's reading
+    // would have carried it. After a light sleep this is the sleep timer's
+    // error, the number the planner's margin has to cover.
+    long stepMs = seenMonoUs ? (long)((wallUs - (seenWallUs + (monoUs - seenMonoUs))) / 1000) : 0;
+    seenWallUs = wallUs; seenMonoUs = monoUs;
     bool raced = source == TIME_MBB && millis() - lastMbbStepMs < 2000;   // a step may have overwritten the sync
     source = TIME_NTP;
     lastNtpSyncMs = millis();
     if (noteHandler) {
-        String note = "dongle: clock set from ntp, now " + clockStamp();
+        String note = "dongle: clock set from ntp, now " + clockStamp() + ", stepped " + (stepMs >= 0 ? "+" : "") + String(stepMs / 1000.0, 1) + " s";
         noteHandler(note.c_str());
     }
     if (raced) configTzTime(tzSetting, ntpSetting);   // ask again; the answer wins

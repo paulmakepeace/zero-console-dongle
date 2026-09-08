@@ -122,6 +122,6 @@ void loop() {
     timed(ST_CAPTURE, sysTickCapture);   // lines, markers and edges, in order, on this task
     timed(ST_NET, netTick);
     timed(ST_POLLER, []() { pollerTick(mbbAwake(), netConsoleClients() > 0); });
-    timed(ST_SLEEP, []() { sleepTick(mbbAwake(), netBusy() || pollerActive()); });
+    timed(ST_SLEEP, []() { sleepTick(mbbAwake(), netBusy() || pollerActive() || mbbTxAttached()); });
     delay(2);
 }

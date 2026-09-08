@@ -257,6 +257,7 @@ static void handleFile() {
         if (!whole) c.stop();   // the promised length will not arrive; say so by closing
         f.close();
         storeReadDone(name);
+        touch();   // a long transfer ends with the puller's next request on its way
         return;
     }
     if (http.method() == HTTP_DELETE) {
@@ -305,6 +306,7 @@ static void setupHttp() {
         }, &first);
         http.sendContent("]");
         http.sendContent("");
+        touch();
     });
     http.on("/live", HTTP_GET, []() { touch(); http.send(200, "text/plain", storeLastLines()); });
     http.on("/api/settings", HTTP_GET, []() {

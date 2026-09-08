@@ -47,7 +47,8 @@ twenty-five to fifty, a timeout on the rest.
 Every wake also prints `LTSM state: INIT to DIS` after the BMS registers:
 the long-term storage mode's state, DIS for disabled, and `bms` reports the
 same as `storage mode Inactive`. Either is the bike's own statement of
-whether it has been put into storage.
+whether it has been put into storage. What the two say with storage mode
+on is not captured yet.
 
 - **Timeout.** `ccm RTC not ready in 31 sec`, `Timed out in PW Startup` at
   60 s, PWSU to HIB, the 30-second countdown, deep sleep again. No

@@ -186,6 +186,48 @@ void test_attended_lines() {
     TEST_ASSERT_FALSE(isBikeAttended("ccm RTC not ready in 31 sec", 27));
 }
 
+void test_plan_sleeps_once_per_announcement() {
+    SleepPlan p;
+    TEST_ASSERT_EQUAL(3240, p.next(1000, 3600, 10, 30));   // nothing known: the fallback, every time
+    p.slept(true);
+    TEST_ASSERT_EQUAL(3240, p.next(4240, 3600, 10, 30));
+    p.noteHibernate(10000, 3600);                            // the MBB is due at 13600
+    TEST_ASSERT_EQUAL(3127, p.next(10125, 3600, 10, 30));  // after the grace: nine tenths of the 3475 left
+    p.slept(true);
+    // The sleep timer's clock ran 5% long: 3283 s really passed, the dongle's
+    // clock counted 3127. It reads 348 s to go with 192 really left, and
+    // must not plan again from either figure.
+    TEST_ASSERT_EQUAL(0, p.next(10125 + 3127 + 120, 3600, 10, 30));
+    TEST_ASSERT_EQUAL(0, p.next(10125 + 3127 + 120 + 156, 3600, 10, 30));   // NTP put the clock right: still up
+    TEST_ASSERT_EQUAL(0, p.next(13590, 3600, 10, 30));                        // ten seconds to go
+    TEST_ASSERT_EQUAL(0, p.next(13650, 3600, 10, 30));                        // fifty seconds overdue: still waiting
+    TEST_ASSERT_EQUAL(3240, p.next(13661, 3600, 10, 30));                     // a minute overdue: stale, the fallback
+    TEST_ASSERT_FALSE(p.haveHib);
+    p.noteHibernate(20000, 3600);                            // a new announcement reopens the plan
+    TEST_ASSERT_EQUAL(3132, p.next(20120, 3600, 10, 30));
+    // A pin 8 wake with no session behind it leaves the rest sleepable.
+    p.slept(false);
+    TEST_ASSERT_EQUAL(1080, p.next(22400, 3600, 10, 30));
+    p.slept(true);
+    TEST_ASSERT_EQUAL(0, p.next(23500, 3600, 10, 30));
+}
+
+static int sm(const char* s) { return storageModeFromLine(s, strlen(s)); }
+
+void test_storage_mode_lines() {
+    TEST_ASSERT_EQUAL(-1, sm("09/06/2026 20:54:29.513 - LTSM state: INIT to DIS"));
+    TEST_ASSERT_EQUAL(-1, sm(" - LTSM state: DIS"));
+    TEST_ASSERT_EQUAL(1, sm("LTSM state: INIT to ENA"));     // any state but DIS, until the real word is captured
+    TEST_ASSERT_EQUAL(1, sm("LTSM state: DIS to ARM \r"));
+    TEST_ASSERT_EQUAL(0, sm("LTSM state: INIT"));
+    TEST_ASSERT_EQUAL(0, sm("LTSM state:"));
+    TEST_ASSERT_EQUAL(-1, sm("     - storage mode      Inactive"));
+    TEST_ASSERT_EQUAL(1, sm("     - storage mode      Active"));
+    TEST_ASSERT_EQUAL(0, sm("     - storage mode"));
+    TEST_ASSERT_EQUAL(0, sm("  ltsm            - ltsm commands"));
+    TEST_ASSERT_EQUAL(0, sm("Storage_Voltage,      106.0,        mV,      Yes,         0"));
+}
+
 // --- mbb_parse ------------------------------------------------------------
 void test_prompt_and_unsolicited() {
     TEST_ASSERT_TRUE(isPrompt("ZERO MBB> ", 10));
@@ -291,6 +333,8 @@ int main() {
     RUN_TEST(test_seconds_until_wake);
     RUN_TEST(test_sleep_leaves_a_margin_for_the_rc_clock);
     RUN_TEST(test_attended_lines);
+    RUN_TEST(test_storage_mode_lines);
+    RUN_TEST(test_plan_sleeps_once_per_announcement);
     RUN_TEST(test_strip_stamps);
     RUN_TEST(test_keeper_learns_and_rebuilds_with_used_lines_kept);
     RUN_TEST(test_keeper_candidate_buffer_is_bounded);

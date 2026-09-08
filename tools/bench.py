@@ -2,7 +2,7 @@
 """Bench regression for the dongle with the CP2102 adapter standing in for the
 MBB: adapter TXD to the dongle's pin 8 input, adapter RXD to its pin 9 output.
 
-Usage: tools/bench.py [roundtrip|break|sleep|poll|lightsleep|all] [--host H] [--adapter DEV]
+Usage: tools/bench.py [roundtrip|break|poll|storage|sleep|lightsleep|all] [--host H] [--adapter DEV]
 
   roundtrip  a line from the adapter reaches a TCP console client, and a
              console keystroke reaches the adapter with the CR the MBB wants
@@ -14,6 +14,10 @@ Usage: tools/bench.py [roundtrip|break|sleep|poll|lightsleep|all] [--host H] [--
              every command's output, keeps the transmit pin held across the
              batch, passes an unsolicited line through to the log, and keeps
              the outputs themselves out of the log
+  storage    the MBB's own statement that the bike is parked arms the sleep
+             at once whatever the days count, a key-on forgets it until the
+             MBB restates it, and DIS or Inactive hands the decision back to
+             the days rule
   lightsleep about three minutes: with the grace set short for the run, a
              fake "Hibernating for 150 sec" then a held low makes the
              dongle sleep and be back before the MBB is due; a second
@@ -54,6 +58,16 @@ def status(host):
     # connection five seconds before moving on, so a request can wait that long.
     with urllib.request.urlopen("http://%s/api/status" % host, timeout=8) as r:
         return json.loads(r.read())
+
+
+def up(ip):
+    """Whether the web server answers a connect, within a second: places the
+    moments the board leaves and returns without the status call's timeout."""
+    try:
+        socket.create_connection((ip, 80), timeout=1).close()
+        return True
+    except OSError:
+        return False
 
 
 def status_retry(host, tries=3):
@@ -261,6 +275,27 @@ def t_poll(host, ad):
         mbb.join(1)
 
 
+def t_storage(host, ad):
+    print("storage")
+    post(host, "/api/settings", b"sleep=1&sleep_days=3")
+
+    def say(line):
+        ad.write(line + b"\r\n")
+        time.sleep(0.6)
+        return status(host)["sleep"]
+
+    s = say(b"LTSM state: INIT to DIS")
+    check(s["storage"] == "off" and not s["armed"], "storage mode off from the LTSM line, not armed: %r" % s)
+    s = say(b"LTSM state: INIT to ENA")   # the spelling with storage mode on is not captured yet: anything but DIS counts
+    check(s["storage"] == "on" and s["armed"], "an LTSM state other than DIS arms the sleep at once: %r" % s)
+    s = say(b"DEBUG:   09/07/2026 21:58:20.935  x.c : line 734 - Key Sw = ON")
+    check(s["storage"] == "unknown" and not s["armed"], "a key-on forgets storage mode until the MBB restates it: %r" % s)
+    s = say(b"     - storage mode      Active")
+    check(s["storage"] == "on" and s["armed"], "the bms row arms it too: %r" % s)
+    s = say(b"     - storage mode      Inactive")
+    check(s["storage"] == "off" and not s["armed"], "Inactive hands the decision back to the days rule: %r" % s)
+
+
 def t_lightsleep(host, ad):
     print("lightsleep (about three minutes)")
     # Sleep whenever the MBB does, with a 10 s grace: the same code path as
@@ -274,6 +309,7 @@ def t_lightsleep(host, ad):
 
 def _t_lightsleep(host, ad):
     HIB = 150
+    ip = socket.gethostbyname(host)
     ad.write(b"Saving Stats, Hibernating for %d sec\r\n" % HIB)
     time.sleep(0.5)
     before = status(host)
@@ -283,24 +319,27 @@ def _t_lightsleep(host, ad):
     try:
         time.sleep(7)
         check(not status_retry(host)["mbb_awake"], "asleep behind the held low")
-        # Off the network within the grace plus the edge, then up again before
-        # the MBB is due, with nine tenths of the wait slept.
+        # Off the network once the grace has run from the asleep edge, then up
+        # again before the MBB is due: nine tenths of the wait slept, and the
+        # sleep timer's clock inside the margin the tenth leaves.
         gone = back = None
         while time.time() - t0 < HIB + 20:
-            try:
-                status(host)
-                if gone is not None and back is None:
+            if up(ip):
+                if gone is not None:
                     back = time.time() - t0
                     break
-            except Exception:
-                if gone is None:
-                    gone = time.time() - t0
-            time.sleep(2)
-        check(gone is not None and 12 <= gone <= 40, "went to sleep %s after the low (grace 10 s plus the edge)" % ("%d s" % gone if gone else "never"))
+            elif gone is None:
+                gone = time.time() - t0
+            time.sleep(1)
+        check(gone is not None and 13 <= gone <= 30, "went to sleep %s after the low (grace 10 s from the asleep edge)" % ("%d s" % gone if gone else "never"))
         check(back is not None and back < HIB, "back on the network %s after the low, before the MBB is due at %d s" % ("%d s" % back if back else "never", HIB))
         s = status_retry(host)
-        check(s["sleep"]["count"] == before["sleep"]["count"] + 1 and s["sleep"]["last_wake"] == "timer",
-              "one sleep, woken by the timer: %r" % s["sleep"])
+        planned = s["sleep"]["last_slept_s"]
+        check(0 < planned <= HIB * 0.9, "slept for nine tenths of the wait at most: %d s planned of %d" % (planned, HIB))
+        if gone and back:
+            check(back - gone <= planned * 1.10 + 4, "the sleep timer's clock ran within the margin: %.0f s away for %d s planned, the rejoin included" % (back - gone, planned))
+        check(s["sleep"]["count"] == before["sleep"]["count"] + 1 and s["sleep"]["last_wake"] == "timer" and s["sleep"]["slept_for_due"],
+              "one sleep, woken by the timer, and no second plan on the remainder: %r" % s["sleep"])
         check(s["boot"] == before["boot"], "no reboot across the sleep")
     finally:
         fcntl.ioctl(ad.fd, TIOCCBRK)
@@ -338,7 +377,9 @@ def _t_lightsleep(host, ad):
     check(back is not None, "back on the network %s after pin 8 rose" % ("%.0f s" % back if back else "never"))
     if back:
         check(s["sleep"]["last_wake"] == "pin 8" and s["mbb_awake"], "woken by pin 8 and awake: %r" % s["sleep"])
+        ad.write(b"DEBUG: 09/07/2026 19:57:00.000 after the pin 8 wake\r\n")
         time.sleep(3)
+        check("after the pin 8 wake" in get(host, "/live")[1], "a line after the pin 8 wake reaches the log")
         s = status(host)
         heap1 = (s["heap_free"], s["heap_max_alloc"])
         check(heap1[0] > heap0[0] - 6144 and heap1[1] > heap0[1] - 6144,
@@ -348,7 +389,7 @@ def _t_lightsleep(host, ad):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("test", nargs="?", default="all", choices=["roundtrip", "break", "sleep", "poll", "lightsleep", "all"])
+    ap.add_argument("test", nargs="?", default="all", choices=["roundtrip", "break", "poll", "storage", "sleep", "lightsleep", "all"])
     ap.add_argument("--host", default=os.environ.get("DONGLE_HOST", "zero-dongle-ebdc.local"))
     ap.add_argument("--adapter", default=os.environ.get("DONGLE_ADAPTER"))
     args = ap.parse_args()
@@ -362,7 +403,7 @@ def main():
         sys.exit("bench: refusing to run against the bike unit")
     print("bench: %s through %s" % (args.host, dev))
     ad = adapter_open(dev)
-    tests = {"roundtrip": t_roundtrip, "break": t_break, "poll": t_poll, "sleep": t_sleep, "lightsleep": t_lightsleep}   # poll before sleep: no fresh awake edge to settle after
+    tests = {"roundtrip": t_roundtrip, "break": t_break, "poll": t_poll, "storage": t_storage, "sleep": t_sleep, "lightsleep": t_lightsleep}   # poll before sleep: no fresh awake edge to settle after
     for name in (tests if args.test == "all" else [args.test]):
         try:
             tests[name](args.host, ad)

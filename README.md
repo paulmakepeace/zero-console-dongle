@@ -54,7 +54,9 @@ characterised and the CAN and buck parts are on order. See
 1. Keep the dongle on the bike collecting wakes, and ride and pull the files
    with [`tools/pull-logs.py`](tools/pull-logs.py). The open question the captures serve is what
    sets the cellular module's schedule, since the 12 V charge rides on it;
-   see [docs/open-questions.md](docs/open-questions.md).
+   see [docs/open-questions.md](docs/open-questions.md). Put the bike into
+   storage mode from the app once: the next wake's capture shows what the
+   console prints with it on, which the sleep trigger keys on.
 2. When the CAN and buck parts land, build the second shell with the phase 2
    wiring and bench-test CAN first, both in
    [docs/hardware.md](docs/hardware.md).

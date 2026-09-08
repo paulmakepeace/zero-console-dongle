@@ -40,8 +40,8 @@ upload and the wait for the board to report the new version;
 [`tools/status.py`](../tools/status.py) `[HOST ...|all] [--watch N]` prints
 one line per board, or only the changes; [`tools/bench.py`](../tools/bench.py)
 runs the regression through the adapter on the bench board (roundtrip,
-break, poll, sleep, and a light-sleep scenario that sets the grace short
-for the run), about four minutes in all, and refuses the bike unit. Board names and addresses both
+break, poll, storage, sleep, and a light-sleep scenario that sets the grace
+short for the run), about four minutes in all, and refuses the bike unit. Board names and addresses both
 work; `DONGLE_HOST` and `DONGLE_BOARDS` set the defaults.
 
 ## Tests
@@ -87,7 +87,9 @@ to sleep between MBB sessions and the poll interval, all stored in flash
 and applied at once, no reboot. Sleep is armed only once the bike has
 gone `sleep_days` days, three by default, without a 12 V top-up or a
 key-on, the signals that say it is being looked after; 0 arms it whenever
-the MBB sleeps. Armed, the dongle light-sleeps once
+the MBB sleeps, and so does the MBB reporting its long-term storage mode
+on, the owner's own statement that the bike is parked, until a key-on or
+the MBB reporting it off. Armed, the dongle light-sleeps once
 the MBB has been asleep for two minutes with nobody using it, for nine
 tenths of the time until the MBB's own hourly wake, so it is up a few
 minutes early whatever the sleep timer's clock did, and pin 8 rising wakes
@@ -110,7 +112,7 @@ replaced from the home network with `POST /api/settings`.
 | Path                 | Method | What                                      |
 |----------------------|--------|-------------------------------------------|
 | `/`                  | GET    | status page                               |
-| `/api/status`        | GET    | JSON: board name, MAC, firmware version, uptime, boot count and reset reason, awake, pin 8 level, TX attached, last awake and asleep stamps and the awake count, the active file, time and its source and NTP age, WiFi with mDNS and setup-network state, filesystem, dropped lines, the UART's overrun, back-pressure, frame-error and queue-drop counts, console clients and dropped bytes, the pack's state of charge, voltage, current, capacity and temperatures and the bike state from the last poll, the poll interval, the sleep count and last wake source, the store's file count and bytes on flash, its compression since boot and the days of space left at that rate, the ESP32's die temperature, the longest pass of each stage of the loop task, heap and stack headroom, watchdog |
+| `/api/status`        | GET    | JSON: board name, MAC, firmware version, uptime, boot count and reset reason, awake, pin 8 level, TX attached, last awake and asleep stamps and the awake count, the active file, time and its source and NTP age, WiFi with mDNS and setup-network state, filesystem, dropped lines, the UART's overrun, back-pressure, frame-error and queue-drop counts, console clients and dropped bytes, the pack's state of charge, voltage, current, capacity and temperatures and the bike state from the last poll, the poll interval, the sleep state (armed, storage mode as the MBB last reported it, the count and last wake source), the store's file count and bytes on flash, its compression since boot and the days of space left at that rate, the ESP32's die temperature, the longest pass of each stage of the loop task, heap and stack headroom, watchdog |
 | `/logs`              | GET    | JSON list of files with size and active flag, streamed one file at a time |
 | `/logs/NAME`         | GET    | the file; 409 while active, 503 when all four readers are busy, 404 if absent |
 | `/logs/NAME`         | DELETE | remove it; 409 while active or being read, or for a bad name. The puller never deletes `dict-*` files |
