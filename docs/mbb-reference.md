@@ -45,10 +45,15 @@ agree that the first is the normal one: a charge on roughly one wake in
 twenty-five to fifty, a timeout on the rest.
 
 Every wake also prints `LTSM state: INIT to DIS` after the BMS registers:
-the long-term storage mode's state, DIS for disabled, and `bms` reports the
-same as `storage mode Inactive`. Either is the bike's own statement of
-whether it has been put into storage. What the two say with storage mode
-on is not captured yet.
+the long-term storage mode's state, DIS for disabled and EN for enabled.
+`bms` shows the same state under Module Management, and the module's own
+`storage mode Inactive` or `Active` in its snapshot. Either is the bike's
+own statement of whether it has been put into storage. Switching it on
+from the app reaches the MBB as the command `ltsm en mod 2`, which the MBB
+logs with a stamp like a line of its own; `bms` then shows `LTSM state:
+EN` and `storage mode Active`, the two rows taking the new state a
+fraction of a second apart. The wake-time line with the mode on, and the
+switch-off, are not captured yet.
 
 - **Timeout.** `ccm RTC not ready in 31 sec`, `Timed out in PW Startup` at
   60 s, PWSU to HIB, the 30-second countdown, deep sleep again. No

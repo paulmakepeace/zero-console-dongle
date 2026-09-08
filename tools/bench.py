@@ -286,7 +286,7 @@ def t_storage(host, ad):
 
     s = say(b"LTSM state: INIT to DIS")
     check(s["storage"] == "off" and not s["armed"], "storage mode off from the LTSM line, not armed: %r" % s)
-    s = say(b"LTSM state: INIT to ENA")   # the spelling with storage mode on is not captured yet: anything but DIS counts
+    s = say(b"LTSM state: INIT to EN")   # EN is the state bms shows with the mode on; anything but DIS counts
     check(s["storage"] == "on" and s["armed"], "an LTSM state other than DIS arms the sleep at once: %r" % s)
     s = say(b"DEBUG:   09/07/2026 21:58:20.935  x.c : line 734 - Key Sw = ON")
     check(s["storage"] == "unknown" and not s["armed"], "a key-on forgets storage mode until the MBB restates it: %r" % s)

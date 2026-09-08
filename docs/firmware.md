@@ -48,7 +48,10 @@ its [README](../firmware/README.md):
    capacity and the pack's high and low temperatures, go into the status
    JSON. The ESP32's own die temperature is there too, some 15 to 20 C
    above the air around it, so it says more about the board than the
-   frunk.
+   frunk. The MBB also prints its answers to the cellular module's own
+   commands on the console, `ltsm en mod 2` from the app for one, and an
+   answer that lands inside a poll's is kept with that output rather than
+   the log.
 8. **Light sleep when the bike is unattended.** The dongle sleeps only once
    the bike has gone a configurable number of days, three by default,
    without any of the three lines that say it is looked after: a 12 V
@@ -62,7 +65,7 @@ its [README](../firmware/README.md):
    that it is parked: the MBB prints its long-term storage mode's state at
    every wake, `LTSM state: INIT to DIS` while it is off, and `bms`, which
    the poller runs, reports it as `storage mode Inactive`. Any state but
-   DIS, or `storage mode Active`, arms the sleep at once whatever the
+   DIS, EN as the bike spells it, or `storage mode Active`, arms the sleep at once whatever the
    days count, and a key-on forgets it until the MBB restates it at its
    next wake, so the dongle stays reachable for the hour after a ride.
    Nothing about storage mode is kept in flash: the MBB says it again

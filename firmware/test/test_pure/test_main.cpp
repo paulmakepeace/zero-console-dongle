@@ -217,7 +217,8 @@ static int sm(const char* s) { return storageModeFromLine(s, strlen(s)); }
 void test_storage_mode_lines() {
     TEST_ASSERT_EQUAL(-1, sm("09/06/2026 20:54:29.513 - LTSM state: INIT to DIS"));
     TEST_ASSERT_EQUAL(-1, sm(" - LTSM state: DIS"));
-    TEST_ASSERT_EQUAL(1, sm("LTSM state: INIT to ENA"));     // any state but DIS, until the real word is captured
+    TEST_ASSERT_EQUAL(1, sm(" - LTSM state: EN"));            // the bms row with the mode on
+    TEST_ASSERT_EQUAL(1, sm("LTSM state: INIT to ENA"));     // any state but DIS counts
     TEST_ASSERT_EQUAL(1, sm("LTSM state: DIS to ARM \r"));
     TEST_ASSERT_EQUAL(0, sm("LTSM state: INIT"));
     TEST_ASSERT_EQUAL(0, sm("LTSM state:"));
