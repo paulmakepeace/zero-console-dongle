@@ -1,12 +1,13 @@
 #pragma once
 
-#define FW_VERSION      "0.3.0"
+#define FW_VERSION      "0.3.1"
 #define DONGLE_NAME     "zero-dongle"      // base of the hostname, mDNS name and setup AP name; the last four hex digits of the MAC are appended
 // The setup network's password defaults to "zero-" plus the last six hex digits
 // of the MAC, printed at boot, and can be replaced from the setup page.
 
 // Wiring, phase 1: no series resistors, internal pulls only.
 #define PIN_MBB_RX      33   // from OBD pin 8, MBB TX. RTC-capable, has internal pull-down.
+#define PIN_BOOT_BUTTON 0    // the DevKit's BOOT button, held at power-up to raise the setup network
 #define PIN_MBB_TX      17   // to OBD pin 9, MBB RX and hibernation wake pin. Driven only while the MBB is awake.
 #define MBB_BAUD        115200
 #define CONSOLE_BAUD    115200   // the DevKit's own USB port; platformio.ini monitor_speed matches

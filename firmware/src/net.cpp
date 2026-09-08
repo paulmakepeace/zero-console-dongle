@@ -32,7 +32,7 @@ static uint32_t lastRetryMs = 0;
 static uint32_t restartAtMs = 0;
 static uint32_t wifiDisconnects = 0;
 static volatile bool authFailed = false;   // wrong password: the setup network is the way out
-static uint32_t firstFailMs = 0;
+static bool bootButtonHeld = false;
 static char nodeName[32];
 
 // Per console client: CR-LF state and output that did not fit its socket yet.
@@ -283,13 +283,17 @@ void netBegin() {
     wm.setHostname(nodeName);
     wm.setEnableConfigPortal(false);   // we decide when the setup network is worth raising
     setupHttp();   // routes only; the server starts once WiFi is up
+    pinMode(PIN_BOOT_BUTTON, INPUT_PULLUP);
+    bootButtonHeld = digitalRead(PIN_BOOT_BUTTON) == LOW;
     sysFeedWatchdog();
-    if (wm.autoConnect(nodeName, setupPass)) {
+    if (bootButtonHeld) {
+        startPortal("BOOT button held at power-up");
+    } else if (wm.autoConnect(nodeName, setupPass)) {
         startServices();
+    } else if (!wm.getWiFiIsSaved() || authFailed) {
+        startPortal("no usable credentials");
     } else {
-        firstFailMs = millis();
-        if (!wm.getWiFiIsSaved() || authFailed) startPortal("no usable credentials");
-        else Serial.println("net: saved network not reachable; retrying without the setup network");
+        Serial.println("net: saved network not reachable; retrying without the setup network");
     }
     sysFeedWatchdog();
 }
@@ -413,13 +417,10 @@ void netTick() {
         startServices();
         lastConnectedMs = millis();
         authFailed = false;
-        firstFailMs = 0;
     } else {
-        // Raise the setup network for a bad password straight away, and for
-        // an hour of never finding the network at all, in case it was renamed.
+        // A bad password raises the setup network; a network that is merely
+        // out of reach does not, however long it stays that way.
         if (authFailed) startPortal("authentication failed");
-        else if (firstFailMs && millis() - firstFailMs > 3600000UL && wm.getWiFiIsSaved())
-            startPortal("network not found for an hour");
         // A failed join at boot leaves the setup AP up and nothing retrying the
         // saved network. Retry it ourselves every 30 s; the setup AP stays up.
         // Not while someone is on the setup AP: a station join would drag the

@@ -51,8 +51,9 @@ phone, pick the home network and enter its password; the same page takes
 the timezone in POSIX form, the NTP server and a new setup password, all
 stored in flash. If the stored network fails for a wrong password the setup
 network comes up again; if it fails because the network is out of reach the
-dongle just retries every 30 s with no setup network, and raises it after an
-hour of not finding the network at all. The setup network carries nothing
+dongle just retries every 30 s with no setup network, however long that
+lasts. If the home network was renamed, hold the DevKit's BOOT button while
+powering up and the setup network comes up. The setup network carries nothing
 but the setup page: the log server and the console exist only on the home
 network. Capture runs regardless of WiFi state. `POST /api/wifi/reset`
 clears the credentials.
