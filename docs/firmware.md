@@ -104,11 +104,17 @@ flags.
   rebuild with `CONFIG_UART_ISR_IN_IRAM=y` gets through the IDF compile
   after stubbing four embedded certificate files it expects, then fails to
   link on an undefined `__wrap_log_printf` from the core's log wrapper.
-  Left for phase 2. Measured on the bench with a continuous full-rate
-  stream, the worst case the MBB never produces: 2179 lines in 20 s with
-  flash commits forced every second gave 38 overflow events, 12 corrupted
-  lines, 2 lost, every event marked in the file. Real MBB traffic is a few
-  lines a minute with bursts of a dozen. A flash erase holds the UART interrupt off for longer
+  Left for phase 2, and this is what it buys. Measured on the bench with a
+  continuous full-rate stream, the worst case the MBB never produces: on a
+  freshly formatted filesystem, where every block is already erased and a
+  commit only programs pages, 2179 lines in 20 s lost 2; on a filesystem in
+  use, where a 12 KB commit erases three sectors at about 45 ms each with
+  the interrupt suspended, 1926 lines in 15 s lost 261, every loss marked.
+  With the interrupt in IRAM the 16 KB ring absorbs any erase and neither
+  number is above zero, and the quiet-time commit rule becomes an
+  optimisation rather than a necessity. Real MBB traffic is a few lines a
+  minute with bursts of a dozen, which the quiet rule already keeps clear of
+  the erases. A flash erase holds the UART interrupt off for longer
   than the receive FIFO covers, and the precompiled core keeps that
   interrupt out of IRAM. Frunk USB dies at key-off without warning, and the
   phase 2 supply is cut by a switch, so the bound is also the most a power
