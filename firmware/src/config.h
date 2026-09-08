@@ -1,7 +1,7 @@
 #pragma once
 
-#define FW_VERSION      "0.2.5"
-#define DONGLE_NAME     "zero-dongle"      // hostname, mDNS name, setup AP name
+#define FW_VERSION      "0.2.6"
+#define DONGLE_NAME     "zero-dongle"      // base of the hostname, mDNS name and setup AP name; the last four hex digits of the MAC are appended
 #define SETUP_AP_PASS   "zerodongle"       // password of the setup AP
 
 // Wiring, phase 1: no series resistors, internal pulls only.

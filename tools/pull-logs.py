@@ -2,7 +2,11 @@
 """Fetch the dongle's log files over WiFi and delete them from the dongle
 once safely stored.
 
-Usage: tools/pull-logs.py [--host zero-dongle.local] [--dest logs/dongle] [--keep]
+Usage: tools/pull-logs.py [--host zero-dongle-a12c.local] [--dest logs/dongle] [--keep]
+
+Each board names itself from the last four hex digits of its MAC; the
+default host is this bike's unit. DONGLE_HOST in the environment overrides
+it.
 
 Skips the file the dongle is still writing. A file is deleted from the dongle
 only after the download's size matches what the dongle reported. --keep
@@ -28,7 +32,7 @@ def fetch(url, method="GET", timeout=60):
 def main():
     repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     ap = argparse.ArgumentParser()
-    ap.add_argument("--host", default="zero-dongle.local")
+    ap.add_argument("--host", default=os.environ.get("DONGLE_HOST", "zero-dongle-a12c.local"))
     ap.add_argument("--dest", default=os.path.join(repo, "logs", "dongle"))
     ap.add_argument("--keep", action="store_true", help="do not delete from the dongle")
     args = ap.parse_args()

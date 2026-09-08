@@ -26,7 +26,7 @@ void setup() {
     mbbPinsSafe();   // before anything slow: pin 9 is the MBB's wake pin
     Serial.begin(115200);
     delay(100);
-    Serial.println("zero-dongle fw " FW_VERSION);
+    Serial.println("zero-dongle fw " FW_VERSION);   // the board's own name follows once the MAC is read
     storeBegin();
     clockBegin();
     mbbBegin(onLine, onRaw, onState);

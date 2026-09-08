@@ -14,6 +14,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/stream_buffer.h"
 #include "lwip/sockets.h"
+#include "esp_mac.h"
 
 static WiFiManager wm;
 static WebServer http(HTTP_PORT);
@@ -31,6 +32,10 @@ struct ConsoleState {
     uint32_t lost = 0;
 };
 static ConsoleState cstate[CONSOLE_CLIENTS];
+static char nodeName[32];
+
+const char* netName() { return nodeName; }
+String netMac() { return WiFi.macAddress(); }
 static uint32_t lastConnectedMs = 0;
 static uint32_t lastRetryMs = 0;
 
@@ -73,7 +78,7 @@ static String statusJson() {
     size_t total, used;
     storeStats(total, used);
     String s = "{";
-    s += "\"name\":\"" DONGLE_NAME "\",\"fw\":\"" FW_VERSION "\"";
+    s += "\"name\":\"" + String(nodeName) + "\",\"mac\":\"" + netMac() + "\",\"fw\":\"" FW_VERSION "\"";
     s += ",\"uptime_s\":" + String(millis() / 1000);
     s += ",\"boot\":" + String(storeBootCount());
     s += ",\"mbb_awake\":" + String(mbbAwake() ? "true" : "false");
@@ -97,7 +102,7 @@ static String statusJson() {
 // Requiring our own name or address in the Host header shuts that door.
 static bool hostOk() {
     String h = http.header("Host");
-    return h.startsWith(DONGLE_NAME) || h.startsWith(WiFi.localIP().toString());
+    return h.startsWith(nodeName) || h.startsWith(WiFi.localIP().toString());
 }
 
 static void handleFile() {
@@ -188,26 +193,31 @@ static void startServices() {
     Serial.printf("net: connected to %s, %s\n", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
     if (wm.getConfigPortalActive()) wm.stopConfigPortal();   // left over from a failed join; frees port 80
     http.begin();   // after the portal, which holds port 80 while it is up
-    MDNS.begin(DONGLE_NAME);
+    MDNS.begin(nodeName);
     MDNS.addService("http", "tcp", HTTP_PORT);
     MDNS.addService("zero-console", "tcp", CONSOLE_PORT);
-    ArduinoOTA.setHostname(DONGLE_NAME);
+    ArduinoOTA.setHostname(nodeName);
     ArduinoOTA.begin();
 }
 
 void netBegin() {
     rawBuf = xStreamBufferCreate(8192, 1);
     WiFi.mode(WIFI_STA);
-    WiFi.setHostname(DONGLE_NAME);
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);   // from the eFuse; valid before the WiFi driver starts
+    snprintf(nodeName, sizeof nodeName, "%s-%02x%02x", DONGLE_NAME, mac[4], mac[5]);
+    Serial.printf("net: this board is %s, MAC %02x:%02x:%02x:%02x:%02x:%02x\n", nodeName,
+                  mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    WiFi.setHostname(nodeName);
     WiFi.setAutoReconnect(true);
     wm.setConfigPortalBlocking(false);
     wm.setConnectTimeout(20);
-    wm.setHostname(DONGLE_NAME);
+    wm.setHostname(nodeName);
     setupHttp();   // routes only; the server starts once WiFi is up
-    if (wm.autoConnect(DONGLE_NAME, SETUP_AP_PASS)) {
+    if (wm.autoConnect(nodeName, SETUP_AP_PASS)) {
         startServices();
     } else {
-        Serial.println("net: no WiFi yet; setup AP " DONGLE_NAME " is up");
+        Serial.printf("net: no WiFi yet; setup AP %s is up\n", nodeName);
     }
     console.begin();
     console.setNoDelay(true);
@@ -285,7 +295,7 @@ static void pumpConsole() {
             slot.setOption(TCP_KEEPINTVL, &interval);
             slot.setOption(TCP_KEEPCNT, &count);
             cstate[ci] = ConsoleState();
-            slot.printf("zero-dongle console. MBB %s. Enter twice for the prompt.\n",
+            slot.printf("%s console. MBB %s. Enter twice for the prompt.\n", nodeName,
                         mbbAwake() ? "awake" : "asleep, input dropped until it wakes");
             placed = true;
             break;

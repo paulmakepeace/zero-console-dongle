@@ -31,13 +31,16 @@ cd firmware && ~/.platformio/penv/bin/pio device monitor
 The monitor has to run from inside `firmware/`; with `-d` its exception
 decoder looks for the project in the wrong place.
 
-Later builds can go over the air: `pio run -d firmware -t upload --upload-port zero-dongle.local`,
-or the form at `http://zero-dongle.local/update`.
+Later builds can go over the air: `pio run -d firmware -t upload --upload-port zero-dongle-a12c.local`,
+or the form at `http://zero-dongle-a12c.local/update`.
 
 ## First boot
 
-With no WiFi stored the dongle raises an access point named `zero-dongle`,
-password `zerodongle`. Join it from a phone, pick the home network and enter
+Every board names itself `zero-dongle-XXXX`, the last four hex digits of
+its MAC, and uses that name for its hostname, mDNS name and setup network,
+so several boards can share a network. The bike's unit is
+`zero-dongle-a12c`; write the suffix on each board. With no WiFi stored the
+dongle raises an access point of that name, password `zerodongle`. Join it from a phone, pick the home network and enter
 its password; the dongle stores it and joins. If the stored network is out of
 reach at boot, the setup network stays up and the dongle retries the stored
 one every 30 s whenever nobody is on the setup network, then shuts the setup
@@ -60,7 +63,7 @@ network once joined. Capture runs regardless of WiFi state. `POST
 TCP console on port 6638:
 
 ```bash
-nc zero-dongle.local 6638
+nc zero-dongle-a12c.local 6638
 ```
 
 Enter twice for the prompt. The dongle adds the CR the MBB wants and turns

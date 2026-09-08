@@ -89,5 +89,5 @@ out of deep sleep for as long as the adapter is attached; see
 console is on the network:
 
 ```bash
-nc zero-dongle.local 6638
+nc zero-dongle-a12c.local 6638
 ```
