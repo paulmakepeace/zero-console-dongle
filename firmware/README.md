@@ -37,6 +37,13 @@ Later builds go over the air through the status page's upload, or:
 curl -H 'X-Dongle: 1' -F firmware=@firmware/.pio/build/devkit/firmware.bin http://zero-dongle-a12c.local/update
 ```
 
+`tools/flash.sh [HOST ...|all]` does the build, the upload and the wait
+for the board to report the new version; `tools/status.py [HOST ...|all]
+[--watch N]` prints one line per board, or only the changes; `tools/bench.py`
+runs the regression through the adapter on the bench board (roundtrip,
+break, sleep) and refuses the bike unit. Board names and addresses both
+work; `DONGLE_HOST` and `DONGLE_BOARDS` set the defaults.
+
 ## First boot
 
 Every board names itself `zero-dongle-XXXX`, the last four hex digits of
@@ -109,8 +116,9 @@ count and a sequence number first so that names sort by creation, and
 `nosync` in place of the time when the clock was not yet known. A file is
 created when the first MBB lines are committed and closed five seconds
 after pin 8 goes low. At 256 KB a session rolls into the next sequence
-number; every header carries `id bBBBB-SSS, part N`, the id being the
-first part's stem, so parts join by identity. Lines the dongle writes
+number; every header carries the board name and `id bBBBB-SSS, part N`,
+the id being the first part's stem, so parts join by identity and a pulled
+file says which board wrote it. Lines the dongle writes
 about itself, clock steps and loss markers, never open a file on their
 own; they wait for the next session. Lines wait
 in RAM and reach the flash once the MBB has been quiet for 3 s, or after

@@ -13,6 +13,7 @@
 #include <Preferences.h>
 #include <vector>
 #include <algorithm>
+#include "esp_mac.h"
 
 struct Entry { String name; size_t size; };
 
@@ -27,6 +28,7 @@ static uint32_t bootCount = 0;
 static uint32_t formats = 0;
 static bool ok = false;
 static const char* bootReason = "";
+static char boardName[24];   // the file name carries no board id; the header does
 static uint32_t lastRotateMs = 0;
 static uint32_t lastReclaimMs = (uint32_t)0 - RECLAIM_GAP_MS - 1;   // the first failure may reclaim at once
 static String pending;
@@ -93,6 +95,9 @@ bool storeBegin(const char* resetReason) {
     mtx = xSemaphoreCreateRecursiveMutex();
     if (!mtx) { Serial.println("store: no memory for the lock"); return false; }
     bootReason = resetReason;
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    snprintf(boardName, sizeof boardName, "%s-%02x%02x", DONGLE_NAME, mac[4], mac[5]);
     Preferences p;
     bool nvs = p.begin("dongle", false);
     bootCount = p.getUInt("boots", 0) + 1;
@@ -189,7 +194,7 @@ static void sessionOpen() {
     if (sessionPart == 0) { sessionId = activeName.substring(0, 9); sessionPart = 1; }
     else sessionPart++;
     writeLine((pendingFirstStamp.length() ? pendingFirstStamp : clockStamp()) +
-              " dongle: session start, id " + sessionId + ", part " + String(sessionPart) +
+              " dongle: session start, " + boardName + ", id " + sessionId + ", part " + String(sessionPart) +
               ", boot " + String(bootCount) + " (" + bootReason + "), time " + clockSourceName() +
               ", fw " FW_VERSION);
     Serial.printf("store: session %s\n", activeName.c_str());

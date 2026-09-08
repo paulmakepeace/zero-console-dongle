@@ -33,10 +33,15 @@ behaviour is characterised and the CAN and buck parts are on order. See
   README has the wiring, build, first boot and endpoints.
 - [tools/](tools/): `console.sh` opens a legible, logged console session;
   `capture.py` is a read-only capture with a timestamp on every line;
-  `pull-logs.py` fetches the dongle's files over WiFi; `log-clean.sh` strips
-  a raw capture for reading.
+  `pull-logs.py` fetches the dongle's files over WiFi; `status.py` is one
+  line per board or a watch for changes; `flash.sh` builds and flashes over
+  the air; `bench.py` is the regression through the adapter; `log-clean.sh`
+  strips a raw capture for reading; `check-private.sh` is the pre-commit
+  gate against the VIN and serials.
 - `logs/`: session captures, ignored by git because they carry the VIN and
-  serial numbers.
+  serial numbers. `.private-patterns` at the root, also ignored, holds the
+  regexes the pre-commit gate refuses; install the gate once per clone with
+  `ln -sf ../../tools/check-private.sh .git/hooks/pre-commit`.
 
 ## Where this stands
 
