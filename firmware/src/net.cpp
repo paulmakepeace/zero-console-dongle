@@ -9,6 +9,8 @@
 #include "mbb_uart.h"
 #include "store.h"
 #include "util.h"
+#include "poller.h"
+#include "sleep.h"
 #include <WiFi.h>
 #include <WiFiManager.h>
 #include <ESPmDNS.h>
@@ -25,6 +27,8 @@ static WiFiManager wm;
 static WiFiManagerParameter tzParam("tz", "Timezone, POSIX form", "", 48);
 static WiFiManagerParameter ntpParam("ntp", "NTP server", "", 64);
 static WiFiManagerParameter passParam("setup_pass", "Setup network password, 8+ characters", "", 32);
+static WiFiManagerParameter sleepParam("sleep", "Sleep between MBB sessions, 1 or 0", "", 2);
+static WiFiManagerParameter pollParam("poll", "Poll the MBB every N seconds, 0 for never", "", 6);
 static char setupPass[33];
 static WebServer http(HTTP_PORT);
 static WiFiServer console(CONSOLE_PORT);
@@ -36,6 +40,8 @@ static bool mdnsUp = false;
 static uint32_t lastRetryMs = 0;
 static char nodeName[32];
 static String tzSetting, ntpSetting;
+static uint32_t lastHttpMs = 0;
+static void touch() { lastHttpMs = millis(); }
 
 // Written by the WiFi event task, read by the loop task.
 static volatile uint32_t wifiDisconnects = 0;
@@ -56,12 +62,14 @@ static ConsoleState cstate[CONSOLE_CLIENTS];
 static size_t inputCursor = 0;
 
 const char* netName() { return nodeName; }
+int netConsoleClients() { int n = 0; for (auto& c : clients) if (c && c.connected()) n++; return n; }
+bool netBusy() { return netConsoleClients() > 0 || millis() - lastHttpMs < 30000; }
 String netMac() { return WiFi.macAddress(); }
 
 static const char PAGE[] PROGMEM = R"HTML(<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>zero-dongle</title>
 <style>body{font:14px system-ui,sans-serif;margin:1em;max-width:60em}pre{background:#f4f4f4;padding:.5em;overflow-x:auto;font-size:12px}table{border-collapse:collapse}td{padding:.1em .8em .1em 0}a{margin-right:1em}</style>
-<h2 id=t>zero-dongle</h2><table id=s></table>
+<h2 id=t>zero-dongle</h2><p><a href=/cmd>Command outputs</a></p><table id=s></table>
 <h3>Files</h3><div id=f></div>
 <h3>Last lines</h3><pre id=l></pre>
 <h3>Firmware update</h3>
@@ -87,13 +95,40 @@ document.getElementById('go').onclick=async()=>{
 refresh();setInterval(refresh,5000);
 </script>)HTML";
 
+static const char CMD_PAGE[] PROGMEM = R"HTML(<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>zero-dongle commands</title>
+<style>body{font:14px system-ui,sans-serif;margin:1em;max-width:70em}pre{background:#f4f4f4;padding:.5em;overflow-x:auto;font-size:12px;min-height:10em}button{margin:0 .3em .5em 0;padding:.3em .8em}button.on{font-weight:bold;background:#ddd}#age{color:#666}</style>
+<p><a href=/>Status</a></p>
+<div id=tabs></div>
+<div id=age></div>
+<pre id=out>loading</pre>
+<button id=poll>Poll now</button> <span id=msg></span>
+<script>
+let cur=null;
+async function tabs(){
+ const list=await (await fetch('/api/cmd')).json();
+ const t=document.getElementById('tabs'); t.textContent='';
+ for(const c of list){const b=document.createElement('button'); b.textContent=c.name+(c.age_s<0?' (none)':''); b.className=c.name==cur?'on':''; b.onclick=()=>{cur=c.name;show()}; t.appendChild(b)}
+ if(!cur&&list.length){cur=list[0].name}
+}
+async function show(){
+ if(!cur) return;
+ const r=await fetch('/api/cmd/'+encodeURIComponent(cur));
+ document.getElementById('out').textContent=r.ok?await r.text():('('+r.status+' '+await r.text()+')');
+ const a=r.headers.get('X-Age-Seconds'); document.getElementById('age').textContent=a?cur+', '+a+' s ago':'';
+ for(const b of document.querySelectorAll('#tabs button')) b.className=b.textContent.startsWith(cur)?'on':'';
+}
+document.getElementById('poll').onclick=async()=>{const r=await fetch('/api/cmd/poll',{method:'POST',headers:{'X-Dongle':'1'}}); document.getElementById('msg').textContent=await r.text(); setTimeout(()=>{tabs();show()},20000)};
+tabs().then(show); setInterval(()=>{tabs();show()},15000);
+</script>)HTML";
+
 static int consoleClientCount() {
     int n = 0;
     for (auto& c : clients) if (c && c.connected()) n++;
     return n;
 }
 
-static String statusJson() {
+static String statusJson() {   // a health check is not use: a watcher must not keep the dongle awake
     size_t total, used;
     storeStats(total, used);
     String s;
@@ -120,6 +155,10 @@ static String statusJson() {
          ",\"backpressure\":" + String(mbbBackpressure()) + ",\"frame_errors\":" + String(mbbFrameErrors()) +
          ",\"queue_drops\":" + String(mbbQueueDrops()) + "}";
     s += ",\"console\":{\"clients\":" + String(consoleClientCount()) + ",\"dropped_bytes\":" + String(rawDropped.load()) + "}";
+    s += ",\"pack\":{\"soc\":" + String(pollerSoc()) + ",\"bike_state\":\"" + jsonEscape(pollerBikeState()) + "\"" +
+         ",\"age_s\":" + String(pollerOutputAgeS("bms") == UINT32_MAX ? -1 : (long)pollerOutputAgeS("bms")) + "}";
+    s += ",\"poll\":{\"interval_s\":" + String(pollerInterval()) + ",\"active\":" + (pollerActive() ? "true" : "false") + "}";
+    s += ",\"sleep\":" + sleepStatusJson();
     s += ",\"heap_free\":" + String(ESP.getFreeHeap()) + ",\"heap_min_free\":" + String(ESP.getMinFreeHeap()) +
          ",\"heap_max_alloc\":" + String(ESP.getMaxAllocHeap());
     s += ",\"stack_free\":{\"loop\":" + String(uxTaskGetStackHighWaterMark(nullptr)) +
@@ -137,8 +176,22 @@ static bool tokenOk() {
 
 static void pumpConsole();
 
+static void handleCmd(const String& name) {
+    touch();
+    const String* out = pollerOutput(name.c_str());
+    if (!out) {
+        bool known = pollerListJson().indexOf("\"name\":\"" + name + "\"") >= 0;
+        http.send(known ? 503 : 404, "text/plain", known ? "not polled yet" : "no such command");
+        return;
+    }
+    http.sendHeader("X-Age-Seconds", String(pollerOutputAgeS(name.c_str())));
+    http.send(200, "text/plain", *out);
+}
+
 static void handleFile() {
     String uri = http.uri();
+    if (uri.startsWith("/api/cmd/")) { handleCmd(uri.substring(9)); return; }
+    touch();
     if (!uri.startsWith("/logs/")) {
         http.send(404, "text/plain", "not found");
         return;
@@ -190,12 +243,14 @@ static void handleFile() {
     http.send(405, "text/plain", "method");
 }
 
-static void applySettings(const String& tz, const String& ntp, const String& pass) {
+static void applySettings(const String& tz, const String& ntp, const String& pass, const String& sleep, const String& poll) {
     Preferences p;
     p.begin("dongle", false);
     if (tz.length() && tz != tzSetting) { tzSetting = tz; p.putString("tz", tz); }
     if (ntp.length() && ntp != ntpSetting) { ntpSetting = ntp; p.putString("ntp", ntp); }
     if (pass.length() >= 8 && pass != setupPass) { strlcpy(setupPass, pass.c_str(), sizeof setupPass); p.putString("setup_pass", pass); }
+    if (sleep == "0" || sleep == "1") { sleepSetEnabled(sleep == "1"); p.putBool("sleep", sleep == "1"); }
+    if (poll.length() && poll.toInt() >= 0 && poll.toInt() < 100000) { pollerSetInterval(poll.toInt()); p.putUInt("poll", poll.toInt()); }
     p.end();
     clockApplySettings(tzSetting.c_str(), ntpSetting.c_str());   // live; no restart
     Serial.println("net: settings applied");
@@ -204,15 +259,24 @@ static void applySettings(const String& tz, const String& ntp, const String& pas
 static void setupHttp() {
     http.on("/", HTTP_GET, []() { http.send_P(200, "text/html", PAGE); });
     http.on("/api/status", HTTP_GET, []() { http.send(200, "application/json", statusJson()); });
-    http.on("/logs", HTTP_GET, []() { http.send(200, "application/json", storeListJson()); });
-    http.on("/live", HTTP_GET, []() { http.send(200, "text/plain", storeLastLines()); });
+    http.on("/logs", HTTP_GET, []() { touch(); http.send(200, "application/json", storeListJson()); });
+    http.on("/live", HTTP_GET, []() { touch(); http.send(200, "text/plain", storeLastLines()); });
     http.on("/api/settings", HTTP_GET, []() {
-        http.send(200, "application/json", "{\"tz\":\"" + jsonEscape(tzSetting) + "\",\"ntp\":\"" + jsonEscape(ntpSetting) + "\"}");
+        http.send(200, "application/json", "{\"tz\":\"" + jsonEscape(tzSetting) + "\",\"ntp\":\"" + jsonEscape(ntpSetting) +
+                  "\",\"sleep\":" + (sleepEnabled() ? "1" : "0") + ",\"poll\":" + String(pollerInterval()) + "}");
     });
-    http.on("/api/settings", HTTP_POST, []() {   // form fields tz, ntp, setup_pass; any subset
+    http.on("/api/settings", HTTP_POST, []() {   // form fields tz, ntp, setup_pass, sleep, poll; any subset
         if (!tokenOk()) return;
-        applySettings(http.arg("tz"), http.arg("ntp"), http.arg("setup_pass"));
+        applySettings(http.arg("tz"), http.arg("ntp"), http.arg("setup_pass"), http.arg("sleep"), http.arg("poll"));
         http.send(200, "text/plain", "applied");
+    });
+    http.on("/cmd", HTTP_GET, []() { touch(); http.send_P(200, "text/html", CMD_PAGE); });
+    http.on("/api/cmd", HTTP_GET, []() { touch(); http.send(200, "application/json", pollerListJson()); });
+    http.on("/api/cmd/poll", HTTP_POST, []() {
+        if (!tokenOk()) return;
+        touch();
+        pollerRequest();
+        http.send(200, "text/plain", "poll requested");
     });
     http.on("/api/wifi/reset", HTTP_POST, []() {
         if (!tokenOk()) return;
@@ -286,6 +350,18 @@ static void stopServices() {
     Serial.println("net: services down");
 }
 
+void netSuspend() {
+    stopServices();
+    WiFi.disconnect(true, false);   // radio off, credentials kept
+    WiFi.mode(WIFI_OFF);
+}
+
+void netResume() {
+    WiFi.mode(WIFI_STA);
+    WiFi.begin();   // the stored network; the join brings the services up
+    lastRetryMs = millis();
+}
+
 static void startPortal(const char* why) {
     if (wm.getConfigPortalActive()) return;
     stopServices();   // the setup network carries nothing but the setup page
@@ -294,7 +370,7 @@ static void startPortal(const char* why) {
 }
 
 static void onParamsSaved() {
-    applySettings(tzParam.getValue(), ntpParam.getValue(), passParam.getValue());
+    applySettings(tzParam.getValue(), ntpParam.getValue(), passParam.getValue(), sleepParam.getValue(), pollParam.getValue());
 }
 
 void netPrepare() {
@@ -337,9 +413,13 @@ void netBegin() {
     tzParam.setValue(tzSetting.c_str(), 48);
     ntpParam.setValue(ntpSetting.c_str(), 64);
     passParam.setValue(setupPass, 32);
+    sleepParam.setValue(sleepEnabled() ? "1" : "0", 2);
+    pollParam.setValue(String(pollerInterval()).c_str(), 6);
     wm.addParameter(&tzParam);
     wm.addParameter(&ntpParam);
     wm.addParameter(&passParam);
+    wm.addParameter(&sleepParam);
+    wm.addParameter(&pollParam);
     wm.setSaveParamsCallback(onParamsSaved);
     wm.setConfigPortalBlocking(false);
     wm.setConnectTimeout(20);

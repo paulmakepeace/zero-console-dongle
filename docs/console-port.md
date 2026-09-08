@@ -153,6 +153,13 @@ on TXD confirms it.
 Cheap OBD male plugs often omit pins 8 and 9 entirely. The one bought has all
 16.
 
+On macOS the CP210x driver sometimes replays its last buffer without end,
+tens of kilobytes a second of one repeated line or of NULs, with the
+bridge's RX LED flickering, while the board itself is idle or asleep; a
+data-grade USB-C cable brings it on more often. It is the host, not the
+board: the status page tells the truth, and unplugging and replugging the
+USB clears it.
+
 The DevKit's onboard CP2102 can serve as a plain USB-UART with EN tied to GND.
 The silkscreen reads backwards for this use: the pin marked TX (GPIO1) is the
 CP2102 RXD, so it goes to OBD 8; the pin marked RX (GPIO3) is the CP2102 TXD,

@@ -11,7 +11,8 @@ void mbbTick(LineHandler onLine, StateHandler onState);   // from loop(): delive
 bool mbbOk();
 bool mbbAwake();
 bool mbbTxAttached();
-size_t mbbWrite(const uint8_t* data, size_t len);   // bytes queued; 0 while the MBB is asleep
+size_t mbbWrite(const uint8_t* data, size_t len);
+void mbbTxHold(bool on);   // keep the transmit pin attached across a batch; pin 8 low still releases it   // bytes queued; 0 while the MBB is asleep
 uint32_t mbbLastByteMs();
 uint32_t mbbOverflows();       // FIFO overruns: bytes were lost
 uint32_t mbbBackpressure();    // ring buffer full: bytes were held, none lost

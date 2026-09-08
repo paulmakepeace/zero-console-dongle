@@ -40,7 +40,7 @@ upload and the wait for the board to report the new version;
 [`tools/status.py`](../tools/status.py) `[HOST ...|all] [--watch N]` prints
 one line per board, or only the changes; [`tools/bench.py`](../tools/bench.py)
 runs the regression through the adapter on the bench board (roundtrip,
-break, sleep) and refuses the bike unit. Board names and addresses both
+break, sleep, poll, and a six-minute lightsleep) and refuses the bike unit. Board names and addresses both
 work; `DONGLE_HOST` and `DONGLE_BOARDS` set the defaults.
 
 ## Tests
@@ -64,7 +64,7 @@ What only hardware can prove, the transmit gate and the sleep edge, is
 [`tools/bench.py`](../tools/bench.py) on the bench board through the adapter.
 
 Every version bump in `config.h` is an annotated tag `vX.Y.Z` whose body
-rolls up the commits since the previous version; `git tag -n99 v0.4.5`
+rolls up the commits since the previous version; `git tag -n99 v0.5.0`
 reads one, and `git push --follow-tags` sends them with the branch.
 
 ## First boot
@@ -78,8 +78,13 @@ serial console at boot, and can be replaced from the setup page.
 
 With no WiFi stored the dongle raises the setup network. Join it from a
 phone, pick the home network and enter its password; the same page takes
-the timezone in POSIX form, the NTP server and a new setup password, all
-stored in flash and applied at once, no reboot. If the stored network
+the timezone in POSIX form, the NTP server, a new setup password, whether
+to sleep between MBB sessions and the poll interval, all stored in flash
+and applied at once, no reboot. With sleep on, the dongle light-sleeps once
+the MBB has been asleep for two minutes with nobody using it, timed to be
+up ten seconds before the MBB's own hourly wake, and pin 8 rising wakes it
+regardless; a status check does not count as use, a download, the live
+view, the command page or a console client does. If the stored network
 refuses the password three times running the setup network comes up again;
 if the network is out of reach the dongle just retries every 30 s with no
 setup network, however long that lasts, and one failed handshake on a good
@@ -96,17 +101,21 @@ replaced from the home network with `POST /api/settings`.
 | Path                 | Method | What                                      |
 |----------------------|--------|-------------------------------------------|
 | `/`                  | GET    | status page                               |
-| `/api/status`        | GET    | JSON: board name, MAC, firmware version, uptime, boot count and reset reason, awake, pin 8 level, TX attached, last awake and asleep stamps and the awake count, the active file, time and its source and NTP age, WiFi with mDNS and setup-network state, filesystem, dropped lines, the UART's overrun, back-pressure, frame-error and queue-drop counts, console clients and dropped bytes, heap and stack headroom, watchdog |
+| `/api/status`        | GET    | JSON: board name, MAC, firmware version, uptime, boot count and reset reason, awake, pin 8 level, TX attached, last awake and asleep stamps and the awake count, the active file, time and its source and NTP age, WiFi with mDNS and setup-network state, filesystem, dropped lines, the UART's overrun, back-pressure, frame-error and queue-drop counts, console clients and dropped bytes, the pack's state of charge and the bike state from the last poll, the poll interval, the sleep count and last wake source, heap and stack headroom, watchdog |
 | `/logs`              | GET    | JSON list of files with size and active flag |
 | `/logs/NAME`         | GET    | the file; 409 while active, 503 when all four readers are busy, 404 if absent |
 | `/logs/NAME`         | DELETE | remove it; 409 while active or being read, or for a bad name |
 | `/live`              | GET    | the last lines received                    |
 | `/update`            | POST   | firmware image as `firmware` in a multipart body; the status page has the form |
 | `/api/wifi/reset`    | POST   | forget WiFi and reboot into setup          |
-| `/api/settings`      | GET    | JSON: timezone and NTP server              |
-| `/api/settings`      | POST   | form fields `tz`, `ntp`, `setup_pass`, any subset, applied at once |
+| `/api/settings`      | GET    | JSON: timezone, NTP server, sleep on or off, poll interval |
+| `/api/settings`      | POST   | form fields `tz`, `ntp`, `setup_pass`, `sleep` (0 or 1), `poll` (seconds, 0 for never), any subset, applied at once |
+| `/cmd`               | GET    | tabbed page of the polled command outputs  |
+| `/api/cmd`           | GET    | JSON list of the polled commands with age and size |
+| `/api/cmd/NAME`      | GET    | the last output of that command, text, with an `X-Age-Seconds` header; 503 until polled, 404 if unknown |
+| `/api/cmd/poll`      | POST   | run the batch now                          |
 
-DELETE, `/update`, `/api/wifi/reset` and `POST /api/settings` change state and require the header
+DELETE, `/update`, `/api/wifi/reset`, `POST /api/settings` and `POST /api/cmd/poll` change state and require the header
 `X-Dongle: 1`, which a form on another website cannot send from your
 browser; the status page and `pull-logs.py` add it, and so does
 `curl -H 'X-Dongle: 1'`. There is no other authentication on the home

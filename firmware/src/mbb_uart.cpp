@@ -27,6 +27,7 @@ static volatile bool driverOk = false;
 static volatile uint32_t lastActivityMs = 0;
 static volatile uint32_t lastByteMs = 0;
 static volatile uint32_t txHoldUntilMs = 0;
+static volatile bool txHeld = false;   // a batch in progress: the timed hold does not end it
 static volatile uint32_t overflows = 0, backpressure = 0, frameErrors = 0;
 static std::atomic<uint32_t> queueDrops{0};   // added on the capture task, taken on the loop task
 static TaskHandle_t captureHandle;
@@ -75,7 +76,7 @@ static void txDetach() {
 
 // The hold ends on time, or the moment pin 8 is seen low: a MBB that is
 // powering down must not find pin 9 driven.
-static bool holdOver() { return (int32_t)(millis() - txHoldUntilMs) > 0 || !lineHigh; }
+static bool holdOver() { return (!txHeld && (int32_t)(millis() - txHoldUntilMs) > 0) || !lineHigh; }
 
 static void checkHold() {
     if (txAttached && holdOver()) {
@@ -234,6 +235,11 @@ uint32_t mbbBackpressure() { return backpressure; }
 uint32_t mbbFrameErrors() { return frameErrors; }
 uint32_t mbbQueueDrops() { return queueDrops.load(); }
 bool mbbLineHigh() { return lineHigh; }
+
+void mbbTxHold(bool on) {
+    txHeld = on;
+    if (!on) txHoldUntilMs = millis() + TX_HOLD_MS;   // the normal hold runs out from here
+}
 uint32_t mbbCaptureStackFree() { return captureHandle ? uxTaskGetStackHighWaterMark(captureHandle) : 0; }
 
 size_t mbbWrite(const uint8_t* data, size_t len) {

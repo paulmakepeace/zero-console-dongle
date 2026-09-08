@@ -4,6 +4,8 @@
   location.
 - zeromanual.com, Gen2/Gen3 MBB Console and "How to build a cable". The site
   blocks fetches; reachable via search caches.
+- Espressif, ESP-IDF programming guide, "Sleep Modes" for the ESP32: the
+  definitions of light and deep sleep, the wake sources, and what each keeps.
 - electricmotorcycleforum.com, "Zero SR/F MY2020 OBD cable to serial console".
 - Facebook zmcowners group: post 8283341791734956 (Kevin Campbell, 2024-09-23)
   and post 8326312574104544 (Ernst Glatzer, 2024-09-28). LED mode confirmation

@@ -1,6 +1,6 @@
 #pragma once
 
-#define FW_VERSION      "0.4.5"
+#define FW_VERSION      "0.5.0"
 #define DONGLE_NAME     "zero-dongle"      // base of the hostname, mDNS name and setup AP name; the last four hex digits of the MAC are appended
 // The setup network's password defaults to "zero-" plus the last six hex digits
 // of the MAC, printed at boot, and can be replaced from the setup page.
@@ -19,7 +19,23 @@
 #define HTTP_PORT       80
 #define CONSOLE_PORT    6638
 #define CONSOLE_CLIENTS 2
-#define AUTH_FAILS_FOR_PORTAL 3   // consecutive authentication failures before the setup network is raised
+#define AUTH_FAILS_FOR_PORTAL 3
+
+// The poller: a fixed command set on a slow schedule while the MBB is awake.
+#define POLL_CMDS       "status", "charging", "bms", "pdu", "in", "faults"
+#define POLL_INTERVAL_S 60
+#define POLL_SETTLE_MS  20000    // no commands into a MBB that is still booting
+#define POLL_TIMEOUT_MS 8000     // a command with no prompt back by then is abandoned
+#define POLL_MAX_BYTES  6144     // kept per command
+
+// Light sleep between MBB sessions.
+#define SLEEP_LEAD_S     10       // up this long before the MBB's own timer
+#define SLEEP_GRACE_MS   120000   // stay reachable this long after the MBB sleeps
+#define SLEEP_REGRACE_MS 20000    // and this long after an intermediate wake, for NTP and a pull to start
+#define SLEEP_CHUNK_S    600      // longest single sleep: the RC clock drifts, NTP corrects at each wake
+#define SLEEP_DRIFT_PCT  6        // margin taken off every chunk for that drift
+#define SLEEP_MIN_S      30       // shorter than this is not worth the WiFi round trip
+#define SLEEP_FALLBACK_S 3600     // with no announcement seen, wake hourly anyway   // consecutive authentication failures before the setup network is raised
 
 #define LOG_DIR         "/logs"
 #define FS_MIN_FREE     (96 * 1024)   // delete the oldest file below this much free space

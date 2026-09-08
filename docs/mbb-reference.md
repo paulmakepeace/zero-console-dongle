@@ -18,13 +18,22 @@ blinker fault is followed by `blinker current N ma`.
 
 ## Sleep and wake
 
-Key-off takes the MBB from STOP to HIB within 100 ms. HIB has two depths.
-With pin 9 held high the MBB stays in a shallow hibernation with its console
-up and pin 8 high; see the console-pin section of [hardware.md](hardware.md)
-for why an attached adapter does that. With pin 9 low it prints `INFO: MBB
-will hibernate in under 30 seconds`, then `Saving Stats, Hibernating for
-3600 sec` 30 s later, and pin 8 drops within about 5 s of that line: deep
-sleep, console off.
+Key-off takes the MBB from STOP to HIB within 100 ms. HIB has two depths,
+and these docs use two names for them throughout:
+
+> **Shallow hibernation**: state HIB with the console block still powered.
+> Pin 8 is high, the console answers, and the hourly wake is a state change
+> with no banner. The MBB stays here for as long as pin 9 is held high.
+>
+> **Deep sleep**: state HIB with the console block off. Pin 8 is low, the
+> console is dead, and any wake is a full boot with a banner and a `Reset
+> Source` line. This is the MBB's normal parked state.
+
+With pin 9 held high the MBB stays in shallow hibernation; see the
+console-pin section of [hardware.md](hardware.md) for why an attached
+adapter does that. With pin 9 low it prints `INFO: MBB will hibernate in
+under 30 seconds`, then `Saving Stats, Hibernating for 3600 sec` 30 s later,
+and pin 8 drops within about 5 s of that line: deep sleep.
 
 Every hour of sleep, counted from the `Hibernating` line to the second, the
 MBB wakes itself by RTC timer. From deep sleep that is a full boot: the

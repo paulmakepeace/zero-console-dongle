@@ -58,8 +58,8 @@ characterised and the CAN and buck parts are on order. See
    [docs/hardware.md](docs/hardware.md).
 3. Fit the front LEDs and answer the LED questions in
    [docs/open-questions.md](docs/open-questions.md).
-4. Phase 2 firmware: light sleep between sessions, CAN as a second stream,
-   the poller. See [docs/firmware.md](docs/firmware.md).
+4. Phase 2 firmware: CAN as a second stream, then the rest of the list in
+   [docs/firmware.md](docs/firmware.md).
 
 ## Talking to the console
 

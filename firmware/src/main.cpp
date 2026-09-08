@@ -7,6 +7,8 @@
 #include "mbb_uart.h"
 #include "store.h"
 #include "net.h"
+#include "poller.h"
+#include "sleep.h"
 #include "esp_task_wdt.h"
 #include "esp_system.h"
 
@@ -30,7 +32,9 @@ const char* sysResetReason() {
 }
 
 static void onLine(const char* line, size_t len) {
+    if (pollerConsumeLine(line, len)) return;   // a command's output: kept by the poller, not the log
     clockMaybeSetFromMbb(line, len);
+    sleepNoteLine(line, len);
     storeAppend(clockStamp() + " " + line, memcmp(line, "dongle:", 7) != 0);
 }
 
@@ -83,7 +87,11 @@ void setup() {
     p.begin("dongle", true);
     String tz = p.isKey("tz") ? p.getString("tz") : String(TZ_DEFAULT);
     String ntp = p.isKey("ntp") ? p.getString("ntp") : String(NTP_SERVER);
+    bool sleepOn = p.isKey("sleep") ? p.getBool("sleep") : true;
+    uint32_t pollS = p.isKey("poll") ? p.getUInt("poll") : POLL_INTERVAL_S;
     p.end();
+    sleepBegin(sleepOn);
+    pollerBegin(pollS);
     clockBegin(tz.c_str(), ntp.c_str(), onClockNote);
     netPrepare();   // the raw stream buffer exists before the capture task can push into it
     if (!mbbBegin(onRaw)) Serial.println("mbb: capture not running");
@@ -94,5 +102,7 @@ void setup() {
 void loop() {
     sysTickCapture();   // lines, markers and edges, in order, on this task
     netTick();
+    pollerTick(mbbAwake(), netConsoleClients() > 0);
+    sleepTick(mbbAwake(), netBusy() || pollerActive());
     delay(2);
 }

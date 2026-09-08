@@ -27,34 +27,61 @@ its [README](../firmware/README.md):
    stamps, which it prints on most lines, set the clock. Lines carry both.
 6. **WiFi by provisioning.** No credentials in the build. With none stored,
    the dongle raises a setup access point and stores what is entered there.
+7. **The poller.** A fixed command set, `status`, `charging`, `bms`, `pdu`,
+   `in`, `faults`, on a slow schedule while the MBB is awake, 60 s by
+   default, and on request. Each response ends at the `ZERO MBB>` prompt,
+   which is the frame delimiter. A batch is a transaction: the transmit pin
+   stays attached across every command, because the detach's own NUL makes
+   the MBB print a prompt that a prompt-counting framer would take for a
+   command's end; the poller waits 20 s after the MBB wakes, never runs
+   while it sleeps, and stands aside for a console client, finishing the
+   command in flight. Responses come back through the capture module's
+   line queue: the prompt closes a command, lines the MBB prints on its own
+   pass through to the log, and everything else is the command's output,
+   kept in RAM and out of the log. The last output of each is served raw at
+   `/api/cmd/NAME` and on the tabbed page at `/cmd`; the state of charge
+   from `bms` and the bike state from `status` go into the status JSON.
+8. **Light sleep between sessions.** Two things sleep in this design and
+   the words mean different things for each. The MBB's two depths, shallow
+   hibernation and deep sleep, are its own and are defined in the sleep
+   section of [mbb-reference.md](mbb-reference.md). The ESP32's are
+   Espressif's, in the
+   [sleep modes](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/sleep_modes.html)
+   reference:
+
+   > **Light sleep**: the CPUs and most clocks stop, RAM and the
+   > peripherals keep their state, and execution resumes on the
+   > instruction after the sleep call. Wake sources include a timer and a
+   > GPIO level. A few hundred microamps for the chip itself.
+   >
+   > **Deep sleep**: only the RTC domain stays powered; RAM and the
+   > peripherals lose their state and a wake is a reboot through the ROM
+   > loader. Tens of microamps for the chip, but a boot on every wake.
+
+   The MBB announces `Hibernating for
+   3600 sec` and wakes 3600 s later to the second, so the dongle keeps that
+   line's time and, once the MBB has been asleep for a grace period with
+   nobody using the dongle, light-sleeps until ten seconds before the MBB
+   is due. The sleep timer runs on the ESP32's internal RC clock, which is
+   a few percent off, so the wait is taken in chunks of at most ten
+   minutes: each wake rejoins WiFi, NTP puts the clock right, and the next
+   chunk is planned against wall time with a margin for the drift, so the
+   last one lands before the MBB whatever the RC clock did. A chunk
+   boundary is a short awake window; a pull that starts in it keeps the
+   dongle up. Pin 8 rising wakes it regardless, for
+   wakes it did not schedule, at the cost of the first bytes of the banner,
+   because the UART runs from the APB clock, which stops in light sleep.
+   With no announcement seen it wakes hourly anyway. WiFi goes down for
+   the sleep and the join brings the services back; the sleep is noted in
+   the log with its length and wake source. The ESP32 cannot wake from
+   UART2, the port the MBB is on, so the UART is not a wake source. Light
+   rather than deep sleep because the DevKit's regulator and USB bridge
+   draw their few milliamps whatever the ESP32 does (see the power section
+   of [hardware.md](hardware.md)), and light sleep keeps RAM and the
+   peripherals as they were.
 
 Phase 2, in likely order:
 
-- **Light sleep between sessions.** The MBB announces `Hibernating for
-  3600 sec` and wakes 3600 s later to the second, so the dongle parses that
-  line and sets a timer for ten seconds less, and is listening before the
-  MBB boots. Pin 8 rising is the backstop for wakes it did not schedule.
-  The ESP32 cannot wake from UART2, the port the MBB is on, so the UART is
-  not a wake source. Light rather than deep sleep because the DevKit's
-  regulator and USB bridge draw their few milliamps whatever the ESP32 does
-  (see the power section of [hardware.md](hardware.md)), and light sleep
-  keeps WiFi associated.
-- **A tabbed page of command outputs**, `pdu`, `in`, `bms`, `faults -v`,
-  each refreshed by the poller and served raw at `/api/cmd/NAME`.
-- **The poller.** A small command set on a slow schedule while the bike is
-  on: `in`, `pdu`, `bms`, `charging`, `faults`, about once a minute. Each
-  response ends at the `ZERO MBB>` prompt, which is the frame delimiter.
-  It needs a transaction: send, hold the transmit pin attached across the
-  whole batch, read until the prompt with a timeout, and stand aside while a
-  console client is connected; it never runs while the MBB sleeps. The
-  detach's own NUL makes the MBB print a prompt, so a framer that counts
-  prompts must not see a detach in the middle of a batch. The capture
-  module's line queue is the seam.
-- **Light sleep needs the core's power management**, which the precompiled
-  core leaves off, the same wall as the IRAM interrupt; and the UART runs
-  from the APB clock, which stops in light sleep, so an unscheduled wake on
-  pin 8 loses the first bytes of the banner. The timer wake, which has the
-  dongle up before the MBB boots, avoids both.
 - **CAN as a second stream.** TWAI in listen-only mode, frames stamped and
   written raw in a candump-style line format for SavvyCAN or a script. Which
   bus is on pins 6 and 14, and at what rate, is the first thing it tells us.
@@ -131,7 +158,9 @@ flags.
   must not be the transmit gate, or a keystroke as the hibernation line
   scrolls by would drive pin 9 into a MBB that is powering down. The drop
   back to the pull-down reaches the MBB as one NUL byte, which it answers
-  with a fresh prompt. This is the one rule that keeps the dongle from
+  with a fresh prompt. In light sleep every pad takes a sleep
+  configuration unless told to keep its running one, so the transmit pin
+  and pin 8 are told to, and stay pulled-down inputs. This is the one rule that keeps the dongle from
   waking the bike or holding it awake; every feature that sends anything
   goes through the same gate.
 - The capture task only reads bytes, frames lines and watches the pins. It
