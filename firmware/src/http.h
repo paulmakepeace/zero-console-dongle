@@ -8,4 +8,4 @@ void httpBegin();
 void httpStart();
 void httpStop();
 void httpTick();
-bool httpBusy();   // a request other than a status check in the last 30 s
+bool httpBusy();   // a request other than a status check in the last ten minutes

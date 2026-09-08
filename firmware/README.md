@@ -96,8 +96,9 @@ minutes early whatever the sleep timer's clock did, and pin 8 rising wakes
 it regardless. A host that has not spoken to the dongle since before the
 sleep may take a few seconds, once in a while fifteen, to reach it after
 the wake while it looks the dongle's address up again; the pull script's
-retries cover that. A status check does not count as use, a download, the live
-view, the command page or a console client does. If the stored network
+retries cover that. A status check does not count as use; a download, the
+live view, the command page or a console client does, and holds the sleep
+off for ten minutes after. If the stored network
 refuses the password three times running the setup network comes up again
 for ten minutes, after which the retry resumes, since a marginal link can
 fail three handshakes too; if the network is out of reach the dongle just

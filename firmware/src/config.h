@@ -1,6 +1,6 @@
 #pragma once
 
-#define FW_VERSION      "0.9.2"
+#define FW_VERSION      "0.9.3"
 #define DONGLE_NAME     "zero-dongle"      // base of the hostname, mDNS name and setup AP name; the last four hex digits of the MAC are appended
 // The setup network's password defaults to "zero-" plus the last six hex digits
 // of the MAC, printed at boot, and can be replaced from the setup page.
@@ -20,6 +20,7 @@
 #define CONSOLE_PORT    6638
 #define CONSOLE_CLIENTS 2
 #define AUTH_FAILS_FOR_PORTAL 3
+#define HTTP_USE_MS     (10 * 60 * 1000UL)   // a request other than a status check counts as use for this long: someone is about, and a few minutes awake cost nothing worth guarding
 #define AUTH_PORTAL_MS  600000    // how long a setup network raised by those failures stays up unattended before the retry resumes
 
 // The poller: a fixed command set on a slow schedule while the MBB is awake.

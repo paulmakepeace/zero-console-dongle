@@ -21,7 +21,7 @@ static WebServer http(HTTP_PORT);
 static bool up = false;
 static uint32_t lastHttpMs = 0;
 static void touch() { lastHttpMs = millis(); }
-bool httpBusy() { return millis() - lastHttpMs < 30000; }
+bool httpBusy() { return millis() - lastHttpMs < HTTP_USE_MS; }
 
 void httpStart() { if (!up) { up = true; http.begin(); } }
 void httpStop() { if (up) { up = false; http.stop(); } }
