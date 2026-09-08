@@ -6,7 +6,8 @@
 #include "config.h"
 #include "clock.h"
 #include "store.h"
-#include "net.h"
+#include "wlan.h"
+#include "sys.h"
 #include "mbb_uart.h"
 #include "pure/hibernate.h"
 #include <Preferences.h>
@@ -79,7 +80,7 @@ static bool doSleep(long seconds, long untilWakeS) {
     Serial.printf("sleep: %ld s of the %ld s until the MBB is due\n", seconds, untilWakeS);
     Serial.flush();
     storeTick(true);   // whatever is pending, while it is quiet
-    netSuspend();
+    wifiSuspend();
     sysFeedWatchdog();
     esp_err_t r = esp_sleep_enable_timer_wakeup((uint64_t)seconds * 1000000ULL);
     uint32_t before = millis();
@@ -92,7 +93,7 @@ static bool doSleep(long seconds, long untilWakeS) {
     sysFeedWatchdog();
     if (r != ESP_OK) {
         Serial.printf("sleep: not slept, %s\n", esp_err_to_name(r));
-        netResume();
+        wifiResume();
         return false;
     }
     esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
@@ -103,7 +104,7 @@ static bool doSleep(long seconds, long untilWakeS) {
     plan.slept(onTimer);
     clockSlept();
     Serial.printf("sleep: woke on %s after %lu s\n", lastWake, (unsigned long)lastSleptS);
-    netResume();
+    wifiResume();
     String note = clockStamp() + " dongle: slept " + String(lastSleptS) + " s, woke on " + lastWake;
     storeAppend(note, false);
     return true;

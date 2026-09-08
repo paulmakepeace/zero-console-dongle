@@ -209,6 +209,16 @@ Development serial access: `pio device monitor`, `idf.py monitor`, or tio on
 the DevKit's own USB port. See [console-port.md](console-port.md) for the tio
 flags.
 
+The source is one file per owner, each holding the state only it touches:
+`mbb_uart.cpp` the capture task, the pins and the transmit gate;
+`store.cpp` the files, the compressor and the dictionary; `clock.cpp` the
+time and where it came from; `poller.cpp` the command outputs;
+`sleep.cpp` the sleep decision; `settings.cpp` what is kept in flash and
+applied live; `wlan.cpp` the join, the setup network, mDNS and the
+services' up and down; `http.cpp` the web server; `console.cpp` the TCP
+console; `main.cpp` the loop, the watchdog and the order the owners tick
+in. The logic under `src/pure/` has no owner state and runs on the host.
+
 ## Design rules
 
 - **The transmit pin.** Pin 9 is the MBB's wake pin: a high level reboots a

@@ -10,7 +10,7 @@
 #include "config.h"
 #include "clock.h"
 #include "util.h"
-#include "net.h"   // sysFeedWatchdog
+#include "sys.h"
 #include <LittleFS.h>
 #include <Preferences.h>
 #include <dirent.h>

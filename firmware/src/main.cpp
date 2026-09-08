@@ -6,7 +6,11 @@
 #include "clock.h"
 #include "mbb_uart.h"
 #include "store.h"
-#include "net.h"
+#include "sys.h"
+#include "settings.h"
+#include "wlan.h"
+#include "http.h"
+#include "console.h"
 #include "poller.h"
 #include "sleep.h"
 #include "esp_task_wdt.h"
@@ -56,7 +60,7 @@ static void onLine(const char* line, size_t len) {
 }
 
 static void onRaw(const uint8_t* data, size_t len) {
-    netPushRaw(data, len);   // from the capture task; the stream buffer is lock-free for one writer
+    consolePushRaw(data, len);   // from the capture task; the stream buffer is lock-free for one writer
 }
 
 static void onState(bool awake) {
@@ -102,26 +106,26 @@ void setup() {
     sysFeedWatchdog();
     Preferences p;
     p.begin("dongle", true);
-    String tz = p.isKey("tz") ? p.getString("tz") : String(TZ_DEFAULT);
-    String ntp = p.isKey("ntp") ? p.getString("ntp") : String(NTP_SERVER);
     bool sleepOn = p.isKey("sleep") ? p.getBool("sleep") : true;
     uint32_t sleepDays = p.isKey("sleep_days") ? p.getUInt("sleep_days") : SLEEP_AFTER_DAYS;
     long attended = p.isKey("attended") ? p.getLong("attended") : 0;
     uint32_t pollS = p.isKey("poll") ? p.getUInt("poll") : POLL_INTERVAL_S;
     p.end();
+    settingsBegin();
     sleepBegin(sleepOn, sleepDays, attended);
     pollerBegin(pollS);
-    clockBegin(tz.c_str(), ntp.c_str(), onClockNote);
-    netPrepare();   // the raw stream buffer exists before the capture task can push into it
+    clockBegin(settingsTz(), settingsNtp(), onClockNote);
+    consolePrepare();   // the raw stream buffer exists before the capture task can push into it
     if (!mbbBegin(onRaw)) Serial.println("mbb: capture not running");
-    netBegin();
+    httpBegin();   // routes only; the server starts once WiFi is up
+    wifiBegin();
     sysFeedWatchdog();
 }
 
 void loop() {
     timed(ST_CAPTURE, sysTickCapture);   // lines, markers and edges, in order, on this task
-    timed(ST_NET, netTick);
-    timed(ST_POLLER, []() { pollerTick(mbbAwake(), netConsoleClients() > 0); });
-    timed(ST_SLEEP, []() { sleepTick(mbbAwake(), netBusy() || pollerActive() || mbbTxAttached()); });
+    timed(ST_NET, []() { wifiTick(); httpTick(); consoleTick(); });
+    timed(ST_POLLER, []() { pollerTick(mbbAwake(), consoleClients() > 0); });
+    timed(ST_SLEEP, []() { sleepTick(mbbAwake(), consoleClients() > 0 || httpBusy() || wifiBusy() || pollerActive() || mbbTxAttached()); });
     delay(2);
 }
