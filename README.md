@@ -47,7 +47,8 @@ characterised and the CAN and buck parts are on order. See
   [`tools/capture.py`](tools/capture.py) is a read-only capture with a timestamp on every line;
   [`tools/pull-logs.py`](tools/pull-logs.py) fetches the dongle's files over WiFi; [`tools/status.py`](tools/status.py) is one
   line per board or a watch for changes; [`tools/flash.sh`](tools/flash.sh) builds and flashes over
-  the air; [`tools/bench.py`](tools/bench.py) is the regression through the adapter; [`tools/log-clean.sh`](tools/log-clean.sh)
+  the air; [`tools/bench.py`](tools/bench.py) is the regression through the adapter; [`tools/test.sh`](tools/test.sh)
+  runs the host suites, no hardware; [`tools/log-clean.sh`](tools/log-clean.sh)
   strips a raw capture for reading; [`tools/check-private.sh`](tools/check-private.sh) is the pre-commit
   gate against the VIN and serials; [`tools/tests/`](tools/tests/) is the pull script's suite.
   The firmware's host tests are under [`firmware/test/`](firmware/test/).

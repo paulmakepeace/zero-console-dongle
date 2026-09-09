@@ -30,25 +30,6 @@
   captured.
 - One line in the first captured wake arrived corrupted at the PWSU to HIB
   transition; the second wake's same line was clean. Watch whether it recurs.
-- The bike unit once went dark on the network mid console session with its
-  power LED on and no reboot, and needed a key cycle. Not reproduced on the
-  bench with a large response or a stalled client, nor on the bike after.
-  A recurrence leaves evidence: the watchdog reboots a hung task and the
-  status carries the reset reason and the WiFi disconnect count.
-- How the space reclaim behaves once the log directory holds a hundred files
-  or more. Measured on the bench board 2026-09-09 with 133 files and the
-  filesystem at its reserve: the reclaim walks the whole directory up to four
-  times from inside the capture stage, and the longest capture pass went to
-  10 s, long enough for every HTTP request to time out. With the two dozen
-  files a pulled bike carries it is 0.7 s. The bike reaches a hundred files
-  in about four days without a pull, so this is on the path, not a bench
-  artifact. Addressed but not yet re-measured: `dictCollect` no longer opens
-  every file to read its dictionary header (the id is in the file name now),
-  which was the bulk of the per-file cost, and `FS_MAX_FILES` caps the log
-  count as a backstop so the directory cannot grow to where the walk stalls.
-  The walk still holds the store's lock, so re-run the 133-file case on the
-  bench to confirm the longest capture pass is now sub-second, and that the
-  cap holds, before calling this closed.
 - Is the CAN bus on pins 6 and 14 active while the MBB hibernates?
 - Which of the bike's CAN networks is on OBD pins 6 and 14, and at what
   bitrate. The bench plan is in hardware.md.

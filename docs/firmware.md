@@ -14,10 +14,14 @@ its [README](../firmware/README.md):
 1. **Capture, always.** Every line from UART2 is stamped and appended to a
    file in the module's flash. The capture itself sends nothing and
    parses nothing; the poller in item 7 is what does.
-2. **One file per MBB session.** A file opens when the first MBB lines are
-   committed and closes five seconds after pin 8 goes low. Oldest files are
-   deleted when free space runs low; the sizes are in the firmware
-   [README](../firmware/README.md).
+2. **One file per MBB session,** named `bBBBB-SSS-<when>-<dict>.log.z` so the
+   names sort by creation and carry the Adler-32 of the dictionary they were
+   compressed with. A file opens when the first MBB lines are committed and
+   closes five seconds after pin 8 goes low. The oldest files are deleted when
+   free space runs low or the count passes `FS_MAX_FILES`, whichever comes
+   first; the reclaim reads the dictionary id from the name rather than opening
+   every file, so it stays cheap as the directory grows. Sizes are in the
+   firmware [README](../firmware/README.md).
 3. **Serve the files over WiFi.** A status page, a JSON list, download and
    delete. [`tools/pull-logs.py`](../tools/pull-logs.py) on the homelab fetches new files on a
    schedule and deletes each one after the size checks.

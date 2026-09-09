@@ -135,7 +135,9 @@ void clockTick() {
     ntpSyncPending = false;
     // The step: where the clock is now against where the last tick's reading
     // would have carried it. After a light sleep this is the sleep timer's
-    // error, the number the planner's margin has to cover.
+    // error, the number the planner's margin has to cover. It is not cosmetic:
+    // bench.py's lightsleep scenario parses the "stepped +X.X s" phrase below
+    // to check the RC sleep timer stayed inside SLEEP_MARGIN_PCT, so keep it.
     // The first sync of a boot carries the whole distance from the epoch, so
     // it measures nothing; a step past a day is that, or a clock so wrong the
     // number would not be read as an error anyway.

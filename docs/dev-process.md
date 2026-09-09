@@ -7,9 +7,9 @@ noise before reacting to it. The verification rules behind the steps are in
 
 ## The cycle
 
-1. **Dev, then show the diff.** Make the change, get the host suite green
-   (`pio test -e native`, seconds, no hardware), and show `git diff`. Nothing
-   is committed yet.
+1. **Dev, then show the diff.** Make the change, get the host suites green
+   (`tools/test.sh`, seconds, no hardware), and show the diff (the Diff pane,
+   `Cmd+Shift+D`). Nothing is committed yet.
 2. **On comment or approval, commit.** The shown diff is the operator's window
    onto any thrashing as much as a review gate, so it goes up even for a change
    the author is sure of, and the pause to skim it is the point: it is where a
@@ -18,9 +18,10 @@ noise before reacting to it. The verification rules behind the steps are in
 3. **Run the regressions on the bench.** `tools/bench.py auto --host
    zero-dongle-ebdc.local` (`auto` picks the scenarios for the changed files;
    `all` is everything). This is the gate before a version.
-4. **Green? Tag, and the operator pushes.** Bump `FW_VERSION`, make the
-   annotated `vX.Y.Z` tag with a roll-up body dated to the commit, and hand
-   over the push. Pushes are the operator's.
+4. **Green? Bump, tag, then hand off the push.** Bump `FW_VERSION` and commit
+   it, make the annotated `vX.Y.Z` tag with a roll-up body dated to that
+   commit, then hand over the push. The bump and tag come before the push, and
+   the push is the operator's.
 5. **Then either** go back to step 1 for the next change,
 6. **or deploy to the bike** when the change is what an experiment or more data
    needs. Flash it by name, after draining it; a routine change does not go to
