@@ -49,16 +49,18 @@ a clean start before it is believed.
   signed/unsigned bug, only one latent off-by-one in `parseHibernateSeconds`,
   now fixed. The proposed deadline type would not earn its complexity here, so
   it is not being built; reopen this only if a third bug of the class appears.
-- **The clock decoupling.** The MBB/NTP/monotonic sync is simpler now that
-  `clockTick` no longer measures the NTP step or re-queries for a race that
-  cannot happen. The larger piece is still open: the sleep planner reads wall
-  time (`time(nullptr)`), so it depends on the sync being right. Moving it to
-  a monotonic elapsed counter would cut that dependency and let the consensus
-  stay purely for the cosmetic stamps and the coarse unattended-days count.
-  Whether that is safe turns on one bench fact: does `millis()` advance across
-  light sleep on this core? The current design uses wall time precisely
-  because it is advanced across sleep by the RTC. Settle that on the rig
-  before moving the planner.
+- **The clock decoupling.** Untouched, and now with a warning bought by a
+  reverted attempt. Dropping the NTP step measurement from `clockTick` looked
+  safe (its only visible output is a phrase in the sync note), but `bench.py`'s
+  lightsleep scenario parses that `stepped +X.X s` value to check the RC sleep
+  timer stayed inside `SLEEP_MARGIN_PCT`. It is load-bearing for the
+  regression, not cosmetic, so any future simplification has to preserve or
+  replace it. The larger piece stays open: the sleep planner reads wall time
+  (`time(nullptr)`), so it depends on the sync being right; a monotonic
+  elapsed counter would cut that dependency, but only if `millis()` advances
+  across light sleep on this core, which the current design does not assume (it
+  uses wall time because the RTC advances it across sleep). Settle that on the
+  rig before touching it.
 - **The longer cellular hold.** Five-minute holds do not make the module
   attach; the evidence and what stays open are in
   [open-questions.md](open-questions.md). The experiment to close it is
