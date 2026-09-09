@@ -2,6 +2,11 @@
 
 - zerologs.bike, "Extract Zero Logs with a Serial Console": pinout, baud, port
   location.
+- zerologs.bike, "Zero Gen3 Log Format: 0xB2 Record Specification (MBB & BMS)"
+  (learn/gen3-log-format): the byte-level format of the app's and dealers'
+  log dumps, the event log this console will not print. Record framing and
+  the delimiter escape, the MBB and BMS record types and field maps, what a
+  hibernation wake writes, and the retractions.
 - zeromanual.com, Gen2/Gen3 MBB Console and "How to build a cable". The site
   blocks fetches; reachable via search caches.
 - Espressif, ESP-IDF programming guide, "Sleep Modes" for the ESP32: the

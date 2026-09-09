@@ -142,7 +142,11 @@ you log in.
 | `elddh`        | event log in hex from a date; same caveat             |
 
 No text event-log dump exists on this revision: `eld`, `elde` and
-`eventlogdump` are all rejected. Logs come from the Zero app, not the console.
+`eventlogdump` are all rejected, `eldh` prints the banner and "log printing
+not supported", and `elddh` waits for a date and then does the same. Logs
+come from the Zero app, not the console; their binary format is specified at
+zerologs.bike (see [sources.md](sources.md)), and its text records are the
+same lines the console prints.
 
 ## Config table
 
