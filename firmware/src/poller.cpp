@@ -150,7 +150,14 @@ static void closeCurrent(bool ok) {
     buf = "";
     cur++;
     if (cur >= NCMD || finishAfterThis) finish();
-    else sendCurrent();
+    else {
+        // The MBB is waiting for the next command: the quiet moment to write
+        // the lines so far, so a full output buffer never forces an erase
+        // under an answer, where it holds the UART interrupt off longer than
+        // the FIFO covers.
+        storeTick(true);
+        sendCurrent();
+    }
 }
 
 // A console client's typed command, echoed by the MBB as a line of its own

@@ -64,10 +64,12 @@ its [README](../firmware/README.md):
    frunk. The MBB also prints its answers to the cellular module's own
    commands on the console, `ltsm en mod 2` from the app for one, and an
    answer that lands inside a poll's is kept with that output and goes
-   into the log with the rest of the batch. The store commits at the end
-   of every batch, a quiet moment by construction, so the batches' bytes
-   never fill the output buffer while the MBB is talking and force an
-   erase under it. The last batch is written to its own file at the
+   into the log with the rest of the batch. The store commits at the close
+   of every command in a batch, when the MBB is waiting for the next one
+   and the line is quiet by construction, so the batch's bytes, some 17 KB
+   raw, never fill the output buffer while the MBB is talking and force an
+   erase under an answer, which would hold the UART interrupt off longer
+   than the FIFO covers. The last batch is written to its own file at the
    asleep edge, once per session, and read at boot, so the command page
    has the bike's last known state, with its age, before the MBB's next
    wake; the file is the board's own, beside the dictionaries, and is
