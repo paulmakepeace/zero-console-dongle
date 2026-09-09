@@ -1,7 +1,4 @@
-# Working rules for this repo, pending merge
-
-**To be merged into `CLAUDE.md` when that file lands. Kept separate so the
-merge is deliberate rather than an accident of whoever wrote first.**
+# Working rules for this repo
 
 These come out of the 2026-09-09 retro, and each cites the defect that bought
 it. They are rules about how work is verified here, not about the firmware.
