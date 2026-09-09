@@ -12,7 +12,8 @@ Phase 1, in [../firmware/](../firmware/), with the build and the endpoints in
 its [README](../firmware/README.md):
 
 1. **Capture, always.** Every line from UART2 is stamped and appended to a
-   file in the module's flash. No commands, no parsing on the ESP32.
+   file in the module's flash. The capture itself sends nothing and
+   parses nothing; the poller in item 7 is what does.
 2. **One file per MBB session.** A file opens when the first MBB lines are
    committed and closes five seconds after pin 8 goes low. Oldest files are
    deleted when free space runs low; the sizes are in the firmware
@@ -33,7 +34,8 @@ its [README](../firmware/README.md):
    which is the frame delimiter. A batch is a transaction: the transmit pin
    stays attached across every command, because the detach's own NUL makes
    the MBB print a prompt that a prompt-counting framer would take for a
-   command's end; the poller waits 20 s after the MBB wakes, never runs
+   command's end; the schedule waits 20 s after the MBB wakes, a request
+   does not, and the poller never runs
    while it sleeps or once it has announced its hibernation, and stands
    aside for a console client, finishing the command in flight. The
    announcement expires after a minute if the MBB stays up, a key-on
@@ -56,8 +58,8 @@ its [README](../firmware/README.md):
    above the air around it, so it says more about the board than the
    frunk. The MBB also prints its answers to the cellular module's own
    commands on the console, `ltsm en mod 2` from the app for one, and an
-   answer that lands inside a poll's is kept with that output rather than
-   the log.
+   answer that lands inside a poll's is kept with that output and goes
+   into the log with the rest of the batch.
 8. **Light sleep when the bike is unattended.** The dongle sleeps only once
    the bike has gone a configurable number of days, three by default,
    without any of the three lines that say it is looked after: a 12 V
@@ -71,8 +73,8 @@ its [README](../firmware/README.md):
    that it is parked: the MBB prints its long-term storage mode's state at
    every wake, `LTSM state: INIT to DIS` while it is off, and `bms`, which
    the poller runs, reports it as `storage mode Inactive`. Any state but
-   DIS, EN as the bike spells it and DIS_PEND on the way out, or
-   `storage mode Active`, arms the sleep at once whatever the
+   DIS and INIT, EN as the bike spells it with EN_PEND and DIS_PEND on the
+   way in and out, or `storage mode Active`, arms the sleep at once whatever the
    days count, and a key-on forgets it until the MBB restates it at its
    next wake, so the dongle stays reachable for the hour after a ride.
    Nothing about storage mode is kept in flash: the MBB says it again
@@ -114,9 +116,20 @@ its [README](../firmware/README.md):
    because the UART runs from the APB clock, which stops in light sleep;
    a pin 8 wake leaves the plan open, so a glitch with no MBB session
    behind it does not cost the rest of the hour. A sleep is never entered
-   with pin 8 high or without its timer, and a transfer counts as use to
-   its end, so a pull that runs past the grace is not cut off.
-   With no announcement seen it wakes hourly anyway. The WiFi driver is
+   with pin 8 high or without its timer, and a refusal is neither counted
+   nor noted. No sleep is shorter than 30 s. An announcement the MBB does
+   not honour within a minute of its time is dropped, and with none in
+   hand the dongle plans on an hour and sleeps nine tenths of it, so it is
+   up every 54 minutes plus the grace. A board that has never seen an
+   attended line counts the days from its clock's first fix, so a fresh
+   board does not sleep on day one. Use is a console client, a poll in
+   flight, the transmit pin attached, the setup network while someone is
+   on it or for its first ten minutes, a boot, and for ten minutes after
+   it a page opened or an action taken over HTTP: a download, a delete, a
+   poll request, a settings change. The status check and a page's own
+   refreshes do not count, so a watcher or a tab left open does not hold
+   the dongle awake, and a pull that runs past the grace is not cut off.
+   The WiFi driver is
    stopped for the sleep and started after, never torn down, so its
    buffers are not re-allocated into a fragmented heap; a start that
    fails is counted in the status and retried; the sleep is noted in
@@ -218,12 +231,14 @@ The source is one file per owner, each holding the state only it touches:
 `mbb_uart.cpp` the capture task, the pins and the transmit gate;
 `store.cpp` the files, the compressor and the dictionary; `clock.cpp` the
 time and where it came from; `poller.cpp` the command outputs;
-`sleep.cpp` the sleep decision; `settings.cpp` what is kept in flash and
-applied live; `wlan.cpp` the join, the setup network, mDNS and the
-services' up and down; `http.cpp` the web server; `console.cpp` the TCP
-console; `main.cpp` the board's identity from the MAC, the loop, the
-watchdog and the order the owners tick in. The logic under `src/pure/`
-has no owner state and runs on the host.
+`sleep.cpp` the sleep decision and the attended time it keeps in flash;
+`settings.cpp` what the setup page and the API apply and save;
+`wlan.cpp` the join, the setup network, mDNS, the services' up and down
+and the driver's stop and start around a sleep; `http.cpp` the web
+server; `console.cpp` the TCP console; `main.cpp` the board's identity
+from the MAC, the boot read of the saved settings, the loop, the watchdog
+and the order the owners tick in. The logic under `src/pure/` has no
+owner state and runs on the host.
 
 ## Design rules
 

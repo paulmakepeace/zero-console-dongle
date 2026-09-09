@@ -19,9 +19,16 @@
 
 static WebServer http(HTTP_PORT);
 static bool up = false;
-static uint32_t lastHttpMs = 0;
+static uint32_t lastHttpMs = 0;      // starts at 0: a boot counts as use for the window, someone just powered or flashed the board
+static uint32_t useMs = HTTP_USE_MS;
+// Use is a page opened or an action taken: a download or a delete, a poll
+// request, a settings change. A page's own refreshes of the status, the
+// live view, the listing and the command outputs do not count, so a tab
+// left open does not hold the dongle awake.
 static void touch() { lastHttpMs = millis(); }
-bool httpBusy() { return millis() - lastHttpMs < HTTP_USE_MS; }
+bool httpBusy() { return millis() - lastHttpMs < useMs; }
+void httpSetUseMs(uint32_t ms) { useMs = ms; }
+uint32_t httpUseMs() { return useMs; }
 
 void httpStart() { if (!up) { up = true; http.begin(); } }
 void httpStop() { if (up) { up = false; http.stop(); } }
@@ -141,7 +148,6 @@ static bool tokenOk() {
 }
 
 static void handleCmd(const String& name) {
-    touch();
     const String* out = pollerOutput(name.c_str());
     if (!out) {
         bool known = pollerListJson().indexOf("\"name\":\"" + name + "\"") >= 0;
@@ -210,10 +216,9 @@ static void handleFile() {
 }
 
 void httpBegin() {
-    http.on("/", HTTP_GET, []() { http.send_P(200, "text/html", PAGE); });
+    http.on("/", HTTP_GET, []() { touch(); http.send_P(200, "text/html", PAGE); });
     http.on("/api/status", HTTP_GET, []() { http.send(200, "application/json", statusJson()); });
     http.on("/logs", HTTP_GET, []() {   // streamed one file at a time: the directory is never held in RAM
-        touch();
         http.setContentLength(CONTENT_LENGTH_UNKNOWN);
         http.send(200, "application/json", "");
         http.sendContent("[");
@@ -227,23 +232,23 @@ void httpBegin() {
         }, &first);
         http.sendContent("]");
         http.sendContent("");
-        touch();
     });
-    http.on("/live", HTTP_GET, []() { touch(); http.send(200, "text/plain", storeLastLines()); });
+    http.on("/live", HTTP_GET, []() { http.send(200, "text/plain", storeLastLines()); });
     http.on("/api/settings", HTTP_GET, []() {
         http.send(200, "application/json", settingsJson());
     });
-    http.on("/api/settings", HTTP_POST, []() {   // form fields tz, ntp, setup_pass, sleep, poll; any subset
+    http.on("/api/settings", HTTP_POST, []() {   // form fields tz, ntp, setup_pass, sleep, poll, sleep_days, and the bench knobs sleep_grace and use_s; any subset
         if (!tokenOk()) return;
+        touch();
         if (!settingsApply(http.arg("tz"), http.arg("ntp"), http.arg("setup_pass"), http.arg("sleep"), http.arg("poll"), http.arg("sleep_days"),
-                           http.arg("sleep_grace"))) {
+                           http.arg("sleep_grace"), http.arg("use_s"))) {
             http.send(400, "text/plain", "a value is too long: tz 63, ntp 64, setup_pass 32 characters at most");
             return;
         }
         http.send(200, "text/plain", "applied");
     });
     http.on("/cmd", HTTP_GET, []() { touch(); http.send_P(200, "text/html", CMD_PAGE); });
-    http.on("/api/cmd", HTTP_GET, []() { touch(); http.send(200, "application/json", pollerListJson()); });
+    http.on("/api/cmd", HTTP_GET, []() { http.send(200, "application/json", pollerListJson()); });
     http.on("/api/cmd/poll", HTTP_POST, []() {
         if (!tokenOk()) return;
         touch();

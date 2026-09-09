@@ -6,7 +6,8 @@ Usage: tools/bench.py [roundtrip|break|poll|storage|sleep|lightsleep|all] [--hos
 
   roundtrip  a line from the adapter reaches a TCP console client, and a
              console keystroke reaches the adapter with the CR the MBB wants
-  break      the transmit pin lets go within 200 ms of the line going low,
+  break      the transmit pin lets go within a second of the line going low
+             as the status poll sees it (the pin itself in about 100 ms),
              while the awake flag is still true, and takes input again after
   sleep      a 6 s low takes the MBB to asleep, closes the session file, and
              the next high wakes it and opens a new one
@@ -18,7 +19,8 @@ Usage: tools/bench.py [roundtrip|break|poll|storage|sleep|lightsleep|all] [--hos
              at once whatever the days count, a key-on forgets it until the
              MBB restates it, and DIS or Inactive hands the decision back to
              the days rule
-  lightsleep about three minutes: with the grace set short for the run, a
+  lightsleep about three minutes: with the grace and the use window set
+             short for the run, a
              fake "Hibernating for 150 sec" then a held low makes the
              dongle sleep and be back before the MBB is due; a second
              cycle wakes it on pin 8 instead; a console client and the
@@ -261,7 +263,8 @@ def t_poll(host, ad):
         print("  ", post(host, "/api/cmd/poll"))
         time.sleep(0.4)
         live = get(host, "/live")[1]
-        check(live.rstrip().endswith("dongle: poll"), "the batch is announced in the log before its first answer: %r" % live.rstrip()[-60:])
+        tail = live.rstrip().split("\n")[-3:]   # a clock note may land beside it
+        check(any(l.endswith("dongle: poll") for l in tail), "the batch is announced in the log before its first answer: %r" % tail)
         held = False
         t0 = time.time()
         while time.time() - t0 < 60:
@@ -323,11 +326,11 @@ def t_lightsleep(host, ad):
     print("lightsleep (about three minutes)")
     # Sleep whenever the MBB does, with a 10 s grace: the same code path as
     # the hour-long sleep, with numbers the bench can wait out.
-    post(host, "/api/settings", b"sleep=1&sleep_days=0&sleep_grace=10")
+    post(host, "/api/settings", b"sleep=1&sleep_days=0&sleep_grace=10&use_s=5")
     try:
         _t_lightsleep(host, ad)
     finally:
-        post(host, "/api/settings", b"sleep_days=3&sleep_grace=120")
+        post(host, "/api/settings", b"sleep_days=3&sleep_grace=120&use_s=600")
 
 
 def _t_lightsleep(host, ad):

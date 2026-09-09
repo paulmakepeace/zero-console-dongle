@@ -18,7 +18,7 @@ charger serials) stay out of this repo; they are in the console captures under
 
 From the `config` table: both 3 kW chargers (OE and accessory, with the
 Charger Upgrade flag), heated grips, Park Mode, Boost upgrade, and LED
-Indicators as of this session. One battery module.
+indicators. One battery module.
 
 ## Snapshot 2026-09-05
 

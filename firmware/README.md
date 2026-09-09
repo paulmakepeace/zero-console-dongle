@@ -41,14 +41,16 @@ upload and the wait for the board to report the new version;
 one line per board, or only the changes; [`tools/bench.py`](../tools/bench.py)
 runs the regression through the adapter on the bench board (roundtrip,
 break, poll, storage, sleep, and a light-sleep scenario that sets the grace
-short for the run), about four minutes in all, and refuses the bike unit. Board names and addresses both
+and the use window short for the run), about five minutes in all, and refuses the bike unit. Board names and addresses both
 work; `DONGLE_HOST` and `DONGLE_BOARDS` set the defaults.
 
 ## Tests
 
 The logic that does not need a board lives in [`src/pure/`](src/pure/) as plain C++
 headers: the MBB stamp parser and the two-stamp agreement rule, the line
-framer, the file-name rules, the JSON escaper and the commit accounting.
+framer, the file-name rules, the JSON escaper, the zlib stream, the
+dictionary keeper, the sleep plan with the hibernate, attended and
+storage-mode lines, and the prompt, pack-row and bike-state parsers.
 The modules wrap them; the tests run them on the host:
 
 ```bash
@@ -61,7 +63,8 @@ The pull script has its own suite against a fake dongle served in-process:
 python3 -m pytest tools/tests
 ```
 
-What only hardware can prove, the transmit gate and the sleep edge, is
+What only hardware can prove, the transmit gate, the sleep edge, a poll
+batch, the storage trigger and a light sleep, is
 [`tools/bench.py`](../tools/bench.py) on the bench board through the adapter.
 
 Every version bump in `config.h` is an annotated tag `vX.Y.Z` whose body
@@ -83,22 +86,23 @@ use for its first ten minutes and while someone is on it, after which an
 unprovisioned board sleeps like any other. Join it from a
 phone, pick the home network and enter its password; the same page takes
 the timezone in POSIX form, the NTP server, a new setup password, whether
-to sleep between MBB sessions and the poll interval, all stored in flash
-and applied at once, no reboot. Sleep is armed only once the bike has
-gone `sleep_days` days, three by default, without a 12 V top-up or a
-key-on, the signals that say it is being looked after; 0 arms it whenever
-the MBB sleeps, and so does the MBB reporting its long-term storage mode
-on, the owner's own statement that the bike is parked, until a key-on or
-the MBB reporting it off. Armed, the dongle light-sleeps once
-the MBB has been asleep for two minutes with nobody using it, for nine
-tenths of the time until the MBB's own hourly wake, so it is up a few
-minutes early whatever the sleep timer's clock did, and pin 8 rising wakes
-it regardless. A host that has not spoken to the dongle since before the
-sleep may take a few seconds, once in a while fifteen, to reach it after
-the wake while it looks the dongle's address up again; the pull script's
-retries cover that. A status check does not count as use; a download, the
-live view, the command page or a console client does, and holds the sleep
-off for ten minutes after. If the stored network
+to sleep between MBB sessions, the days unattended before sleeping and
+the poll interval, all stored in flash and applied at once, no reboot.
+Sleep is armed only once the bike has gone `sleep_days` days, three by
+default, without a 12 V top-up, the cellular module answering or a
+key-on, the three lines that say it is being looked after; 0 arms it
+whenever the MBB sleeps, and so does the MBB reporting its long-term
+storage mode on, until a key-on or the MBB reporting it off. Armed, the
+dongle light-sleeps once the MBB has been asleep for two minutes with
+nobody using it and is up again a few minutes before the MBB's own wake;
+pin 8 rising wakes it regardless. The rule in full, and what counts as
+use, is item 8 of [firmware.md](../docs/firmware.md); in short, a
+console client, a poll in flight, the setup network, and for ten minutes
+a page opened or an action taken, while a status check and a page's own
+refreshes do not count. A host that has not spoken to the dongle since
+before the sleep may take a few seconds, once in a while fifteen, to
+reach it after the wake while it looks the dongle's address up again;
+the pull script's retries cover that. If the stored network
 refuses the password three times running the setup network comes up again
 for ten minutes, after which the retry resumes, since a marginal link can
 fail three handshakes too; if the network is out of reach the dongle just
@@ -116,19 +120,19 @@ replaced from the home network with `POST /api/settings`.
 | Path                 | Method | What                                      |
 |----------------------|--------|-------------------------------------------|
 | `/`                  | GET    | status page                               |
-| `/api/status`        | GET    | JSON: board name, MAC, firmware version, uptime, boot count and reset reason, awake, pin 8 level, TX attached, last awake and asleep stamps and the awake count, the active file, time and its source and NTP age, WiFi with mDNS and setup-network state, filesystem, dropped lines, the UART's overrun, back-pressure, frame-error and queue-drop counts, console clients and dropped bytes, the pack's state of charge, voltage, current, capacity and temperatures and the bike state from the last poll, the poll interval, the sleep state (armed, storage mode as the MBB last reported it, the count and last wake source), the store's file count and bytes on flash, its compression since boot and the days of space left at that rate, the ESP32's die temperature, the longest pass of each stage of the loop task, heap and stack headroom, watchdog |
+| `/api/status`        | GET    | JSON: board name, MAC, firmware version, uptime, boot count and reset reason, awake, pin 8 level, TX attached, last awake and asleep stamps and the awake count, the active file, time and its source and NTP age, WiFi with mDNS and setup-network state, filesystem, dropped lines, the UART's overrun, back-pressure, frame-error and queue-drop counts, console clients and dropped bytes, the pack's state of charge, voltage, current, capacity and temperatures and the bike state from the last poll, the poll interval and whether a batch is running, the sleep state (on or off, the days rule and the seconds since the bike was last seen attended, storage mode as the MBB last reported it, armed, the count, the last wake's source and length, the seconds until the MBB is due and whether that announcement has had its sleep), the store's file count and bytes on flash, its compression since boot and the days of space left at that rate, the ESP32's die temperature, the longest pass of each stage of the loop task, heap and stack headroom, watchdog |
 | `/logs`              | GET    | JSON list of files with size and active flag, streamed one file at a time |
 | `/logs/NAME`         | GET    | the file; 409 while active, 503 when all four readers are busy, 404 if absent |
 | `/logs/NAME`         | DELETE | remove it; 409 while active or being read, or for a bad name. The puller never deletes `dict-*` files |
 | `/live`              | GET    | the last lines received                    |
 | `/update`            | POST   | firmware image as `firmware` in a multipart body; the status page has the form |
 | `/api/wifi/reset`    | POST   | forget WiFi and reboot into setup          |
-| `/api/settings`      | GET    | JSON: timezone, NTP server, sleep on or off, days unattended before sleeping, poll interval |
-| `/api/settings`      | POST   | form fields `tz`, `ntp`, `setup_pass`, `sleep` (0 or 1), `sleep_days` (0 for always), `poll` (seconds, 0 for never), any subset, applied at once, 400 with nothing applied when a value is over its length (tz 63, ntp 64, setup_pass 32 characters); `sleep_grace` (seconds) is a bench knob, applied but not saved |
+| `/api/settings`      | GET    | JSON: timezone, NTP server, sleep on or off, days unattended before sleeping, poll interval, and the two bench knobs in seconds, the grace before a sleep and the use window |
+| `/api/settings`      | POST   | form fields `tz`, `ntp`, `setup_pass`, `sleep` (0 or 1), `sleep_days` (0 for always), `poll` (seconds, 0 for never), any subset, applied at once; 400 with nothing applied when a value is over its length (tz 63, ntp 64, setup_pass 32 characters), and a `setup_pass` under 8 characters, a `sleep_days` over 999, a `poll` over 99999 or a knob under 5 s is ignored with the rest applied; `sleep_grace` and `use_s` (seconds) are bench knobs, applied but not saved |
 | `/cmd`               | GET    | tabbed page of the polled command outputs  |
 | `/api/cmd`           | GET    | JSON list of the polled commands: age and size of the last good output, whether the last attempt succeeded, age of the last failure |
 | `/api/cmd/NAME`      | GET    | the last output of that command, text, with an `X-Age-Seconds` header; 503 until polled, 404 if unknown |
-| `/api/cmd/poll`      | POST   | run the batch now                          |
+| `/api/cmd/poll`      | POST   | start the batch: at once with the MBB awake and no console client, skipping the 20 s settle, otherwise at its next wake; 409 once the MBB has announced its hibernation |
 
 DELETE, `/update`, `/api/wifi/reset`, `POST /api/settings` and `POST /api/cmd/poll` change state and require the header
 `X-Dongle: 1`, which a form on another website cannot send from your
@@ -199,10 +203,9 @@ pull script reads the status first and warns about any of them.
 [`tools/pull-logs.py`](../tools/pull-logs.py) fetches and deletes them from the homelab into
 `logs/dongle/NAME/`, one directory per board.
 
-The log area is 896 KB with a 96 KB reserve. With the dictionary learned,
-a timeout wake compresses about seven times and costs one 4 KB block, a
-parked day about 30 KB, so the area holds about a month of parking
-between pulls, and a ride costs about 6 KB an hour. The status reports the files, the bytes, the
+The log area is 896 KB with a 96 KB reserve. The figures for what a
+wake, a parked day and a ride cost are in
+[compression.md](../docs/compression.md); the status reports the files, the bytes, the
 ratio since boot and the days of space left at the current rate. The app slots are 1.5 MB each. Changing the partition table needs a
 USB flash and formats the log area, which is counted in the status.
 

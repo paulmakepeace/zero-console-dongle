@@ -1,5 +1,6 @@
-// Small parsers over the MBB's command output: the prompt, the pack's state
-// of charge from `bms`, the bike state from `state` or `status`.
+// Small parsers over the MBB's console: the prompt, the lines it prints on
+// its own inside a command's answer, the pack row and its state of charge,
+// the bike state.
 #pragma once
 #include <cstddef>
 #include <cstring>

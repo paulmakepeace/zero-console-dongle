@@ -52,7 +52,7 @@ on pin 8 sees every wake.
 | OBD pin | Goes to                                                        |
 |---------|----------------------------------------------------------------|
 | 5       | GND                                                            |
-| 8       | GPIO33 (D33). UART2 RX through the matrix, internal pull-down. RTC-capable, so it can wake the ESP32 from light sleep later |
+| 8       | GPIO33 (D33). UART2 RX through the matrix, internal pull-down. RTC-capable, the wake source that brings the ESP32 out of light sleep when the MBB comes up |
 | 9       | GPIO17 (TX2). UART2 TX under the transmit-pin rule; otherwise an input with the internal pull-down |
 | 6       | SN65HVD230 CANH, phase 2                                       |
 | 14      | SN65HVD230 CANL, phase 2                                       |
@@ -74,9 +74,9 @@ The internal pulls the firmware enables cover the running case only. External
 parts are unconditional. A 3-pin connector on the plug's pigtail lets the
 CP2102N adapter and the DevKit swap in, and the pull-downs suit both.
 
-The ESP32's internal RC slow clock runs about 5% long, which the firmware
-covers by sleeping for nine tenths of the wait and waking a few minutes
-early; that costs milliamp-hours, not code. The 32.768 kHz crystal the
+The ESP32's internal RC slow clock times the light sleep and is a few
+percent off, which the firmware covers with the margin in item 8 of
+[firmware.md](firmware.md): milliamp-hours, not code. The 32.768 kHz crystal the
 module's pins allow for is not the answer either way: no DevKit-class
 board carries one, selecting it as the slow clock is a build-time option
 the precompiled core does not set, and its pins are GPIO32 and GPIO33,
@@ -127,8 +127,8 @@ which is not.
 
 Pin 8 does not distinguish key on from off, so the supply is not
 key-switched; the dongle gates its own activity on pin 8 and, once the
-bike has gone days without a top-up or a key-on, sleeps between MBB
-sessions. With the key on the DC-DC converter feeds the 12 V rail from the
+bike counts as unattended by the rule in item 8 of [firmware.md](firmware.md),
+sleeps between MBB sessions. With the key on the DC-DC converter feeds the 12 V rail from the
 pack and the 12 V battery with it, so the parked case is the only one the
 dongle's draw matters in. Drain: the DevKit's linear regulator and USB bridge take about
 5 mA whatever the ESP32 does, so a DevKit V1 in light sleep draws about

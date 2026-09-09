@@ -1,5 +1,6 @@
-// Zero console dongle, phase 1: capture the MBB console to flash whenever the
-// MBB is awake, serve the files over WiFi, and offer a TCP console.
+// Zero console dongle: capture the MBB console to flash whenever the MBB is
+// awake, poll it for its state, serve the files over WiFi, offer a TCP
+// console, and sleep between its sessions once the bike is unattended.
 #include <Arduino.h>
 #include <Preferences.h>
 #include "config.h"

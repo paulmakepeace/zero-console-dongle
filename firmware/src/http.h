@@ -8,4 +8,6 @@ void httpBegin();
 void httpStart();
 void httpStop();
 void httpTick();
-bool httpBusy();   // a request other than a status check in the last ten minutes
+bool httpBusy();   // a page opened or an action taken in the last ten minutes; a page's own refreshes do not count
+void httpSetUseMs(uint32_t ms);   // a bench knob, not persisted: the use window. Boot restores the default.
+uint32_t httpUseMs();

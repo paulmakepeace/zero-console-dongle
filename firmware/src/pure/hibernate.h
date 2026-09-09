@@ -83,9 +83,10 @@ struct SleepPlan {
 // The long-term storage mode from either line the MBB prints about it:
 // "LTSM state: INIT to DIS" at every wake, whose last word is the state,
 // and "storage mode      Inactive" in the bms snapshot. 1 for on, -1 for
-// off, 0 for a line that says nothing. DIS and Inactive are the captured
-// spellings for off; with the mode on the words are not captured yet, so
-// any state but DIS and INIT, and the word Active, count as on.
+// off, 0 for a line that says nothing. DIS and Inactive are the spellings
+// for off, EN and Active for on, EN_PEND and DIS_PEND on the way in and
+// out; the wake-time line with the mode on is not captured, so any state
+// but DIS and INIT counts as on.
 inline int storageModeFromLine(const char* s, size_t len) {
     while (len && (s[len - 1] == ' ' || s[len - 1] == '\r' || s[len - 1] == '\t')) len--;
     auto after = [&](const char* key) -> long {

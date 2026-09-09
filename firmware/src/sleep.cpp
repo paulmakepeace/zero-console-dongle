@@ -1,7 +1,7 @@
 // The sleep policy owns one decision: when the dongle may stop. It sleeps
-// only with the MBB asleep, nobody using the dongle, and a grace period
-// gone by, once per MBB announcement for nine tenths of the wait, and it
-// hands the network down and up around the sleep.
+// only with the bike unattended, the MBB asleep, nobody using the dongle
+// and a grace period gone by, once per MBB announcement for nine tenths
+// of the wait, and it hands the network down and up around the sleep.
 #include "sleep.h"
 #include "config.h"
 #include "clock.h"
@@ -62,8 +62,8 @@ void sleepNoteLine(const char* line, size_t len) {
     if (m != storage) { storage = m; storageNote = true; }
 }
 
-// The bike counts as unattended once N days have passed since a top-up or a
-// key-on, or at once when the MBB says it is in storage mode, the owner's own
+// The bike counts as unattended once N days have passed since a top-up, a
+// cellular answer or a key-on, or at once when the MBB says it is in storage mode, the owner's own
 // statement that it is parked. With no such event ever seen, the count runs
 // from the clock's first fix, so a fresh board does not sleep on day one.
 static bool unattended() {

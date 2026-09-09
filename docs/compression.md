@@ -16,7 +16,7 @@ dongle's compressor emits.
   not: its text, the banner, the self-test and the hibernate sequence, is
   the same every hour but appears only once per file, so the compressor
   sees it fresh each time, and the two stamps on every line are unique
-  bytes on top. This is what firmware 0.6.x did.
+  bytes on top. This was the first design in use.
 - **A dictionary trained once and baked into the firmware.** A block of
   the lines the MBB prints, compiled in, so the compressor's history is
   never empty. It works, and on a wake file measures 9.6x, but every bike
@@ -27,7 +27,7 @@ dongle's compressor emits.
   mechanism, but the dictionary is built on the board from what it has
   already stored, kept on the flash as a file named by its checksum, and
   named in every session file's header so the puller can fetch the right
-  one. Each bike learns its own. This is firmware 0.7.0.
+  one. Each bike learns its own. This is the design in use.
 
 ## The process
 
@@ -100,7 +100,10 @@ The wakes are what a parked bike writes, so they are the figure that sets
 how long the flash lasts between pulls: a wake costs one 4 KB block
 either way, since the filesystem counts in blocks, but a parked day drops
 from about 60 KB to about 30 KB of files, and the area holds about a
-month. Rides were already fine.
+month. Rides were already fine. These figures are for sessions without
+the poller's batches; with the poller on, a timeout wake adds two batches
+of about 220 lines and 9.5 KB raw each, text the dictionary holds, whose
+compressed cost is not measured here.
 
 ## What the flash sees
 
@@ -124,7 +127,7 @@ one 6 KB fetch, cached by id.
 
 With the text matched, what is left in a compressed wake is the stamps:
 the dongle's and the MBB's, two per line, about 45 characters of mostly
-unique digits on 80 lines. They are about a quarter of the compressed
-bytes. A delta-encoded stamp in a structured record would take that out;
+unique digits on the 80 lines of a wake without poll batches. They are
+about a quarter of the compressed bytes. A delta-encoded stamp in a structured record would take that out;
 it is the next step if the flash ever needs one, and it is a format
 change, so it waits for a reason.

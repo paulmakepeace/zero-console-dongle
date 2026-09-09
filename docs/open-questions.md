@@ -24,7 +24,7 @@
   bitrate. The bench plan is in hardware.md.
 - What the console prints at a wake with long-term storage mode on,
   presumably `LTSM state: INIT to EN` since EN is the state `bms` shows.
-  The firmware takes any state but DIS as on.
+  The firmware takes any state but DIS and INIT as on.
 - What DTC `B1A0F` means.
 - Current available on pin 16 and the fuse size upstream of it.
 - Rear LED draw on its own. Indicate with the rear signal unplugged and

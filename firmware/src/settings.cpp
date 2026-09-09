@@ -5,6 +5,7 @@
 #include "clock.h"
 #include "sleep.h"
 #include "poller.h"
+#include "http.h"
 #include "util.h"
 #include "sys.h"
 #include <Preferences.h>
@@ -29,10 +30,10 @@ const char* settingsSetupPass() { return setupPass; }
 String settingsJson() {
     return "{\"tz\":\"" + jsonEscape(tzSetting) + "\",\"ntp\":\"" + jsonEscape(ntpSetting) +
            "\",\"sleep\":" + (sleepEnabled() ? "1" : "0") + ",\"sleep_days\":" + String(sleepAfterDays()) + ",\"poll\":" + String(pollerInterval()) +
-           ",\"sleep_grace\":" + String(sleepGraceMs() / 1000) + "}";
+           ",\"sleep_grace\":" + String(sleepGraceMs() / 1000) + ",\"use_s\":" + String(httpUseMs() / 1000) + "}";
 }
 
-bool settingsApply(const String& tz, const String& ntp, const String& pass, const String& sleep, const String& poll, const String& days, const String& grace) {
+bool settingsApply(const String& tz, const String& ntp, const String& pass, const String& sleep, const String& poll, const String& days, const String& grace, const String& use) {
     if (tz.length() > 63 || ntp.length() > 64 || pass.length() > 32) return false;   // what the clock and the setup network can hold
     Preferences p;
     p.begin("dongle", false);
@@ -42,8 +43,9 @@ bool settingsApply(const String& tz, const String& ntp, const String& pass, cons
     if (sleep == "0" || sleep == "1") { sleepSetEnabled(sleep == "1"); p.putBool("sleep", sleep == "1"); }
     if (poll.length() && poll.toInt() >= 0 && poll.toInt() < 100000) { pollerSetInterval(poll.toInt()); p.putUInt("poll", poll.toInt()); }
     if (days.length() && days.toInt() >= 0 && days.toInt() < 1000) { sleepSetAfterDays(days.toInt()); p.putUInt("sleep_days", days.toInt()); }
-    // A bench knob, applied but never saved: the grace before a sleep, in seconds.
+    // Bench knobs, applied but never saved: the grace before a sleep and the use window, in seconds.
     if (grace.length() && grace.toInt() >= 5) sleepSetGraceMs(grace.toInt() * 1000UL);
+    if (use.length() && use.toInt() >= 5) httpSetUseMs(use.toInt() * 1000UL);
     p.end();
     clockApplySettings(tzSetting.c_str(), ntpSetting.c_str());   // live; no restart
     Serial.println("settings: applied");

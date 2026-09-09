@@ -1,6 +1,6 @@
 #pragma once
 
-#define FW_VERSION      "0.9.3"
+#define FW_VERSION      "0.9.4"
 #define DONGLE_NAME     "zero-dongle"      // base of the hostname, mDNS name and setup AP name; the last four hex digits of the MAC are appended
 // The setup network's password defaults to "zero-" plus the last six hex digits
 // of the MAC, printed at boot, and can be replaced from the setup page.
@@ -19,8 +19,8 @@
 #define HTTP_PORT       80
 #define CONSOLE_PORT    6638
 #define CONSOLE_CLIENTS 2
-#define AUTH_FAILS_FOR_PORTAL 3
-#define HTTP_USE_MS     (10 * 60 * 1000UL)   // a request other than a status check counts as use for this long: someone is about, and a few minutes awake cost nothing worth guarding
+#define AUTH_FAILS_FOR_PORTAL 3   // consecutive authentication failures before the setup network is raised
+#define HTTP_USE_MS     (10 * 60 * 1000UL)   // a page opened or an action taken counts as use for this long: someone is about, and a few minutes awake cost nothing worth guarding
 #define AUTH_PORTAL_MS  600000    // how long a setup network raised by those failures stays up unattended before the retry resumes
 
 // The poller: a fixed command set on a slow schedule while the MBB is awake.
@@ -34,8 +34,8 @@
 #define SLEEP_GRACE_MS   120000   // stay reachable this long after the MBB sleeps
 #define SLEEP_MARGIN_PCT 10       // sleep this much less than the time until the MBB is due: the RC clock runs long
 #define SLEEP_MIN_S      30       // shorter than this is not worth the WiFi round trip
-#define SLEEP_FALLBACK_S 3600     // with no announcement seen, wake hourly anyway
-#define SLEEP_AFTER_DAYS 3        // sleep only once the bike has gone this long without a 12 V top-up or a key-on; 0 for always   // consecutive authentication failures before the setup network is raised
+#define SLEEP_FALLBACK_S 3600     // with no announcement seen, plan on an hour
+#define SLEEP_AFTER_DAYS 3        // sleep only once the bike has gone this long without a 12 V top-up, a cellular answer or a key-on; 0 for always
 
 #define LOG_DIR         "/logs"
 #define FS_MIN_FREE     (96 * 1024)   // delete the oldest file below this much free space
