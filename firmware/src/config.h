@@ -40,6 +40,7 @@
 
 #define LOG_DIR         "/logs"
 #define FS_MIN_FREE     (96 * 1024)   // delete the oldest file below this much free space
+#define FS_MAX_FILES    80            // and cap the log count here: a reclaim walk past ~100 files stalls the capture stage, so the puller drains the bike and this is the backstop
 #define LAST_LINES      40            // lines kept in RAM for the status page
 #define LAST_LINE_CHARS 200           // each cut to this many characters there
 #define SESSION_MAX_BYTES (256 * 1024) // a session that never sleeps rolls to a new file here
@@ -54,18 +55,16 @@
 // Everything below describes how one MBB behaves: a 2020 SR/S on firmware
 // revision 44. They are assumptions about someone else's product, and a Zero
 // firmware update or another owner's revision could move any of them. Each is
-// margin over a measurement, and the board reports what it actually sees in
-// the status JSON's "observed" object, so drift shows up as a number that no
-// longer matches rather than as a misbehaviour weeks later. Compare them
-// before trusting this firmware on a bike that is not this one.
+// margin over a measurement (the measured figure is in the comment beside it).
+// Compare them before trusting this firmware on a bike that is not this one.
 // ---------------------------------------------------------------------------
-#define MBB_PROMPT      "ZERO MBB> "   // observed: every answer ends with it, and it never gets a line end. The framer flushes on it, so a change here loses command framing rather than degrading it. Watched as observed.prompts
-#define SLEEP_AFTER_MS  5000   // observed: the line drops about 5 s after the last byte. The dongle calls the MBB asleep after this, so a line that dropped later would be called asleep while still talking. Watched as observed.line_low_after_ms
+#define MBB_PROMPT      "ZERO MBB> "   // observed: every answer ends with it, and it never gets a line end. The framer flushes on it, so a change here loses command framing rather than degrading it.
+#define SLEEP_AFTER_MS  5000   // observed: the line drops about 5 s after the last byte. The dongle calls the MBB asleep after this, so a line that dropped later would be called asleep while still talking.
 #define AWAKE_HIGH_MS   60     // observed: the line idles high while the console block is powered
 #define TX_HOLD_MS      2000   // observed: a command and its answer are well inside this
-#define MBB_BOOT_MS     4000   // observed: 103 ms from the line coming up to the first byte on a pin 9 wake (2026-09-09); the 4 s is the older figure from a cold RTC wake and is kept as the margin. POLL_SETTLE_MS is the margin over it. Watched as observed.boot_ms
-#define MBB_ANSWER_MS   1000   // observed: the longest answer measured is 264 ms (2026-09-09). POLL_TIMEOUT_MS is the margin over it. Watched as observed.answer_max_ms
-#define MBB_HIB_S       3600   // observed: every hibernate announcement says 3600. Only a gap-filler: the announced count is what the planner uses. Watched as observed.hib_announced_s
+#define MBB_BOOT_MS     4000   // observed: 103 ms from the line coming up to the first byte on a pin 9 wake (2026-09-09); the 4 s is the older figure from a cold RTC wake and is kept as the margin. POLL_SETTLE_MS is the margin over it.
+#define MBB_ANSWER_MS   1000   // observed: the longest answer measured is 264 ms (2026-09-09). POLL_TIMEOUT_MS is the margin over it.
+#define MBB_HIB_S       3600   // observed: every hibernate announcement says 3600. Only a gap-filler: the announced count is what the planner uses.
 #define IDLE_COMMIT_MS  3000   // lines reach flash once the MBB has been quiet this long
 #define MAX_PENDING_MS  15000  // or after this long regardless, or when the output buffer is full
 // The session stream's fixed arrays: dictionary, history window, longest line, output buffer, hash table.

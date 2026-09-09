@@ -64,11 +64,8 @@ static String pathOf(const String& name) { return String(LOG_DIR) + "/" + name; 
 static void commitPending(bool force);
 static void sessionEnd(const char* why);
 
-static bool isOpenForRead(const String& name) {
-    for (auto& n : openForRead) if (n == name) return true;
-    return false;
-}
-static bool isOpenForRead(const char* name) {
+template <class S>
+static bool isOpenForRead(const S& name) {
     for (auto& n : openForRead) if (n == name) return true;
     return false;
 }
@@ -107,12 +104,10 @@ static size_t totalBytes() {
     return total;
 }
 
-// The board's own files beside the logs: the dictionaries and the poller's
-// last batch. Not listed, never reclaimed, not for DELETE.
 // The board's own files, not the bike's: never listed, reclaimed or deleted.
-// The saved poll batch is one of them, and it sits in the root rather than
-// the log directory, where nothing walks anyway; the name is matched here
-// so that stays true if it ever moves.
+// The dictionaries and the saved poll batch. The poll batch sits in the root
+// rather than the log directory, where nothing walks anyway; the name is
+// matched here so that stays true if it ever moves.
 static bool houseFile(const char* n) { return strncmp(n, "dict-", 5) == 0 || strcmp(n, POLL_SAVE_NAME) == 0; }
 
 void storeForEachFile(void (*fn)(void*, const char*, size_t, bool), void* ctx) {
@@ -124,14 +119,20 @@ static size_t freeBytes() { return totalBytes() - LittleFS.usedBytes(); }
 
 static void dictCollect();
 
-// Delete oldest first until the reserve is back. One walk collects the eight
-// oldest deletable names, then they go in order until the filesystem says
-// the reserve is back; a name that will not delete is skipped from then on,
-// and three refusals in a row end the attempt.
+// Delete oldest first until the reserve is back and the log count is under
+// its cap. The cap is the backstop against the directory growing to where a
+// reclaim walk stalls the capture stage (measured past ~100 files); the
+// puller draining the bike is how the count stays low in normal use. One
+// walk collects the eight oldest deletable names, then they go in order
+// until both criteria are met; a name that will not delete is skipped from
+// then on, and three refusals in a row end the attempt.
 static bool ensureSpace() {
-    if (freeBytes() >= FS_MIN_FREE) return false;
+    size_t logFiles = 0;
+    forEachFile([&](const char* name, size_t) { if (!houseFile(name)) logFiles++; }, false);   // a name-only walk: no stat, no open
+    bool need = freeBytes() < FS_MIN_FREE || logFiles > FS_MAX_FILES;
+    if (!need) return false;
     dictCollect();   // dictionaries nothing names cost nothing to drop, and go first
-    if (freeBytes() >= FS_MIN_FREE) return true;
+    if (freeBytes() >= FS_MIN_FREE && logFiles <= FS_MAX_FILES) return true;
     char floor[65] = "";   // names at or below this were tried and refused
     int refusals = 0;
     for (int round = 0; round < 4; round++) {
@@ -153,8 +154,9 @@ static bool ensureSpace() {
                 continue;
             }
             refusals = 0;
+            logFiles--;
             Serial.printf("store: deleted %s for space\n", oldest.item[i]);
-            if (freeBytes() >= FS_MIN_FREE) return true;   // the filesystem counts in blocks; ask it, do not guess
+            if (freeBytes() >= FS_MIN_FREE && logFiles <= FS_MAX_FILES) return true;   // the filesystem counts in blocks; ask it, do not guess
         }
     }
     Serial.println("store: the reserve is not back; every file is active, being read, or will not delete");
@@ -207,8 +209,8 @@ bool storeBegin(const char* resetReason) {
 }
 
 // The dictionary files a session file still needs are found by the id in
-// its header; the rest go, except the one in use. Two passes over the
-// directory with fixed arrays; with more ids in play than fit, nothing goes.
+// its name; the rest go, except the one in use. Directory walks over names
+// only, with fixed arrays; with more ids in play than fit, nothing goes.
 static void dictCollect() {
     // Nothing to do unless a dictionary other than the one in use exists.
     bool candidate = false;
@@ -220,21 +222,14 @@ static void dictCollect() {
     if (!candidate) return;
     uint32_t inUse[32];
     int nInUse = 0;
-    char unsure[65] = "";   // a header that could not be read, or more ids than fit: then nothing goes
+    bool tooMany = false;   // more distinct dictionaries in use than fit: then nothing goes
     forEachFile([&](const char* n, size_t) {
-        size_t len = strlen(n);
-        if (len < 6 || strcmp(n + len - 6, ".log.z") != 0) return;
-        sysFeedWatchdog();   // one open per file; many files take a while
-        File f = LittleFS.open(pathOf(n), FILE_READ);
-        uint8_t h[6];
-        if (!f || f.read(h, 6) != 6) { strlcpy(unsure, n, sizeof unsure); if (f) f.close(); return; }
-        f.close();
-        if (h[0] != 0x78 || !(h[1] & 0x20)) return;   // no dictionary named
-        uint32_t id = ((uint32_t)h[2] << 24) | ((uint32_t)h[3] << 16) | ((uint32_t)h[4] << 8) | h[5];
+        uint32_t id = logDictId(n, strlen(n));   // the dictionary named in the file's own name, no open needed
+        if (id == 0) return;   // not a session file, or one that names no dictionary
         for (int i = 0; i < nInUse; i++) if (inUse[i] == id) return;
-        if (nInUse < 32) inUse[nInUse++] = id; else strlcpy(unsure, "(more than 32 dictionaries named)", sizeof unsure);
+        if (nInUse < 32) inUse[nInUse++] = id; else tooMany = true;
     }, false);
-    if (unsure[0]) { Serial.printf("store: dictionaries not collected: %s\n", unsure); return; }
+    if (tooMany) { Serial.println("store: dictionaries not collected: more than 32 in use"); return; }
     char victims[8][24];
     int nVictims = 0;
     forEachFile([&](const char* n, size_t) {
@@ -362,7 +357,7 @@ static String fileNameNow() {
     // A boot count that failed to save repeats, and a repeated name would
     // overwrite a file the puller may already hold; skip past any name in use.
     do {
-        ::sessionName(b, sizeof b, (unsigned long)bootCount, s, when.c_str());   // an lfs_stat, a read
+        ::sessionName(b, sizeof b, (unsigned long)bootCount, s, when.c_str(), (unsigned long)dictId);   // an lfs_stat, a read
     } while (LittleFS.exists(pathOf(b)) && ++s < 1000);
     if (s != seq) seq = s;   // the header keeps the id it was given; only this file's name moves on
     return String(b);

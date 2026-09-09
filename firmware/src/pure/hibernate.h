@@ -9,7 +9,7 @@
 inline long parseHibernateSeconds(const char* s, size_t len) {
     static const char key[] = "Hibernating for ";
     const size_t klen = sizeof(key) - 1;
-    for (size_t i = 0; i + klen < len; i++) {
+    for (size_t i = 0; i + klen <= len; i++) {
         if (memcmp(s + i, key, klen) != 0) continue;
         size_t j = i + klen;
         long v = 0;

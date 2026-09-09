@@ -42,8 +42,13 @@
   10 s, long enough for every HTTP request to time out. With the two dozen
   files a pulled bike carries it is 0.7 s. The bike reaches a hundred files
   in about four days without a pull, so this is on the path, not a bench
-  artifact. A reclaim that remembered where it got to, or a cap on files
-  rather than only on bytes, would fix it.
+  artifact. Addressed but not yet re-measured: `dictCollect` no longer opens
+  every file to read its dictionary header (the id is in the file name now),
+  which was the bulk of the per-file cost, and `FS_MAX_FILES` caps the log
+  count as a backstop so the directory cannot grow to where the walk stalls.
+  The walk still holds the store's lock, so re-run the 133-file case on the
+  bench to confirm the longest capture pass is now sub-second, and that the
+  cap holds, before calling this closed.
 - Is the CAN bus on pins 6 and 14 active while the MBB hibernates?
 - Which of the bike's CAN networks is on OBD pins 6 and 14, and at what
   bitrate. The bench plan is in hardware.md.

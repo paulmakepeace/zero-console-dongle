@@ -55,12 +55,18 @@ characterised and the CAN and buck parts are on order. See
 
 ## Next, in order
 
-1. Pull the bike's files often enough that the log directory stays under a
-   hundred: past that the space reclaim walks the whole directory from inside
-   the capture stage and stalls it for ten seconds, which times out every HTTP
-   request. Measured, and the first item in
-   [docs/open-questions.md](docs/open-questions.md). The bike reaches a
-   hundred in about four days without a pull.
+1. Keep the log directory small by pulling the bike's files on a timer, not
+   by hand: [`tools/pull-logs.py`](tools/pull-logs.py) deletes each file from
+   the dongle once it is safely stored, so a scheduled run (a cron or launchd
+   job on the workstation, whenever the bike answers) holds the count down.
+   The firmware now caps the count at `FS_MAX_FILES` as a backstop and the
+   status page urges a pull as it climbs, and the space reclaim no longer
+   opens every file to find its dictionary (the id is in the file name), which
+   was the bulk of the ten-second stall measured past a hundred files. That
+   stall is the background in [docs/open-questions.md](docs/open-questions.md);
+   the walk still holds the store's lock, so re-measure it on the bench at a
+   hundred files to confirm it is now sub-second before calling it closed. The
+   bike reaches a hundred files in about four days without a pull.
 2. Keep the dongle on the bike collecting wakes, and ride and pull the files
    with [`tools/pull-logs.py`](tools/pull-logs.py). Two captures are still
    wanted: the wake-time storage-mode line, which the sleep trigger keys on,

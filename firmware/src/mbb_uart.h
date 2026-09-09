@@ -22,7 +22,3 @@ uint32_t mbbFrameErrors();
 uint32_t mbbQueueDrops();         // lines the loop task was too slow to take
 bool mbbLineHigh();               // pin 8 as of the last sample, the transmit gate
 uint32_t mbbCaptureStackFree();
-// What this bike does, against the constants in config.h that assume it.
-uint32_t mbbObservedBootMs();           // the line coming up to the MBB's first byte; MBB_BOOT_MS is the assumption
-uint32_t mbbObservedLineLowAfterMs();   // the last byte to the line going down; SLEEP_AFTER_MS assumes it is inside that
-uint32_t mbbObservedPrompts();         // answers that ended with MBB_PROMPT: zero on a bike whose prompt differs   // bytes never used, from the high-water mark

@@ -27,11 +27,23 @@ a clean start before it is believed.
   that bought it. They are waiting on a `CLAUDE.md`, which is the operator's
   to write. Merging them is deliberate, not automatic.
 - **The space reclaim at a hundred files.** The first item in the README's
-  list and the measured entry in [open-questions.md](open-questions.md). Two
-  fixes would work: a reclaim that remembers where it got to between calls, or
-  a cap on file count as well as bytes. Neither is built. The bench should
-  also clear old sessions above a file threshold so a long bench day does not
-  walk into the same stall.
+  list and the measured entry in [open-questions.md](open-questions.md). Now
+  addressed but not re-measured: `FS_MAX_FILES` caps the log count as a
+  backstop, `dictCollect` reads dictionary ids from the file name rather than
+  opening every file, and the status page urges a pull as the count climbs.
+  The evacuation itself is the normal path: `tools/pull-logs.py` already
+  deletes each file once it is safely stored, so it wants a timer (a cron or
+  launchd job on the workstation), not a hand run. Left to do: re-measure the
+  133-file case on the bench to confirm the walk is now sub-second, and have
+  the bench clear old sessions above a file threshold so a long bench day does
+  not walk into the stall.
+- **The log-name format changed.** Session files are now
+  `bBBBB-SSS-<when>-<dict>.log.z`, the dictionary's Adler-32 appended so the
+  store can collect unused dictionaries without opening files. Before flashing
+  this, drain both boards with `tools/pull-logs.py` so no old-format names are
+  left on flash: an old name carries no id, so `dictCollect` reads it as
+  naming no dictionary and could collect a dictionary an unpulled old file
+  still needs. A full drain is a clean cutover and needs no migration code.
 - **Absolute deadlines.** Twenty-nine time comparisons in the firmware are
   raw `millis()` arithmetic. Two separate bugs this project has hit were the
   same shape: a deadline kept after it expired, which comes back true when

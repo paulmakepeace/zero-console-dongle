@@ -125,13 +125,25 @@ void test_log_names() {
 
 void test_session_name_sorts_by_creation() {
     char a[48], b[48], c[48];
-    sessionName(a, sizeof a, 99, 12, "20260907-191951");
-    sessionName(b, sizeof b, 100, 1, "nosync");
-    sessionName(c, sizeof c, 100, 2, "20260907-194117");
-    TEST_ASSERT_EQUAL_STRING("b0099-012-20260907-191951.log.z", a);
+    sessionName(a, sizeof a, 99, 12, "20260907-191951", 0xdeadbeef);
+    sessionName(b, sizeof b, 100, 1, "nosync", 0x12345678);
+    sessionName(c, sizeof c, 100, 2, "20260907-194117", 0x12345678);
+    TEST_ASSERT_EQUAL_STRING("b0099-012-20260907-191951-deadbeef.log.z", a);
     TEST_ASSERT_TRUE(strcmp(a, b) < 0);
     TEST_ASSERT_TRUE(strcmp(b, c) < 0);
     TEST_ASSERT_TRUE(ok(a) && ok(b) && ok(c));
+}
+
+void test_log_dict_id() {
+    char a[48];
+    sessionName(a, sizeof a, 99, 12, "20260907-191951", 0xdeadbeef);
+    TEST_ASSERT_EQUAL_UINT32(0xdeadbeef, logDictId(a, strlen(a)));         // round-trips out of the name
+    sessionName(a, sizeof a, 100, 1, "nosync", 0x00000000);
+    TEST_ASSERT_EQUAL_UINT32(0, logDictId(a, strlen(a)));                  // a session that named no dictionary
+    const char* old = "b0099-012-20260907-191951.log.z";                  // a name from before the id suffix
+    TEST_ASSERT_EQUAL_UINT32(0, logDictId(old, strlen(old)));
+    const char* notz = "b0099-012-20260907-191951-deadbeef.log";          // not a .log.z
+    TEST_ASSERT_EQUAL_UINT32(0, logDictId(notz, strlen(notz)));
 }
 
 // --- json_escape ----------------------------------------------------------
@@ -495,6 +507,7 @@ int main() {
     RUN_TEST(test_framer_marks_an_overlong_line);
     RUN_TEST(test_log_names);
     RUN_TEST(test_session_name_sorts_by_creation);
+    RUN_TEST(test_log_dict_id);
     RUN_TEST(test_json_escape);
     RUN_TEST(test_hibernate_line);
     RUN_TEST(test_seconds_until_wake);

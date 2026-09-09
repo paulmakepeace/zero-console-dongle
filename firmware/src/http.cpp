@@ -64,7 +64,10 @@ async function refresh(){
  const s=await j('/api/status'); document.getElementById('t').textContent=s.name;
  try{await bike()}catch(e){}
  const t=document.getElementById('s'); t.textContent=''; for(const [k,v] of Object.entries(s)) row(t,k,v);
- const st=s.store; document.getElementById('fs').textContent=st.files+' file(s), '+(st.bytes/1024).toFixed(0)+' KB on flash of '+(st.fs_total/1024).toFixed(0)+' KB, compressing '+st.ratio+'x since boot'+(st.days_left>=0?', about '+st.days_left+' day(s) of space left at this rate':'');
+ const st=s.store; const fsEl=document.getElementById('fs');
+ fsEl.textContent=st.files+' file(s), '+(st.bytes/1024).toFixed(0)+' KB on flash of '+(st.fs_total/1024).toFixed(0)+' KB, compressing '+st.ratio+'x since boot'+(st.days_left>=0?', about '+st.days_left+' day(s) of space left at this rate':'');
+ fsEl.style.color=st.files>=70?'#b00':st.files>=50?'#b60':'';
+ if(st.files>=50) fsEl.textContent+='; pull the logs'+(st.files>=70?' now, the oldest go at 80':' soon');
  if(tick++%6) return;   // the file list every 30 s: a walk of the flash per fetch
  const f=await j('/logs'); const d=document.getElementById('f'); d.textContent='';
  for(const x of f){const div=document.createElement('div'); if(x.active){div.textContent=x.name+' '+x.size+' bytes (active, see last lines)'}else{const a=document.createElement('a');a.href='/logs/'+encodeURIComponent(x.name);a.textContent=x.name;div.appendChild(a);div.appendChild(document.createTextNode(' '+x.size+' bytes'))} d.appendChild(div)}
@@ -208,13 +211,6 @@ static String statusJson() {   // a health check is not use: a watcher must not 
     s += ",\"sleep\":" + sleepStatusJson();
     s += ",\"heap_free\":" + String(ESP.getFreeHeap()) + ",\"heap_min_free\":" + String(ESP.getMinFreeHeap()) +
          ",\"heap_max_alloc\":" + String(ESP.getMaxAllocHeap());
-    // What this bike does, next to what config.h assumes it does: a Zero
-    // firmware change shows up here rather than as a misbehaviour weeks on.
-    s += ",\"observed\":{\"boot_ms\":" + String(mbbObservedBootMs()) + ",\"assumed_boot_ms\":" + String(MBB_BOOT_MS) +
-         ",\"answer_max_ms\":" + String(pollerObservedAnswerMaxMs()) + ",\"assumed_answer_ms\":" + String(MBB_ANSWER_MS) +
-         ",\"line_low_after_ms\":" + String(mbbObservedLineLowAfterMs()) + ",\"assumed_line_low_within_ms\":" + String(SLEEP_AFTER_MS) +
-         ",\"hib_announced_s\":" + String(sleepObservedHibS()) + ",\"assumed_hib_s\":" + String(MBB_HIB_S) +
-         ",\"prompts\":" + String(mbbObservedPrompts()) + "}";
     s += ",\"loop_max_ms\":" + sysLoopMaxJson();
     s += ",\"stack_free\":{\"loop\":" + String(uxTaskGetStackHighWaterMark(nullptr)) +
          ",\"capture\":" + String(mbbCaptureStackFree()) + "}";
