@@ -162,6 +162,24 @@ def t_roundtrip(host, ad):
     code, body = get(host, "/api/cmd/bms")
     check(code == 200 and "soc" in body and row["ok"] and 0 <= row["age_s"] <= 8,
           "a bms typed on the console was kept %.1f s after the answer, age %s s: %r" % (time.time() - t0, row["age_s"], body[:40]))
+    # Two commands typed inside the prompt's flush window: the second's echo
+    # shares the first's prompt line, and both must be kept.
+    time.sleep(3)   # past the first watch's prompt and the store's quiet commit
+    ad.reset_input_buffer()
+    c.sendall(b"pdu\nin\n")
+    time.sleep(0.6)
+    ad.read(100)
+    ad.write(b"pdu\r\n" + ANSWERS[b"pdu"] + b"ZERO MBB> in\r\n" + ANSWERS[b"in"] + b"ZERO MBB> ")
+    t0 = time.time()
+    while time.time() - t0 < 8:
+        rows = {r["name"]: r for r in json.loads(get(host, "/api/cmd")[1])}
+        if all(rows[n]["ok"] and 0 <= rows[n]["age_s"] <= 8 for n in ("pdu", "in")):
+            break
+        time.sleep(0.5)
+    check(all(rows[n]["ok"] and 0 <= rows[n]["age_s"] <= 8 for n in ("pdu", "in")),
+          "two commands typed back to back were both kept: pdu age %s, in age %s" % (rows["pdu"]["age_s"], rows["in"]["age_s"]))
+    body = get(host, "/api/cmd/in")[1]
+    check("12V_Battery" in body and "Total_Current" not in body, "the second's slot holds its own answer, not the first's: %r" % body[:40])
     time.sleep(2.5)
     ad.read(10)   # the hold's release NUL, so the next scenario starts clean
     c.close()
@@ -262,7 +280,7 @@ class FakeMbb(threading.Thread):
                     time.sleep(self.first_delay)
                 self.seen.append(cmd)
                 answer = ANSWERS.get(cmd, b"unknown command\r\n")
-                if cmd == b"faults":   # an unsolicited line lands in the middle of the last answer, between two of its lines, where the live window still shows it
+                if cmd == b"ccm":   # an unsolicited line lands in the middle of the last answer, between two of its lines, where the live window still shows it
                     cut = answer.find(b"\r\n", len(answer) // 2) + 2
                     answer = answer[:cut] + UNSOLICITED + answer[cut:]
                 self.ad.write(cmd + b"\r\n" + answer + b"ZERO MBB> ")
@@ -304,11 +322,11 @@ def t_poll(host, ad):
             s = status(host)
             if s["poll"]["active"] and s["tx_attached"]:
                 held = True
-            if not s["poll"]["active"] and len(mbb.seen) >= 6:
+            if not s["poll"]["active"] and len(mbb.seen) >= 11:
                 break
             time.sleep(0.3)
         check(held, "transmit pin held while the batch ran")
-        check(len(mbb.seen) >= 6, "all six commands reached the adapter: %r" % mbb.seen[:6])
+        check(len(mbb.seen) >= 11, "all eleven commands reached the adapter: %r" % mbb.seen[:11])
         lst = json.loads(get(host, "/api/cmd")[1])
         check(all(c["ok"] for c in lst), "every command closed on its prompt: %r" % [(c["name"], c["ok"]) for c in lst])
         code, bms = get(host, "/api/cmd/bms")
@@ -323,7 +341,14 @@ def t_poll(host, ad):
         check(not status(host)["tx_attached"], "transmit pin released after the batch")
         live = get(host, "/live")[1]   # the last 40 lines: the end of the batch
         check("Control flags changed" in live, "the unsolicited line inside a response reached the log")
-        check("Pending faults" in live and "blackout_sw" in live, "the responses themselves reached the log")
+        check("production_state" in live and "hb_soc" in live, "the responses themselves reached the log")
+        rd = {r["n"]: r for r in json.loads(get(host, "/api/readings")[1])}
+        want = {"Motor_Temp": 35, "lowest_cell_voltage_mv": 3976, "Lean": -135, "Odometer_km": 14532, "12V_Battery": 13127, "cell_signal_percent": 0}
+        got = {k: rd.get(k, {}).get("v") for k in want}
+        check(got == want and all(0 <= rd[k]["age_s"] <= 90 for k in want),
+              "the readings carry the figures from six outputs, fresh: %r" % got)
+        check(rd["max_charge_voltage"]["v"] == 117.6 and rd["max_charge_voltage"]["u"] == "V", "a decimal figure keeps its decimals: %r" % rd.get("max_charge_voltage"))
+        check("gps_longitude_radians" not in rd and "unit_id" not in rd, "the fix and the unit id are not readings")
         try:
             get(host, "/api/cmd/nope")
             check(False, "unknown command is 404")
@@ -472,6 +497,7 @@ TOUCHES = {
     "mbb_uart": ["roundtrip", "break", "sleep"],
     "console": ["roundtrip", "lightsleep"],
     "poller": ["poll", "roundtrip"],
+    "readings": ["poll"], "rows": ["poll"],
     "mbb_parse": ["poll", "storage"],
     "store": ["poll", "sleep"],
     "zstream": ["sleep"], "dictkeeper": ["sleep"], "names": ["sleep"], "framer": ["roundtrip", "sleep"],

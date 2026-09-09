@@ -1,35 +1,34 @@
 # What owners asked to see
 
-A 2021 thread in the Zero Motorcycles Owners Group asked what data owners
-would want from a console and CAN dongle
-(facebook.com/groups/111611975574686/posts/4211101315625711). The asks,
-against what the MBB console offers and what the dongle shows today. Command
-outputs are in [mbb-reference.md](mbb-reference.md).
+Two threads in the Zero Motorcycles Owners Group: a 2021 one asking what
+data owners would want from a console and CAN dongle
+(facebook.com/groups/111611975574686/posts/4211101315625711), and a 2026 one
+around an owner's own phone app reading Zero's Starcom cloud with the OEM app
+login (facebook.com/photo/?fbid=10165269412658619), which drew replies for
+what the OEM app hides. Each ask below is mapped to the console row that
+carries it, and to where the dongle shows it. Command outputs are in
+[mbb-reference.md](mbb-reference.md); the readings mechanism is item 7 of
+[firmware.md](firmware.md).
 
-| Ask | Console source | On the dongle now |
-|-----|----------------|-------------------|
-| State of health, the most repeated ask, "priceless for a used bike" | No SOH figure on any command. `bms interface` gives `pack_capacity_ah` against the pack's nominal, and `stats` the reset and run-time counters; a health figure would be derived | pack Ah in the status JSON |
-| Battery temperature | `bms interface` min and max pack temperature; the BMS row of `status` | pack high and low temperatures in the status JSON |
-| Cell average voltage and imbalance | `bms interface` lowest cell voltage and pack voltage; no per-cell list, so imbalance is the gap between the lowest cell and the average | not shown |
-| Lean angle, pitch, telemetry to match with a phone's GPS | `msc`: pitch, lean, tip angle, yaw rate, three-axis acceleration, wheel speeds, ABS events; `ccm` carries the bike's own GPS fix | not shown |
-| Torque requested, RPM, motor and controller temperature, DC bus voltage and current | `controller`, one row each, with a validity flag | not shown |
-| Watts, time and miles | `performance` (Wh per km, total Wh), `dash info` (odometer in km and miles, speed, estimated range, ride mode), `stats` (total on and run time) | not shown |
-| Advertised EVSE current and power while charging, per-charger power | `charging`: pilot current, each charger's voltage, current and state | polled every minute, on the command page |
-| Fault codes and configuration | `faults`, `obd` (DTCs, freeze frame), `config` (the install table) | `faults` polled; `obd` and `config` not |
-| State of charge, bike state | `status`, `bms`, `dash info` | in the status JSON, polled every minute |
-| Stop a charge at a chosen SOC, Home Assistant integration, a charger controller fed by pack SOC and temperature | Read-only console; SOC and temperature are there to feed one | the status JSON is the feed; no control |
-| Point-and-tap on a phone rather than typed commands; colourised output | The dongle's pages | the command page polls on tab selection; no colour |
-| Which bikes, at what price | The thread's author: every Zero with the serial console, at model-dependent baud rates, plus CAN | this dongle is built for the SR/S MY2020 console |
+| Ask | Console row | On the dongle |
+|-----|-------------|---------------|
+| State of health, the most repeated ask | `bms interface` `pack_capacity_ah`, the same figure as the Capacity column of `status`. It read 85 Ah at 48 % and 84 Ah at 86 %, so it is a register, not remaining charge. Against a nominal 129 Ah for this pack that would be two thirds, which does not fit a five-year-old bike; what the register measures is an open question | the Ah figure, as a reading; no percentage until the register is understood |
+| Battery temperature | `bms interface` `min_pack_temp_c`, `max_pack_temp_c`; the `status` pack row | readings, and the pack row in the status JSON |
+| Lowest cell, cell imbalance | `bms interface` `lowest_cell_voltage_mv`; no per-cell list, so imbalance is the gap to the pack average | lowest cell as a reading |
+| Lean, pitch, telemetry | `msc` `Lean`, `Pitch`, `Tip_Angle` in tenths of a degree, `Yaw_rate`, wheel speeds, ABS events | readings |
+| Torque, RPM, motor and controller temperature, DC bus | `controller` `Motor_RPM`, `Actual_Torque`, `Req_Torque`, `Motor_Temp`, `Inverter_Temp`, `DC_Bus_Voltage`, `DC_Bus_Current` | readings |
+| Watts, time and miles | `dash info` `Odometer_km`, `Odometer_mi`, `Estimated_Range_km`, `Speed_kph`; `performance` `total_Whr`; `stats` on and run time | readings from `dash info` and `performance`; `stats` is a one-shot |
+| 12 V battery voltage and health | `in` `12V_Battery`, `DC-DC`, `12V_Combined`, `BMS_12V` in mV | readings; no health figure, the OEM's is not explained anywhere |
+| EVSE pilot and per-charger power | `charging` `Pilot_Current`, `EVSE_Connector_State`, `Chargers_Connected`, the chargers table | readings for the three; the table on the command page |
+| Fault codes, DTCs | `faults`; `obd` `Active_DTCs`, `MIL_On`, `Freeze_frame_DTC` | `faults` on the command page; `obd` counts as readings |
+| Cell signal, satellites, GPS fix | `ccm` `cell_signal_percent`, `cell_network_registration`, `connected_to_starcom`, `gps_is_valid`; the fix itself is in the same output | readings for the signal and the fix's validity; the coordinates are not shown and never leave the log |
+| Altitude | not on the console; the CCM reports it to the cloud only | no |
+| Theft attempt, anti-theft | not on the console | no |
+| State of charge, bike state, charging | `status`, `bms`, `dash info` `State_of_Charge`, `ccm` `hb_soc` | status JSON and readings |
+| Configuration | `config`, the install table | one-shot; the table is in mbb-reference.md |
+| Stop a charge at a chosen SOC, Home Assistant | read-only console; the status JSON and readings are the feed | no control |
+| Point-and-tap on a phone, colour | the dongle's pages | the command page polls on tab selection; no colour |
 
-A 2026 post in the same group (photo 10165269412658619) showed an owner's
-phone app reading Zero's Starcom cloud with the OEM app login. What drew the
-replies was what the OEM app hides: the 12 V battery's voltage and health,
-altitude, LTE-M signal strength, satellite count, a theft-attempt flag and
-the bike's location, and again the main pack's state of health. The console
-prints the same things locally: `ccm` has the GPS fix, satellite validity,
-cell signal and network registration, `in` the 12 V and DC-DC rails.
-
-The pattern: the most-wanted figures live in `bms interface`, `controller`,
-`msc`, `dash info`, `ccm` and `in`, of which only `in` is polled. State of health has no
-source line and would have to be derived from capacity over time, which the
-log makes possible.
+The commands that carry the wanted figures are `status`, `charging`, `bms`,
+`bms interface`, `controller`, `msc`, `dash info`, `in`, `ccm`, `faults`
+and `obd`; the poller runs them all but `obd` and `performance`.

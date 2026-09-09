@@ -13,6 +13,7 @@
 #include "http.h"
 #include "console.h"
 #include "poller.h"
+#include "readings.h"
 #include "sleep.h"
 #include "esp_task_wdt.h"
 #include "esp_system.h"
@@ -69,6 +70,7 @@ const char* sysResetReason() {
 static void onLine(const char* line, size_t len) {
     sleepNoteLine(line, len);   // the attended signals and the hibernate line, whatever else the line is
     pollerConsumeLine(line, len);   // a command's output is kept by the poller for the API, and logged below like any console traffic
+    readingsNoteLine(line, len);    // the figures owners asked for, from whatever carries them
     clockMaybeSetFromMbb(line, len);
     storeAppend(clockStamp() + " " + line, memcmp(line, "dongle:", 7) != 0);
 }

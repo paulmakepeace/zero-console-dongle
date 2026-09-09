@@ -8,6 +8,7 @@
 // typed by a console client is kept the same way as its answer goes by, so
 // the page is as fresh as the session without a command of the poller's own.
 #include "poller.h"
+#include "readings.h"
 #include "config.h"
 #include "mbb_uart.h"
 #include "util.h"
@@ -83,7 +84,10 @@ static void loadOutputs() {
             if (!n) break;
             body.concat(chunk, n);
         }
-        if (i >= 0 && body.length() == len) { outputs[i] = body; outputEpoch[i] = at; outputOk[i] = true; }
+        if (i >= 0 && body.length() == len) {
+            outputs[i] = body; outputEpoch[i] = at; outputOk[i] = true;
+            readingsFeed(body.c_str(), body.length(), at);   // the page's figures survive the reboot with their age
+        }
     }
     f.close();
 }
@@ -149,36 +153,39 @@ static void closeCurrent(bool ok) {
     else sendCurrent();
 }
 
+// A console client's typed command, echoed by the MBB as a line of its own
+// or on the prompt's line when typed soon after it, opens a watch on its
+// answer. Output lines are indented, so only a bare name at the line's
+// start, or one after the prompt, counts.
+static void tryOpen(const char* line, size_t len) {
+    if (!consoleOn || watch >= 0 || running) return;
+    static const char p[] = "ZERO MBB>";
+    if (len >= sizeof(p) - 1 && memcmp(line, p, sizeof(p) - 1) == 0) {
+        line += sizeof(p) - 1; len -= sizeof(p) - 1;
+        while (len && *line == ' ') { line++; len--; }
+    }
+    if (len == 0 || len >= 16 || *line == ' ') return;
+    char name[16];
+    memcpy(name, line, len); name[len] = 0;
+    int i = indexOf(name);
+    if (i >= 0) { watch = i; watchStartedMs = millis(); buf = ""; }
+}
+
 bool pollerConsumeLine(const char* line, size_t len) {
     static const char stopping[] = "MBB will hibernate";
     for (size_t i = 0; i + sizeof(stopping) - 1 <= len; i++)
         if (memcmp(line + i, stopping, sizeof(stopping) - 1) == 0) { mbbStopping = true; stoppingSinceMs = millis() ? millis() : 1; break; }
     if (!running) {
-        // No batch: a poll command typed by a console client echoes as one
-        // line, and its answer is kept as the batch would keep it.
-        if (watch < 0) {
-            if (consoleOn) {
-                // The prompt has no line end of its own: typed soon enough
-                // after it, the echo shares its line.
-                static const char p[] = "ZERO MBB>";
-                if (len >= sizeof(p) - 1 && memcmp(line, p, sizeof(p) - 1) == 0) { line += sizeof(p) - 1; len -= sizeof(p) - 1; }
-                while (len && *line == ' ') { line++; len--; }
-                if (len > 0 && len < 16) {
-                    char name[16];
-                    memcpy(name, line, len); name[len] = 0;
-                    int i = indexOf(name);
-                    if (i >= 0) { watch = i; watchStartedMs = millis(); buf = ""; }
-                }
-            }
-            return false;
-        }
-        if (isPrompt(line, len)) { keep(watch); buf = ""; watch = -1; return true; }
+        // No batch: a poll command typed by a console client is kept from
+        // its answer as the batch would keep it.
+        if (watch < 0) { tryOpen(line, len); return false; }
+        if (isPrompt(line, len)) { keep(watch); buf = ""; watch = -1; tryOpen(line, len); return true; }   // the next echo may share the prompt's line
         if (isUnsolicited(line, len) || (len >= 7 && memcmp(line, "dongle:", 7) == 0)) return false;
         append(line, len);
         return true;
     }
     if (cur < 0 || cur >= NCMD) return false;
-    if (isPrompt(line, len)) { closeCurrent(true); return true; }
+    if (isPrompt(line, len)) { closeCurrent(true); if (!running) tryOpen(line, len); return true; }   // a batch ending here for a client: the echo may share the line
     if (isUnsolicited(line, len)) return false;   // the log wants these whatever we are doing
     if (len >= 7 && memcmp(line, "dongle:", 7) == 0) return false;   // the dongle's own markers belong in the file
     if (expectEcho) {
@@ -214,13 +221,13 @@ void pollerTick(bool mbbAwake, bool consoleBusy) {
         return;
     }
     if (!mbbAwake || consoleBusy || mbbStopping) return;
+    if (watch >= 0) return;   // a typed command still being answered: its lines would land in the batch's first slot
     if (!requested && now - awakeSinceMs < POLL_SETTLE_MS) return;   // the schedule lets the MBB finish booting; a request is the operator's call
     bool due = intervalS && (lastPollMs == 0 || now - lastPollMs >= intervalS * 1000UL);
     if (!requested && !due) return;
     requested = false;
     finishAfterThis = false;
     running = true;
-    watch = -1;   // the batch owns buf from here
     cur = 0;
     storeAppend(clockStamp() + " dongle: poll", false);
     mbbTxHold(true);

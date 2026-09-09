@@ -1,6 +1,6 @@
 #pragma once
 
-#define FW_VERSION      "0.10.1"
+#define FW_VERSION      "0.11.0"
 #define DONGLE_NAME     "zero-dongle"      // base of the hostname, mDNS name and setup AP name; the last four hex digits of the MAC are appended
 // The setup network's password defaults to "zero-" plus the last six hex digits
 // of the MAC, printed at boot, and can be replaced from the setup page.
@@ -23,7 +23,7 @@
 #define SETUP_NET_MS    600000    // not joined this long with credentials: the setup network comes up beside the retries; and how long a fresh one counts as use
 
 // The poller: a fixed command set on a slow schedule while the MBB is awake.
-#define POLL_CMDS       "status", "charging", "bms", "pdu", "in", "faults"
+#define POLL_CMDS       "status", "charging", "bms", "pdu", "in", "faults", "bms interface", "controller", "msc", "dash info", "ccm"
 #define POLL_INTERVAL_S 60
 #define POLL_SETTLE_MS  20000    // no commands into a MBB that is still booting
 #define POLL_TIMEOUT_MS 8000     // a command with no prompt back by then is abandoned

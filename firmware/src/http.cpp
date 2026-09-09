@@ -8,6 +8,7 @@
 #include "store.h"
 #include "util.h"
 #include "poller.h"
+#include "readings.h"
 #include "sleep.h"
 #include "settings.h"
 #include "wlan.h"
@@ -37,7 +38,9 @@ void httpTick() { if (up) http.handleClient(); }
 static const char PAGE[] PROGMEM = R"HTML(<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1,maximum-scale=1"><meta name=color-scheme content="light dark">
 <title>zero-dongle</title>
 <style>:root{color-scheme:light dark}html,body{margin:0;max-width:100%;overflow-x:hidden}body{font:14px system-ui,sans-serif;padding:1em;box-sizing:border-box;width:100%;background:Canvas;color:CanvasText}pre{background:rgba(127,127,127,.15);padding:.5em;overflow-x:auto;font-size:12px}table{border-collapse:collapse;width:100%;table-layout:fixed}td{padding:.1em .8em .1em 0;overflow-wrap:anywhere;word-break:break-all}td:first-child{width:9em;word-break:normal}body,p,div{overflow-wrap:anywhere;word-break:break-word}a{margin-right:1em}</style>
-<h2 id=t>zero-dongle</h2><p><a href=/cmd>Command outputs</a></p><table id=s></table>
+<h2 id=t>zero-dongle</h2><p><a href=/cmd>Command outputs</a></p>
+<h3>Bike</h3><table id=b></table>
+<h3>Dongle</h3><table id=s></table>
 <h3>Files</h3><div id=fs></div><div id=f></div>
 <h3>Last lines</h3><pre id=l></pre>
 <h3>Firmware update</h3>
@@ -46,9 +49,19 @@ static const char PAGE[] PROGMEM = R"HTML(<!doctype html><meta charset=utf-8><me
 <script>
 async function j(u){return (await fetch(u)).json()}
 function row(t,k,v){const tr=t.insertRow();tr.insertCell().textContent=k;tr.insertCell().textContent=/^u\d{6}\.\d{3}$/.test(v)?'before the clock was set, '+parseFloat(v.slice(1))+' s after boot':typeof v=='object'?JSON.stringify(v):v}
+function when(a){return a==-2?'before this boot':a<0?'':a<120?a+' s ago':Math.round(a/60)+' min ago'}
+const GROUPS={pack:'Pack',motor:'Motor',attitude:'Attitude',trip:'Trip','12v':'12 V',cell:'Cellular and GPS',charge:'Charging',faults:'Faults'};
+async function bike(){
+ const r=await j('/api/readings'); const t=document.getElementById('b'); t.textContent='';
+ if(!r.length){row(t,'no readings yet','the MBB has not answered a poll since boot');return}
+ let g='';
+ for(const x of r){if(x.g!=g){g=x.g;const tr=t.insertRow();const c=tr.insertCell();c.colSpan=2;c.textContent=GROUPS[g]||g;c.style.fontWeight='bold';c.style.paddingTop='.5em'}
+  const tr=t.insertRow();tr.insertCell().textContent=x.n.replace(/_/g,' ');tr.insertCell().textContent=x.v+(x.u?' '+x.u:'')+(x.age_s>=0||x.age_s==-2?'  ('+when(x.age_s)+')':'')}
+}
 let tick=0;
 async function refresh(){
  const s=await j('/api/status'); document.getElementById('t').textContent=s.name;
+ await bike();
  const t=document.getElementById('s'); t.textContent=''; for(const [k,v] of Object.entries(s)) row(t,k,v);
  const st=s.store; document.getElementById('fs').textContent=st.files+' file(s), '+(st.bytes/1024).toFixed(0)+' KB on flash of '+(st.fs_total/1024).toFixed(0)+' KB, compressing '+st.ratio+'x since boot'+(st.days_left>=0?', about '+st.days_left+' day(s) of space left at this rate':'');
  if(tick++%6) return;   // the file list every 30 s: a walk of the flash per fetch
@@ -330,6 +343,7 @@ void httpBegin() {
         wifiJoin(ssid.c_str(), http.arg("pass").c_str());
     });
     http.on("/api/cmd", HTTP_GET, []() { http.send(200, "application/json", pollerListJson()); });
+    http.on("/api/readings", HTTP_GET, []() { http.send(200, "application/json", readingsJson()); });   // a page's refresh, not use
     http.on("/api/cmd/poll", HTTP_POST, []() {
         if (!tokenOk()) return;
         touch();

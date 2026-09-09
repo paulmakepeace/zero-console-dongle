@@ -8,6 +8,7 @@
 #include "json_escape.h"
 #include "hibernate.h"
 #include "mbb_parse.h"
+#include "rows.h"
 #include "dictkeeper.h"
 
 void setUp() {}
@@ -320,6 +321,46 @@ void test_keeper_candidate_buffer_is_bounded() {
     TEST_ASSERT_TRUE(keeper.noveltyBytes() > 400);
 }
 
+// --- readings ----------------------------------------------------------------
+static bool row(const char* s, RowValue& r) { return parseRow(s, strlen(s), r); }
+
+void test_row_comma_table() {
+    RowValue r;
+    TEST_ASSERT_TRUE(row("           Motor_Temp,         35,         C,      Yes,         0", r));
+    TEST_ASSERT_TRUE(rowNameIs(r, "Motor_Temp")); TEST_ASSERT_EQUAL(35, r.value); TEST_ASSERT_EQUAL(0, r.decimals);
+    TEST_ASSERT_TRUE(row("                 Lean,       -135,    degx10,      Yes,         0", r));
+    TEST_ASSERT_TRUE(rowNameIs(r, "Lean")); TEST_ASSERT_EQUAL(-135, r.value);
+    TEST_ASSERT_TRUE(row("               cell_signal_percent,          0,          0", r));   // the ccm shape, three fields
+    TEST_ASSERT_TRUE(rowNameIs(r, "cell_signal_percent")); TEST_ASSERT_EQUAL(0, r.value);
+    TEST_ASSERT_TRUE(row("                DC-DC,      13163,        mV,      Yes,         0", r));
+    TEST_ASSERT_TRUE(rowNameIs(r, "DC-DC")); TEST_ASSERT_EQUAL(13163, r.value);
+    TEST_ASSERT_TRUE(row("        Pilot_Current,         15,          ,       No,         0", r));
+    TEST_ASSERT_EQUAL(15, r.value);
+}
+
+void test_row_dash_list() {
+    RowValue r;
+    TEST_ASSERT_TRUE(row(" - lowest_cell_voltage_mv 3976", r));
+    TEST_ASSERT_TRUE(rowNameIs(r, "lowest_cell_voltage_mv")); TEST_ASSERT_EQUAL(3976, r.value);
+    TEST_ASSERT_TRUE(row(" - max_charge_voltage 117.6 V", r));
+    TEST_ASSERT_TRUE(rowNameIs(r, "max_charge_voltage")); TEST_ASSERT_EQUAL(1176, r.value); TEST_ASSERT_EQUAL(1, r.decimals);
+    TEST_ASSERT_TRUE(row("- pack_current_ma 612", r));   // the console's own inconsistent indent
+    TEST_ASSERT_EQUAL(612, r.value);
+}
+
+void test_row_rejects_what_is_not_a_figure() {
+    RowValue r;
+    TEST_ASSERT_FALSE(row("            Parameter,      Value,     Units,    Valid,   In Test", r));   // a header
+    TEST_ASSERT_FALSE(row(" - status 0x80000036", r));           // hex
+    TEST_ASSERT_FALSE(row("                              fw_ver,  2022.12.8,          0", r));   // a version, not a number
+    TEST_ASSERT_FALSE(row(" Bike State: STOP", r));
+    TEST_ASSERT_FALSE(row("dongle: poll", r));
+    TEST_ASSERT_FALSE(row("ZERO MBB> ", r));
+    TEST_ASSERT_FALSE(row(" - time since status_rpdo_received 79", r));   // a multi-word name never matches a definition
+    TEST_ASSERT_FALSE(row("", r));
+}
+
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_stamp_plain_and_debug_prefixed);
@@ -345,5 +386,8 @@ int main() {
     RUN_TEST(test_prompt_and_unsolicited);
     RUN_TEST(test_soc_and_bike_state);
     RUN_TEST(test_pack_row);
+    RUN_TEST(test_row_comma_table);
+    RUN_TEST(test_row_dash_list);
+    RUN_TEST(test_row_rejects_what_is_not_a_figure);
     return UNITY_END();
 }

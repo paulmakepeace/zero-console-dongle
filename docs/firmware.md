@@ -29,8 +29,10 @@ its [README](../firmware/README.md):
 6. **WiFi by provisioning.** No credentials in the build. With none stored,
    the dongle raises a setup access point and stores what is entered there.
 7. **The poller.** A fixed command set, `status`, `charging`, `bms`, `pdu`,
-   `in`, `faults`, on a slow schedule while the MBB is awake, 60 s by
-   default, and on request. Each response ends at the `ZERO MBB>` prompt,
+   `in`, `faults`, `bms interface`, `controller`, `msc`, `dash info` and
+   `ccm`, the commands that carry the figures owners asked for (see
+   [owner-asks.md](owner-asks.md)), on a slow schedule while the MBB is
+   awake, 60 s by default, and on request. Each response ends at the `ZERO MBB>` prompt,
    which is the frame delimiter. A batch is a transaction: the transmit pin
    stays attached across every command, because the detach's own NUL makes
    the MBB print a prompt that a prompt-counting framer would take for a
@@ -51,7 +53,8 @@ its [README](../firmware/README.md):
    transcript and the pulled files carry the bike's state every minute it
    was awake: a charge curve, a ride's pack temperatures. A batch is some
    10 KB raw, most of it text the dictionary already holds, and the poll
-   interval setting is the volume control. The last output of each is served raw at
+   interval setting is the volume control; the eleven commands are some
+   17 KB raw a batch. The last output of each is served raw at
    `/api/cmd/NAME` and on the tabbed page at `/cmd`; the bike state and
    the BMS row of `status`, state of charge, pack voltage and current,
    negative while the pack is being charged,
@@ -69,6 +72,19 @@ its [README](../firmware/README.md):
    has the bike's last known state, with its age, before the MBB's next
    wake; the file is the board's own, beside the dictionaries, and is
    neither listed nor reclaimed.
+   The figures themselves are kept by name in a readings table
+   (`readings.cpp`, the row parser in `pure/rows.h`): every framed line is
+   tried as a console row, a comma table's "Name, value, ..." or a dash
+   list's "- name value", and a name on the table's list keeps its value,
+   with its decimals, and the moment it was seen. The line's source does
+   not matter, a batch, a command typed on the console or a line the MBB
+   prints on its own, and the saved last batch re-feeds the table at boot
+   with its wall time, so the main page's Bike table has the bike's last
+   known figures before the MBB's next wake. Units are pinned per name
+   rather than read from the row, since the third column is a unit in some
+   outputs and a label in others. The GPS fix and the cellular unit id are
+   not on the list. `/api/readings` serves the table.
+
 8. **Light sleep when the bike is unattended.** The dongle sleeps only once
    the bike has gone a configurable number of days, three by default,
    without any of the three lines that say it is looked after: a 12 V
