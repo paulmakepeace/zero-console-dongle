@@ -6,9 +6,11 @@ finished, what state the two boards are in, and how to verify a change.
 
 ## The two boards
 
-`zero-dongle-a12c` is the bench board: a DevKit and a CP2102 adapter facing
-each other, no bike. `zero-dongle-ebdc` lives in the tank compartment on the
-bike. Both run the same firmware. `tools/status.py` prints one line per board
+`zero-dongle-ebdc` is the bench board: a DevKit and a CP2102 adapter facing
+each other, no bike. `zero-dongle-a12c` lives in the tank compartment on the
+bike. The code is the source of truth for which is which: `bench.py` refuses
+to run against `a12c` by name, and `flash.sh` defaults to the bench. Both run
+the same firmware. `tools/status.py` prints one line per board
 and only lists a board that answers, so a missing bike line means the bike is
 hibernating, not that anything failed. Boot times, UART overflow counts and
 heap floor are on that line; the firmware [README](../firmware/README.md) has

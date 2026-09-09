@@ -3,16 +3,17 @@
 # come back on the new version.
 #
 # Usage: tools/flash.sh [HOST ...]
-#   HOST is a board name or address; default zero-dongle-a12c.local, and
-#   "all" means every board in DONGLE_BOARDS (default: the bike unit and the
-#   bench board). DONGLE_HOST sets the default.
+#   HOST is a board name or address; default zero-dongle-ebdc.local, the
+#   bench board, so a bare run never flashes the bike. Name zero-dongle-a12c
+#   (the bike) explicitly, or "all" for every board in DONGLE_BOARDS.
+#   DONGLE_HOST sets the default.
 #
 # Prints fw, boot and reset reason once the board reports the built version
 # and a higher boot count; exits 1 if any board does not come back in 120 s.
 set -eu
 repo=$(cd "$(dirname "$0")/.." && pwd)
-boards=${DONGLE_BOARDS:-"zero-dongle-a12c.local zero-dongle-ebdc.local"}
-hosts=${*:-${DONGLE_HOST:-zero-dongle-a12c.local}}
+boards=${DONGLE_BOARDS:-"zero-dongle-ebdc.local zero-dongle-a12c.local"}
+hosts=${*:-${DONGLE_HOST:-zero-dongle-ebdc.local}}
 [ "$hosts" = all ] && hosts=$boards
 pio=${PIO:-$HOME/.platformio/penv/bin/pio}
 
