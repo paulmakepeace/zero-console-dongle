@@ -294,9 +294,10 @@ def post(host, path, body=None):
         try:
             with urllib.request.urlopen(req, timeout=8) as r:
                 return r.read().decode()
-        except OSError:
+        except OSError as exc:
             if attempt == 3:
                 raise
+            print("  note POST %s attempt %d failed (%s); retrying" % (path, attempt + 1, exc))
             time.sleep(3)
 
 
@@ -311,7 +312,19 @@ def t_poll(host, ad):
     mbb.first_delay = 1.5
     mbb.start()
     try:
-        post(host, "/api/settings")   # nothing to change; proves the header path
+        # A scheduled batch may be in flight, timing out command by command
+        # with nothing answering: an open console ends it after the current
+        # command. Then the schedule goes off, so the batches here are the
+        # requested ones; the interval is put back at the end.
+        c = console(host)
+        interval = json.loads(get(host, "/api/settings")[1])["poll"]
+        post(host, "/api/settings", b"poll=0")   # off before the console closes, or the schedule starts one in the gap
+        t0 = time.time()
+        while status(host)["poll"]["active"] and time.time() - t0 < 60:
+            time.sleep(1)
+        c.close()
+        time.sleep(3)
+        mbb.seen.clear()   # the batch just waited out was answered too; the first delay applies to the requested one
         print("  ", post(host, "/api/cmd/poll"))
         time.sleep(0.4)
         live = get(host, "/live")[1]
@@ -351,6 +364,26 @@ def t_poll(host, ad):
         check(rd["max_charge_voltage"]["v"] == 117.6 and rd["max_charge_voltage"]["u"] == "V", "a decimal figure keeps its decimals: %r" % rd.get("max_charge_voltage"))
         check("gps_longitude_radians" not in rd and "unit_id" not in rd, "the fix and the unit id are not readings")
         check("Pilot_Current" not in rd, "a row the MBB marks invalid is not a reading")
+        # A console client leaves with the MBB's last prompt still in the
+        # framer and a batch due at once: the prompt must not close the
+        # batch's first command on its own echo.
+        time.sleep(4)
+        c = console(host)
+        print("  ", post(host, "/api/cmd/poll"))   # held while the client is on
+        ad.write(b"ZERO MBB> ")                    # no line end: the framer holds it
+        time.sleep(0.3)
+        c.close()
+        mbb.seen.clear()
+        t0 = time.time()
+        while time.time() - t0 < 60:
+            s = status(host)
+            if not s["poll"]["active"] and len(mbb.seen) >= 13:
+                break
+            time.sleep(0.3)
+        rows = {r["name"]: r for r in json.loads(get(host, "/api/cmd")[1])}
+        body = get(host, "/api/cmd/status")[1]
+        check(len(mbb.seen) >= 13 and rows["status"]["ok"] and "Bike State" in body and rows["status"]["bytes"] > 1000,
+              "a stale prompt in the framer did not close the batch's first command: status %d bytes" % rows["status"]["bytes"])
         try:
             get(host, "/api/cmd/nope")
             check(False, "unknown command is 404")
@@ -359,6 +392,10 @@ def t_poll(host, ad):
     finally:
         mbb.stop.set()
         mbb.join(1)
+        try:
+            post(host, "/api/settings", ("poll=%d" % interval).encode())
+        except Exception as exc:
+            print("  note the poll interval was NOT put back to %s: %s" % (interval, exc))
 
 
 def t_storage(host, ad):
@@ -516,6 +553,7 @@ def changed_scenarios():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     tag = subprocess.run(["git", "describe", "--tags", "--abbrev=0"], cwd=root, capture_output=True, text=True).stdout.strip()
     files = subprocess.run(["git", "diff", "--name-only", tag], cwd=root, capture_output=True, text=True).stdout.split()
+    files += subprocess.run(["git", "ls-files", "--others", "--exclude-standard"], cwd=root, capture_output=True, text=True).stdout.split()   # new files not yet added
     picked = set()
     for f in files:
         if not f.startswith("firmware/src/"):

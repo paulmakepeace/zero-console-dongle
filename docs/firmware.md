@@ -38,7 +38,15 @@ its [README](../firmware/README.md):
    stays attached across every command, because the detach's own NUL makes
    the MBB print a prompt that a prompt-counting framer would take for a
    command's end; the schedule waits 20 s after the MBB wakes, a request
-   does not, and the poller never runs
+   made while it is awake does not, one carried across a wake does, and a
+   batch waits for the line to have been quiet a little longer than a
+   partial line's flush time, ten seconds at most so a chattering MBB
+   cannot starve it, and takes a bare prompt arriving before its first
+   echo as one from before the batch rather than a close. The prompt
+   itself leaves the framer the instant it arrives, since it never gets a
+   line end, so a command closes the moment it is answered and the
+   thirteen take seconds, not the half minute the idle flush would cost;
+   the poller never runs
    while it sleeps or once it has announced its hibernation, and stands
    aside for a console client, finishing the command in flight. A command
    of the set that the client types is kept from its answer as it goes by,

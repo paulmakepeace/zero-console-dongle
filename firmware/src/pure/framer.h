@@ -28,6 +28,13 @@ struct LineFramer {
         }
     }
 
+    // Whether the partial line ends with the text: a known terminator that
+    // never gets a line end, the MBB's prompt, can go out at once.
+    bool endsWith(const char* s) const {
+        size_t m = strlen(s);
+        return len >= m && memcmp(line + len - m, s, m) == 0;
+    }
+
     // The partial line, for a prompt or a timeout; false when there is none.
     template <class Emit>
     bool flush(Emit&& emit) {

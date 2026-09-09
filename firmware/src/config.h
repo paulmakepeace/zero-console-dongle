@@ -1,6 +1,6 @@
 #pragma once
 
-#define FW_VERSION      "0.11.2"
+#define FW_VERSION      "0.11.3"
 #define DONGLE_NAME     "zero-dongle"      // base of the hostname, mDNS name and setup AP name; the last four hex digits of the MAC are appended
 // The setup network's password defaults to "zero-" plus the last six hex digits
 // of the MAC, printed at boot, and can be replaced from the setup page.
@@ -43,7 +43,7 @@
 #define LAST_LINE_CHARS 200           // each cut to this many characters there
 #define SESSION_MAX_BYTES (256 * 1024) // a session that never sleeps rolls to a new file here
 
-#define IDLE_FLUSH_MS   2000   // a partial line (the prompt) is written after this much silence
+#define IDLE_FLUSH_MS   2000   // a partial line is written after this much silence; the prompt goes out at once
 #define SLEEP_AFTER_MS  5000   // MBB counted asleep after this long with pin 8 low and no bytes
 #define AWAKE_HIGH_MS   60     // pin 8 high this long with nothing arriving counts as awake
 #define TX_HOLD_MS      2000   // TX stays attached this long after the last byte sent

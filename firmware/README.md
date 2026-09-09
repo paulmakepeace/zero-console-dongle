@@ -141,8 +141,9 @@ credentials.
 | `/setup`             | POST   | its form: `ssid` and `pass` to join, if given, plus the settings fields of `/api/settings`; the reply goes out before the join starts |
 | `/api/cmd`           | GET    | JSON list of the polled commands: age and size of the last good output, whether the last attempt succeeded, age of the last failure |
 | `/api/cmd/NAME`      | GET    | the last output of that command, from the poller or from a console client that typed it, text, with an `X-Age-Seconds` header; 503 until polled, 404 if unknown |
-| `/api/cmd/poll`      | POST   | start the batch: at once with the MBB awake and no console client, skipping the 20 s settle, otherwise at its next wake; 409 once the MBB has announced its hibernation |
+| `/api/cmd/poll`      | POST   | start the batch: at once with the MBB awake and no console client, skipping the 20 s settle, otherwise at its next wake; a batch already running is the answer; 409 once the MBB has announced its hibernation |
 | `/api/readings`      | GET    | JSON list of the figures owners asked for, by name with group, value, unit and age, kept from whatever line carried them; the main page's Bike table |
+| `/api/wake?hold=S`   | POST   | drive pin 9 high for S seconds (1 to 900, default 120), which wakes a hibernating MBB and keeps it awake for the hold; `wake_hold_s` in the status counts it down. For the cellular check-in experiment (`tools/ccm-wake-experiment.py`) |
 
 DELETE, `/update`, `/api/wifi/reset`, `POST /api/settings` and `POST /api/cmd/poll` change state and require the header
 `X-Dongle: 1`, which a form on another website cannot send from your

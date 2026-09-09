@@ -179,6 +179,7 @@ static String statusJson() {   // a health check is not use: a watcher must not 
     s += ",\"mbb_awake\":" + String(mbbAwake() ? "true" : "false");
     s += ",\"line_high\":" + String(mbbLineHigh() ? "true" : "false");
     s += ",\"tx_attached\":" + String(mbbTxAttached() ? "true" : "false");
+    s += ",\"wake_hold_s\":" + String(mbbWakeHoldS());
     s += ",\"time\":\"" + jsonEscape(clockStamp()) + "\",\"time_source\":\"" + clockSourceName() + "\"";
     s += ",\"ntp_age_s\":" + String(clockNtpAgeS() == UINT32_MAX ? -1 : (long)clockNtpAgeS());
     s += ",\"wifi\":" + wifiStatusJson();
@@ -233,7 +234,7 @@ static void handleCmd(const String& name) {
 
 static void handleFile() {
     String uri = http.uri();
-    if (uri.startsWith("/api/cmd/")) { handleCmd(uri.substring(9)); return; }
+    if (uri.startsWith("/api/cmd/")) { handleCmd(WebServer::urlDecode(uri.substring(9))); return; }   // the server leaves the path encoded: "bms%20interface"
     if (!uri.startsWith("/logs/")) {   // a stray probe is not use
         if (wifiOnSetupNetwork(http.client().localIP())) {   // a phone checking for the internet: this is a captive network, here is its page; its sheet closes when the setup network goes
             http.sendHeader("Cache-Control", "no-store");
@@ -244,13 +245,13 @@ static void handleFile() {
         http.send(404, "text/plain", "not found");
         return;
     }
-    touch();
     String name = uri.substring(6);
     if (name.length() == 0) {
-        http.send(404, "text/plain", "not found");
+        http.send(404, "text/plain", "not found");   // a stray probe is not use
         return;
     }
     if (http.method() == HTTP_GET) {
+        touch();
         if (name == storeActiveName()) {
             http.send(409, "text/plain", "file is active; see /live");
             return;
@@ -344,6 +345,15 @@ void httpBegin() {
     });
     http.on("/api/cmd", HTTP_GET, []() { http.send(200, "application/json", pollerListJson()); });
     http.on("/api/readings", HTTP_GET, []() { http.send(200, "application/json", readingsJson()); });   // a page's refresh, not use
+    http.on("/api/wake", HTTP_POST, []() {   // pin 9 high for a hold: wakes a hibernating MBB and keeps it awake, for the CCM check-in experiment
+        if (!tokenOk()) return;
+        touch();
+        long hold = http.hasArg("hold") ? http.arg("hold").toInt() : 120;
+        if (hold < 1) hold = 1;
+        if (hold > 900) hold = 900;
+        mbbWake((uint32_t)hold * 1000UL);
+        http.send(200, "text/plain", "waking, held for " + String(hold) + " s");
+    });
     http.on("/api/cmd/poll", HTTP_POST, []() {
         if (!tokenOk()) return;
         touch();

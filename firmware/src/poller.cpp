@@ -34,6 +34,8 @@ static uint32_t stoppingSinceMs = 0;
 static uint32_t intervalS = POLL_INTERVAL_S;
 static uint32_t lastPollMs = 0;
 static bool requested = false;
+static bool requestSkipsSettle = false;   // a request made while the MBB was awake; one carried across a wake waits out the boot
+static uint32_t quietWaitMs = 0;          // when a due batch first found the line not yet quiet
 static bool running = false;
 static bool finishAfterThis = false;
 static int cur = -1;
@@ -95,7 +97,12 @@ static void loadOutputs() {
 void pollerBegin(uint32_t s) { intervalS = s; buf.reserve(POLL_MAX_BYTES + 128); loadOutputs(); }
 void pollerSetInterval(uint32_t s) { intervalS = s; }
 uint32_t pollerInterval() { return intervalS; }
-bool pollerRequest() { if (mbbStopping) return false; requested = true; return true; }
+bool pollerRequest() {
+    if (mbbStopping) return false;
+    if (running) return true;   // the batch in flight is the answer: a request repeated while it runs, an HTTP retry for one, does not queue another
+    requested = true; requestSkipsSettle = wasAwake;
+    return true;
+}
 bool pollerActive() { return running; }
 long pollerSoc() { return soc; }
 const char* pollerBikeState() { return bikeState; }
@@ -117,12 +124,12 @@ static void sendCurrent() {
     }
 }
 
-static void finish() {
+static void finish(bool quiet) {
     running = false;
     cur = -1;
     mbbTxHold(false);
     lastPollMs = millis();
-    storeTick(true);   // the batch just ended and the MBB is quiet: commit now, so the output buffer never fills mid-batch and forces an erase while it is talking
+    storeTick(quiet);   // the batch just ended: commit now if the MBB is quiet, so the output buffer never fills mid-batch and forces an erase while it is talking
 }
 
 // buf holds command i's whole output: keep it for the API, and read from it
@@ -144,18 +151,19 @@ static void append(const char* line, size_t len) {
 }
 
 static void closeCurrent(bool ok) {
-    if (cur < 0 || cur >= NCMD) { finish(); return; }
+    bool quiet = ok || millis() - mbbLastByteMs() > IDLE_FLUSH_MS;   // closed on its prompt, or the line has gone quiet: a command closed on its timeout may still be printing
+    if (cur < 0 || cur >= NCMD) { finish(quiet); return; }
     if (ok) keep(cur);
     else { outputOk[cur] = false; failedAtMs[cur] = millis() ? millis() : 1; }   // the last good output stays
     buf = "";
     cur++;
-    if (cur >= NCMD || finishAfterThis) finish();
+    if (cur >= NCMD || finishAfterThis) finish(quiet);
     else {
         // The MBB is waiting for the next command: the quiet moment to write
         // the lines so far, so a full output buffer never forces an erase
         // under an answer, where it holds the UART interrupt off longer than
         // the FIFO covers.
-        storeTick(true);
+        storeTick(quiet);
         sendCurrent();
     }
 }
@@ -192,7 +200,21 @@ bool pollerConsumeLine(const char* line, size_t len) {
         return true;
     }
     if (cur < 0 || cur >= NCMD) return false;
-    if (isPrompt(line, len)) { closeCurrent(true); if (!running) tryOpen(line, len); return true; }   // a batch ending here for a client: the echo may share the line
+    if (isPrompt(line, len)) {
+        static const char p[] = "ZERO MBB>";
+        const char* r = line + sizeof(p) - 1; size_t rl = len - (sizeof(p) - 1);
+        while (rl && *r == ' ') { r++; rl--; }
+        // The previous command's prompt, late after its timeout, carrying this
+        // command's echo: whatever arrived before it was that command's tail,
+        // not this one's answer, and this one's close is still to come.
+        if (rl == strlen(CMDS[cur]) && memcmp(r, CMDS[cur], rl) == 0) { buf = ""; expectEcho = false; return true; }
+        // A bare prompt in the moment after the send is from before the batch:
+        // this command's close cannot precede its echo.
+        if (rl == 0 && expectEcho && millis() - cmdStartedMs < 500) return true;
+        closeCurrent(true);
+        if (!running) tryOpen(line, len);   // a batch ending here for a client: the echo may share the line
+        return true;
+    }
     if (isUnsolicited(line, len)) return false;   // the log wants these whatever we are doing
     if (len >= 7 && memcmp(line, "dongle:", 7) == 0) return false;   // the dongle's own markers belong in the file
     if (expectEcho) {
@@ -211,7 +233,7 @@ void pollerTick(bool mbbAwake, bool consoleBusy) {
     if (watch >= 0 && !running && (!mbbAwake || now - watchStartedMs > POLL_TIMEOUT_MS)) { watch = -1; buf = ""; }
     if (mbbAwake != wasAwake) {
         wasAwake = mbbAwake;
-        if (mbbAwake) { awakeSinceMs = now; mbbStopping = false; }
+        if (mbbAwake) { awakeSinceMs = now; mbbStopping = false; requestSkipsSettle = false; }   // a request from before the wake waits for the boot to finish
         else if (saveDue) saveOutputs();   // the session's last state, at the quiet edge
     }
     // An announcement the MBB did not follow through on (a key-on inside the
@@ -229,7 +251,16 @@ void pollerTick(bool mbbAwake, bool consoleBusy) {
     }
     if (!mbbAwake || consoleBusy || mbbStopping) return;
     if (watch >= 0) return;   // a typed command still being answered: its lines would land in the batch's first slot
-    if (!requested && now - awakeSinceMs < POLL_SETTLE_MS) return;   // the schedule lets the MBB finish booting; a request is the operator's call
+    // The framer may still hold the MBB's last prompt: it flushes after
+    // IDLE_FLUSH_MS on the capture task, and the line reaches this task a
+    // pass later, so wait a little past that. A chattering MBB does not
+    // starve the batch: the echo rule below covers a late prompt too.
+    if (now - mbbLastByteMs() < IDLE_FLUSH_MS + 500) {
+        if (!quietWaitMs) quietWaitMs = now;
+        if (now - quietWaitMs < 10000) return;
+    }
+    quietWaitMs = 0;
+    if (!(requested && requestSkipsSettle) && now - awakeSinceMs < POLL_SETTLE_MS) return;   // the schedule lets the MBB finish booting; a request made while awake is the operator's call
     bool due = intervalS && (lastPollMs == 0 || now - lastPollMs >= intervalS * 1000UL);
     if (!requested && !due) return;
     requested = false;

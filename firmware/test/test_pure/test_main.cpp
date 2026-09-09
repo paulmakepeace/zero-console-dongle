@@ -324,6 +324,20 @@ void test_keeper_candidate_buffer_is_bounded() {
 // --- readings ----------------------------------------------------------------
 static bool row(const char* s, RowValue& r) { return parseRow(s, strlen(s), r); }
 
+void test_framer_knows_the_prompt() {
+    LineFramer<64> f;
+    std::vector<std::string> out;
+    auto emit = [&](const char* l, size_t n) { out.emplace_back(l, n); };
+    f.feed((const uint8_t*)"ok\nZERO MBB> ", 13, emit);
+    TEST_ASSERT_EQUAL(1, out.size());
+    TEST_ASSERT_TRUE(f.endsWith("ZERO MBB> "));
+    TEST_ASSERT_FALSE(f.endsWith("ZERO MBB> x"));
+    f.flush(emit);
+    TEST_ASSERT_EQUAL(2, out.size());
+    TEST_ASSERT_EQUAL_STRING("ZERO MBB> ", out[1].c_str());
+    TEST_ASSERT_FALSE(f.endsWith("ZERO MBB> "));   // nothing held now
+}
+
 void test_row_comma_table() {
     RowValue r;
     TEST_ASSERT_TRUE(row("           Motor_Temp,         35,         C,      Yes,         0", r));
@@ -418,6 +432,7 @@ int main() {
     RUN_TEST(test_prompt_and_unsolicited);
     RUN_TEST(test_soc_and_bike_state);
     RUN_TEST(test_pack_row);
+    RUN_TEST(test_framer_knows_the_prompt);
     RUN_TEST(test_row_comma_table);
     RUN_TEST(test_row_dash_list);
     RUN_TEST(test_number_edges);

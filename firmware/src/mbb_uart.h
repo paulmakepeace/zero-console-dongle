@@ -13,6 +13,8 @@ bool mbbAwake();
 bool mbbTxAttached();
 size_t mbbWrite(const uint8_t* data, size_t len);   // bytes queued; 0 while the MBB is asleep
 void mbbTxHold(bool on);   // keep the transmit pin attached across a batch; pin 8 low still releases it
+void mbbWake(uint32_t holdMs);   // drive pin 9 high for the hold, pin 8 low or not: wakes a hibernating MBB and keeps it up
+uint32_t mbbWakeHoldS();         // seconds left of a wake's hold; 0 when none
 uint32_t mbbLastByteMs();
 uint32_t mbbOverflows();       // FIFO overruns: bytes were lost
 uint32_t mbbBackpressure();    // ring buffer full: bytes were held, none lost

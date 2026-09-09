@@ -75,8 +75,26 @@ static void txDetach() {
 }
 
 // The hold ends on time, or the moment pin 8 is seen low: a MBB that is
-// powering down must not find pin 9 driven.
-static bool holdOver() { return (!txHeld && (int32_t)(millis() - txHoldUntilMs) > 0) || !lineHigh; }
+// powering down must not find pin 9 driven. A deliberate wake is the one
+// exception: pin 9 high is the MBB's wake signal, and it is driven for the
+// wake's own hold whatever pin 8 says.
+static volatile uint32_t wakeUntilMs = 0;
+static bool wakeOn() { return wakeUntilMs && (int32_t)(millis() - wakeUntilMs) < 0; }
+static bool holdOver() {
+    if (wakeOn()) return false;
+    return (!txHeld && (int32_t)(millis() - txHoldUntilMs) > 0) || !lineHigh;
+}
+
+void mbbWake(uint32_t holdMs) {
+    if (!driverOk) return;
+    xSemaphoreTake(txMtx, portMAX_DELAY);
+    uint32_t until = millis() + holdMs;
+    wakeUntilMs = until ? until : 1;
+    txHoldUntilMs = wakeUntilMs;
+    txAttach();   // the idle-high line is the wake signal
+    xSemaphoreGive(txMtx);
+}
+uint32_t mbbWakeHoldS() { return wakeOn() ? (wakeUntilMs - millis()) / 1000 : 0; }
 
 static void checkHold() {
     if (txAttached && holdOver()) {
@@ -163,8 +181,9 @@ static void captureTask(void*) {
         if (n > 0) {
             if (rawHandler) rawHandler(buf, n);
             framer.feed(buf, n, postLine);
+            if (framer.endsWith("ZERO MBB> ")) framer.flush(postLine);   // the prompt has no line end: out at once, not after the idle flush, so a command closes the moment it is answered
         }
-        if (framer.len && (now - lastByteMs) > IDLE_FLUSH_MS) framer.flush(postLine);   // the prompt, or anything else without a newline
+        if (framer.len && (now - lastByteMs) > IDLE_FLUSH_MS) framer.flush(postLine);   // anything else without a newline, or a prompt cut across two reads
         drainEvents();   // markers land after the bytes they interrupted
     }
 }
