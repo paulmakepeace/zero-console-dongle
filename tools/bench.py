@@ -389,6 +389,29 @@ def t_poll(host, ad):
             check(False, "unknown command is 404")
         except urllib.error.HTTPError as e:
             check(e.code == 404, "unknown command is 404")
+        try:
+            get(host, "/api/cmd/st")   # a prefix of "status" is not a command
+            check(False, "a prefix of a command name is 404")
+        except urllib.error.HTTPError as e:
+            check(e.code == 404, "a prefix of a command name is 404: %d" % e.code)
+        # An OTA POST that carries no firmware part must be refused, not
+        # answered "ok, rebooting"; one that is not multipart at all takes the
+        # server's raw path, where there is no upload object to read.
+        boot = status(host)["boot"]
+        for body, ctype, what in ((b"note=hello", "application/x-www-form-urlencoded", "a body that is not multipart"),
+                                  (b"--x\r\nContent-Disposition: form-data; name=\"note\"\r\n\r\nhi\r\n--x--\r\n", "multipart/form-data; boundary=x", "a multipart with no file part")):
+            req = urllib.request.Request("http://%s/update" % host, data=body, method="POST")
+            req.add_header("X-Dongle", "1"); req.add_header("Content-Type", ctype)
+            code = 0
+            try:
+                urllib.request.urlopen(req, timeout=8)
+            except urllib.error.HTTPError as e:
+                code = e.code
+            except OSError:
+                code = -1
+            check(code == 400, "%s is refused, not flashed: %s" % (what, code))
+        time.sleep(2)
+        check(status(host)["boot"] == boot, "and the board did not reboot or panic")
     finally:
         mbb.stop.set()
         mbb.join(1)
@@ -584,7 +607,31 @@ def main():
     if "a12c" in args.host:
         sys.exit("bench: refusing to run against the bike unit")
     print("bench: %s through %s" % (args.host, dev))
+    # A run that ends in the light-sleep scenario leaves the board asleep for
+    # a few seconds, and the Mac's address lookup can lag a wake by longer, so
+    # a run started right after another one finds nothing there. Wait for it
+    # rather than reporting its absence as a failure.
+    t0 = time.time()
+    while time.time() - t0 < 90:
+        try:
+            status(args.host)
+            break
+        except Exception:
+            if time.time() - t0 < 2:
+                print("bench: waiting for the board to answer")
+            time.sleep(3)
+    else:
+        sys.exit("bench: %s did not answer in 90 s" % args.host)
+    # A run that died mid-scenario leaves the board with whatever settings it
+    # was using, and a sleep armed under them takes the board off the network
+    # in the middle of the next run. Start from a state that does not sleep;
+    # the scenarios that need one arm it themselves.
+    try:
+        post(args.host, "/api/settings", b"sleep_days=3&sleep_grace=120&use_s=600")
+    except Exception as exc:
+        sys.exit("bench: could not put %s into a known state: %s" % (args.host, exc))
     ad = adapter_open(dev)
+    ad.reset_input_buffer()   # anything a dead run left queued is not this run's
     tests = {"roundtrip": t_roundtrip, "break": t_break, "poll": t_poll, "storage": t_storage, "sleep": t_sleep, "lightsleep": t_lightsleep}
     names = []
     for t in args.test:

@@ -19,6 +19,8 @@ static uint32_t afterDays = 3;
 static uint32_t graceMs = SLEEP_GRACE_MS;
 static long lastAttendedS = 0;       // wall time the bike was last seen attended; 0 for never seen
 static bool provoked = false;        // this session was started by the dongle's own wake: its lines are not attendance
+static uint32_t provokedAtMs = 0;    // when, so a wake the MBB never answered does not hold the flag
+static bool provokedWoke = false;    // the MBB did come up, so the flag ends with the session rather than on a timer
 static bool attendedDirty = false;   // needs saving, done while the MBB sleeps
 static int storage = 0;              // long-term storage mode as the MBB last stated it: 1 on, -1 off, 0 not known
 static bool storageNote = false;     // a change to put in the log from the loop's next pass, after the MBB's own line
@@ -113,10 +115,19 @@ static bool doSleep(long seconds, long untilWakeS) {
     return true;
 }
 
-void sleepNoteProvokedWake() { provoked = true; }
+void sleepNoteProvokedWake() { provoked = true; provokedWoke = false; provokedAtMs = millis() ? millis() : 1; }
 
 void sleepTick(bool mbbAwake, bool busy) {
-    if (!mbbAwake) provoked = false;   // the session the wake provoked is over
+    // The wake is asked for while the MBB is still asleep and it takes a few
+    // seconds to boot, so the flag cannot end on "not awake": it ends when
+    // the session it provoked ends, or when no session ever arrives.
+    if (provoked) {
+        if (mbbAwake) provokedWoke = true;
+        // While pin 9 is still driven the session is ours whatever pin 8 is
+        // doing, so a dip mid-session cannot hand the rest of it back as
+        // attendance, and a slow MBB cannot outlast a fixed timer.
+        else if (mbbWakeHoldS() == 0 && (provokedWoke || millis() - provokedAtMs > PROVOKED_WAIT_MS)) { provoked = false; provokedWoke = false; }
+    }
     uint32_t now = millis();
     if (mbbAwake != wasAwake) {
         wasAwake = mbbAwake;

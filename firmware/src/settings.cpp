@@ -39,8 +39,8 @@ bool settingsApply(const String& tz, const String& ntp, const String& sleep, con
     if (poll.length() && poll.toInt() >= 0 && poll.toInt() < 100000) { pollerSetInterval(poll.toInt()); p.putUInt("poll", poll.toInt()); }
     if (days.length() && days.toInt() >= 0 && days.toInt() < 1000) { sleepSetAfterDays(days.toInt()); p.putUInt("sleep_days", days.toInt()); }
     // Bench knobs, applied but never saved: the grace before a sleep and the use window, in seconds.
-    if (grace.length() && grace.toInt() >= 5) sleepSetGraceMs(grace.toInt() * 1000UL);
-    if (use.length() && use.toInt() >= 5) httpSetUseMs(use.toInt() * 1000UL);
+    if (grace.length() && grace.toInt() >= 5 && grace.toInt() <= 3600) sleepSetGraceMs(grace.toInt() * 1000UL);
+    if (use.length() && use.toInt() >= 5 && use.toInt() <= 86400) httpSetUseMs(use.toInt() * 1000UL);
     p.end();
     clockApplySettings(tzSetting.c_str(), ntpSetting.c_str());   // live; no restart
     Serial.println("settings: applied");

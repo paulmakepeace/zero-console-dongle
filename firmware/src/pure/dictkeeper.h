@@ -141,16 +141,21 @@ private:
 
     // Copy lines with the wanted mark, in order, skipping those already copied
     // (the first `alreadyBytes` bytes of the proven run), until cap.
+    // Every line copied out ends in a newline, whatever the source file did:
+    // an unterminated last line would otherwise fuse onto whatever follows.
     size_t copyDictLines(uint8_t* out, size_t o, size_t cap, bool wantUsed, size_t alreadyBytes = 0) const {
         size_t seen = 0;
         for (uint16_t i = 0; i < nlines; i++) {
             bool u = used[i / 8] & (1 << (i % 8));
             if (u != wantUsed) continue;
             size_t s = start[i], e = i + 1 < nlines ? start[i + 1] : dlen;
-            if (seen < alreadyBytes) { seen += e - s; continue; }
-            if (o + (e - s) > cap) return o;
+            bool term = e > s && dict[e - 1] == '\n';   // a file that did not end its last line must not fuse it onto the next
+            size_t n = e - s + (term ? 0 : 1);
+            if (seen < alreadyBytes) { seen += n; continue; }
+            if (o + n > cap) return o;
             memcpy(out + o, dict + s, e - s);
             o += e - s;
+            if (!term) out[o++] = '\n';
         }
         return o;
     }

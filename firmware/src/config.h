@@ -1,6 +1,6 @@
 #pragma once
 
-#define FW_VERSION      "0.11.4"
+#define FW_VERSION      "0.11.5"
 #define DONGLE_NAME     "zero-dongle"      // base of the hostname, mDNS name and setup AP name; the last four hex digits of the MAC are appended
 // The setup network's password defaults to "zero-" plus the last six hex digits
 // of the MAC, printed at boot, and can be replaced from the setup page.
@@ -33,6 +33,7 @@
 // Light sleep between MBB sessions.
 #define SLEEP_GRACE_MS   120000   // stay reachable this long after the MBB sleeps
 #define SLEEP_MARGIN_PCT 10       // sleep this much less than the time until the MBB is due: the RC clock runs long
+#define PROVOKED_WAIT_MS 60000   // a wake the MBB never answered stops marking the session after this
 #define SLEEP_MIN_S      30       // shorter than this is not worth the WiFi round trip
 #define SLEEP_FALLBACK_S 3600     // with no announcement seen, plan on an hour
 #define SLEEP_AFTER_DAYS 3        // sleep only once the bike has gone this long without a 12 V top-up, a cellular answer or a key-on; 0 for always
@@ -43,6 +44,7 @@
 #define LAST_LINE_CHARS 200           // each cut to this many characters there
 #define SESSION_MAX_BYTES (256 * 1024) // a session that never sleeps rolls to a new file here
 
+#define MARK_MIN_MS     2000   // the least time between two markers of the same kind: a garbage line rate must not become a marker rate
 #define IDLE_FLUSH_MS   2000   // a partial line is written after this much silence; the prompt goes out at once
 #define SLEEP_AFTER_MS  5000   // MBB counted asleep after this long with pin 8 low and no bytes
 #define AWAKE_HIGH_MS   60     // pin 8 high this long with nothing arriving counts as awake

@@ -125,6 +125,18 @@ static void post(uint8_t type, const char* payload, size_t len) {
     if (len) xStreamBufferSend(events, payload, len, 0);
 }
 
+// A line at the wrong baud, or a noisy one, reports an error per frame. The
+// marker says how many, not once each: unlimited it would fill the flash
+// with its own complaint and teach the dictionary the garbage beside it.
+static uint32_t markAtMs[2] = {0, 0};
+static uint32_t markHeld[2] = {0, 0};
+static bool markDue(int which) {
+    uint32_t now = millis();
+    if (markAtMs[which] && now - markAtMs[which] < MARK_MIN_MS) { markHeld[which]++; return false; }
+    markAtMs[which] = now ? now : 1;
+    return true;
+}
+
 static void postMark(const char* fmt, uint32_t n) {
     char msg[64];
     int len = snprintf(msg, sizeof msg, fmt, (unsigned long)n);
@@ -136,9 +148,9 @@ static void drainEvents() {
     uart_event_t ev;
     while (uartQueue && xQueueReceive(uartQueue, &ev, 0) == pdTRUE) {
         switch (ev.type) {
-            case UART_FIFO_OVF: overflows = overflows + 1; postMark("dongle: UART overflow %lu, bytes lost", overflows); break;
+            case UART_FIFO_OVF: overflows = overflows + 1; if (markDue(0)) postMark("dongle: UART overflow %lu, bytes lost", overflows); break;
             case UART_BUFFER_FULL: backpressure = backpressure + 1; break;   // the driver stashes and re-delivers; nothing lost
-            case UART_FRAME_ERR: frameErrors = frameErrors + 1; postMark("dongle: UART frame error %lu, a line above may be corrupt", frameErrors); break;
+            case UART_FRAME_ERR: frameErrors = frameErrors + 1; if (markDue(1)) postMark("dongle: UART frame error %lu, a line above may be corrupt", frameErrors); break;
             default: break;   // data, break at the MBB's sleep, parity
         }
     }

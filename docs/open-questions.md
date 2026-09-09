@@ -35,6 +35,15 @@
   bench with a large response or a stalled client, nor on the bike after.
   A recurrence leaves evidence: the watchdog reboots a hung task and the
   status carries the reset reason and the WiFi disconnect count.
+- How the space reclaim behaves once the log directory holds a hundred files
+  or more. Measured on the bench board 2026-09-09 with 133 files and the
+  filesystem at its reserve: the reclaim walks the whole directory up to four
+  times from inside the capture stage, and the longest capture pass went to
+  10 s, long enough for every HTTP request to time out. With the two dozen
+  files a pulled bike carries it is 0.7 s. The bike reaches a hundred files
+  in about four days without a pull, so this is on the path, not a bench
+  artifact. A reclaim that remembered where it got to, or a cap on files
+  rather than only on bytes, would fix it.
 - Is the CAN bus on pins 6 and 14 active while the MBB hibernates?
 - Which of the bike's CAN networks is on OBD pins 6 and 14, and at what
   bitrate. The bench plan is in hardware.md.

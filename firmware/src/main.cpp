@@ -39,6 +39,8 @@ bool sysWatchdogArmed() { return wdtArmed; }
 enum { ST_CAPTURE, ST_NET, ST_POLLER, ST_SLEEP, ST_N };
 static const char* const stageName[ST_N] = {"capture", "net", "poller", "sleep"};
 static uint32_t stageMaxMs[ST_N];
+static bool netUntimed = false;   // a long transfer is not a stall: it must not become the net stage's maximum
+void sysNetUntimed() { netUntimed = true; }
 String sysLoopMaxJson() {
     String s = "{";
     for (int i = 0; i < ST_N; i++) s += String(i ? ",\"" : "\"") + stageName[i] + "\":" + String(stageMaxMs[i]);
@@ -48,6 +50,7 @@ static void timed(int stage, void (*fn)()) {
     uint32_t t = millis();
     fn();
     uint32_t d = millis() - t;
+    if (stage == ST_NET && netUntimed) { netUntimed = false; return; }
     if (d > stageMaxMs[stage]) stageMaxMs[stage] = d;
 }
 
@@ -68,10 +71,10 @@ const char* sysResetReason() {
 }
 
 static void onLine(const char* line, size_t len) {
+    clockMaybeSetFromMbb(line, len);   // first: the owners below anchor their state to the wall clock this line may put right
     sleepNoteLine(line, len);   // the attended signals and the hibernate line, whatever else the line is
     pollerConsumeLine(line, len);   // a command's output is kept by the poller for the API, and logged below like any console traffic
     readingsNoteLine(line, len);    // the figures owners asked for, from whatever carries them
-    clockMaybeSetFromMbb(line, len);
     storeAppend(clockStamp() + " " + line, memcmp(line, "dongle:", 7) != 0);
 }
 
@@ -92,11 +95,17 @@ static void onClockNote(const char* note) {
 void sysFeedWatchdog() { if (wdtArmed) esp_task_wdt_reset(); }
 
 // Capture housekeeping that a long HTTP transfer must keep running.
+// Called from the loop and re-entrantly from a transfer or an upload, so it
+// times itself: the capture done inside the net stage counts here, where a
+// stall would be read, rather than disappearing into it.
 void sysTickCapture() {
+    uint32_t t = millis();
     sysFeedWatchdog();
     clockTick();   // an NTP fix that has landed is used by the lines in this pass
     mbbTick(onLine, onState);
     storeTick(millis() - mbbLastByteMs() > IDLE_COMMIT_MS);
+    uint32_t d = millis() - t;
+    if (d > stageMaxMs[ST_CAPTURE]) stageMaxMs[ST_CAPTURE] = d;
 }
 
 void setup() {
@@ -140,7 +149,7 @@ void setup() {
 }
 
 void loop() {
-    timed(ST_CAPTURE, sysTickCapture);   // lines, markers and edges, in order, on this task
+    sysTickCapture();   // lines, markers and edges, in order, on this task; it times itself
     timed(ST_NET, []() { wifiTick(); httpTick(); consoleTick(); });
     timed(ST_POLLER, []() { pollerTick(mbbAwake(), consoleClients() > 0); });
     timed(ST_SLEEP, []() { sleepTick(mbbAwake(), consoleClients() > 0 || httpBusy() || wifiBusy() || pollerActive() || mbbTxAttached()); });

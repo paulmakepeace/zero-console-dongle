@@ -6,5 +6,6 @@ const char* sysNodeName();          // zero-dongle-XXXX, from the MAC: the hostn
 const char* sysResetReason();
 bool sysWatchdogArmed();
 void sysFeedWatchdog();
-void sysTickCapture();     // capture housekeeping, safe to call from an HTTP handler
+void sysTickCapture();
+void sysNetUntimed();   // the net stage's pass covered a transfer or an upload: not a stall, do not record it     // capture housekeeping, safe to call from an HTTP handler
 String sysLoopMaxJson();   // the longest single loop pass of each stage since boot, in ms

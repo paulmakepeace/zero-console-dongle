@@ -189,6 +189,39 @@ void test_a_match_never_runs_from_the_dictionary_into_the_data() {
     TEST_ASSERT_TRUE(expect == got);
 }
 
+// The poller commits between every command of a batch, thirteen times a
+// minute rather than twice, so the stream has to survive a flush cadence
+// far tighter than a session's. And a trailer written straight after a
+// flush, with nothing drained between them, must fit the reserve.
+void test_many_flushes_and_a_trailer_that_follows_one() {
+    for (int cadence : {1, 3, 13}) {
+        zs = {};
+        file.clear();
+        std::string dict = BANNER;
+        zs.begin((const uint8_t*)dict.data(), dict.size());
+        std::string want;
+        char line[120];
+        for (int i = 0; i < 2000; i++) {
+            int n = snprintf(line, sizeof line, "2026-09-09T00:%02d:%02d.%03d  Disch limits: curr %d cap %d act 2147483647 pow %d",
+                             i / 60 % 60, i % 60, i % 1000, 1251 + i % 7, 1251 + i % 5, 138861 + i);
+            TEST_ASSERT_TRUE(zs.add(line, n));
+            want.append(line, n);
+            want += '\n';   // the stream ends every line itself
+            if (i % cadence == cadence - 1) commit();
+        }
+        zs.finish();   // straight after the last flush on the cadence-1 pass, nothing drained
+        file.insert(file.end(), zs.out, zs.out + zs.pending());
+        zs.taken();
+        TEST_ASSERT_FALSE(zs.overflowed());
+        bool complete = false;
+        std::string got = inflateAll(file, dict, complete);
+        TEST_ASSERT_TRUE(complete);
+        TEST_ASSERT_EQUAL_size_t(want.size(), got.size());
+        TEST_ASSERT_TRUE(want == got);
+    }
+}
+
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_round_trip_with_a_dictionary_and_the_header_names_it);
@@ -197,5 +230,6 @@ int main() {
     RUN_TEST(test_add_refuses_rather_than_overflowing);
     RUN_TEST(test_dictionary_distance_is_true_after_many_slides);
     RUN_TEST(test_a_match_never_runs_from_the_dictionary_into_the_data);
+    RUN_TEST(test_many_flushes_and_a_trailer_that_follows_one);
     return UNITY_END();
 }

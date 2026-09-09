@@ -428,6 +428,56 @@ void test_row_rejects_what_is_not_a_figure() {
 }
 
 
+// --- round four's findings ---------------------------------------------------
+void test_plan_never_sleeps_past_the_fallback() {
+    SleepPlan p;
+    // A mangled digit in the count: 36000000 sec is not something the MBB meant.
+    p.noteHibernate(1000, 36000000);
+    long s = p.next(1010, 3600, 10, 30);
+    TEST_ASSERT_TRUE(s <= 3600);
+    // A clock stepped backwards under a plan held in wall time.
+    SleepPlan q;
+    q.noteHibernate(1000000, 3600);
+    long back = q.next(1000000 - 400L * 86400L, 3600, 10, 30);   // now is 400 days before the announcement
+    TEST_ASSERT_TRUE(back <= 3600);
+    // The ordinary case still plans nine tenths of the wait.
+    SleepPlan r;
+    r.noteHibernate(1000, 3600);
+    TEST_ASSERT_EQUAL(3222, r.next(1020, 3600, 10, 30));
+}
+
+void test_hibernate_count_is_bounded_where_it_is_used() {
+    TEST_ASSERT_EQUAL(36000000, parseHibernateSeconds("Saving Stats, Hibernating for 36000000 sec", 42));
+    SleepPlan p;
+    p.noteHibernate(0, parseHibernateSeconds("Saving Stats, Hibernating for 99999999 sec", 42));
+    TEST_ASSERT_TRUE(p.next(1, 3600, 10, 30) <= 3600);
+}
+
+void test_storage_line_must_be_a_state_not_a_mention() {
+    TEST_ASSERT_EQUAL(1, storageModeFromLine("LTSM state: DIS to EN_PEND", 26));
+    TEST_ASSERT_EQUAL(-1, storageModeFromLine("LTSM state: EN to DIS", 21));
+    TEST_ASSERT_EQUAL(0, storageModeFromLine("LTSM state: INIT to INIT", 24));
+    const char* help = "  ltsm       - LTSM state: show or set";
+    TEST_ASSERT_EQUAL(0, storageModeFromLine(help, strlen(help)));
+    const char* usage = "help: LTSM state: <en|dis>";
+    TEST_ASSERT_EQUAL(0, storageModeFromLine(usage, strlen(usage)));
+}
+
+void test_utf8_rejects_what_utf8_forbids() {
+    auto bad = [](const char* p, size_t n) { return !validUtf8((const uint8_t*)p, n); };
+    TEST_ASSERT_TRUE(bad("\xED\xA0\x80", 3));       // a surrogate half
+    TEST_ASSERT_TRUE(bad("\xC0\x80", 2));           // an overlong NUL
+    TEST_ASSERT_TRUE(bad("\xF5\x80\x80\x80", 4)); // past the last code point
+    TEST_ASSERT_TRUE(bad("\xE0\x80\x80", 3));      // an overlong three-byte
+    TEST_ASSERT_TRUE(validUtf8((const uint8_t*)"caf\xC3\xA9", 5));
+    TEST_ASSERT_TRUE(validUtf8((const uint8_t*)"\xF0\x9F\x8F\x8D", 4));
+    TEST_ASSERT_TRUE(validUtf8((const uint8_t*)"plain", 5));
+    // What the escaper does with an SSID of opaque octets: it must still parse.
+    std::string out = jsonEscape("bad\xEDhere", 8);
+    TEST_ASSERT_TRUE(out.find("\\u00ed") != std::string::npos || out.find("\\u00ED") != std::string::npos);
+}
+
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_stamp_plain_and_debug_prefixed);
@@ -454,6 +504,10 @@ int main() {
     RUN_TEST(test_soc_and_bike_state);
     RUN_TEST(test_pack_row);
     RUN_TEST(test_keep_smallest_fills_its_last_slot);
+    RUN_TEST(test_plan_never_sleeps_past_the_fallback);
+    RUN_TEST(test_hibernate_count_is_bounded_where_it_is_used);
+    RUN_TEST(test_storage_line_must_be_a_state_not_a_mention);
+    RUN_TEST(test_utf8_rejects_what_utf8_forbids);
     RUN_TEST(test_framer_knows_the_prompt);
     RUN_TEST(test_row_comma_table);
     RUN_TEST(test_row_dash_list);

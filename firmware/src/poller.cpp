@@ -290,6 +290,8 @@ String pollerListJson() {
     return s + "]";
 }
 
+bool pollerHasCommand(const char* name) { return indexOf(name) >= 0; }
+
 const String* pollerOutput(const char* name) {
     int i = indexOf(name);
     return i < 0 || (!outputAtMs[i] && !outputEpoch[i]) ? nullptr : &outputs[i];

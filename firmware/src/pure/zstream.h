@@ -26,7 +26,7 @@ struct ZStream {
     uint32_t total = 0;
     bool started = false;
 
-    static constexpr size_t OVERHEAD = 8 + 4 + 2;   // the largest flush or trailer the buffer must always have room for
+    static constexpr size_t OVERHEAD = 7 + 9;   // a sync flush (7) and then a trailer (1 block byte, 4 LEN/NLEN, 4 Adler) with nothing drained between them
 
     // A fresh stream. The dictionary, if any, is copied to the front of the
     // window and hashed; the header names it.

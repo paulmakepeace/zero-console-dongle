@@ -22,6 +22,7 @@ static WebServer http(HTTP_PORT);
 static bool up = false;
 static uint32_t lastHttpMs = 0;      // starts at 0: a boot counts as use for the window, someone just powered or flashed the board
 static uint32_t useMs = HTTP_USE_MS;
+static bool otaBegan = false;   // an upload part actually arrived, so a finish means something
 // Use is a page opened or an action taken: a download or a delete, a poll
 // request, a settings change. A page's own refreshes of the status, the
 // live view, the listing and the command outputs do not count, so a tab
@@ -224,7 +225,7 @@ static bool tokenOk() {
 static void handleCmd(const String& name) {
     const String* out = pollerOutput(name.c_str());
     if (!out) {
-        bool known = pollerListJson().indexOf("\"name\":\"" + name + "\"") >= 0;
+        bool known = pollerHasCommand(name.c_str());   // exactly, so a prefix is not a command
         http.send(known ? 503 : 404, "text/plain", known ? "not polled yet" : "no such command");
         return;
     }
@@ -275,16 +276,18 @@ static void handleFile() {
             if (c.write(buf, n) != n) { whole = false; break; }
             sysTickCapture();
             consoleTick();
-            pollerTick(mbbAwake(), consoleClients() > 0);   // a batch in flight ends rather than holding the transmit pin for the transfer
+            if (pollerActive()) pollerTick(mbbAwake(), consoleClients() > 0);   // a batch in flight ends; a transfer is no moment to start one
         }
         if (!whole) c.stop();   // the promised length will not arrive; say so by closing
         f.close();
         storeReadDone(name);
         touch();   // a long transfer ends with the puller's next request on its way
+        sysNetUntimed();
         return;
     }
     if (http.method() == HTTP_DELETE) {
         if (!tokenOk()) return;
+        touch();   // an action, like the download it usually follows
         switch (storeDelete(name)) {
             case STORE_DELETED: http.send(200, "text/plain", "deleted"); break;
             case STORE_NOT_FOUND: http.send(404, "text/plain", "no such file"); break;
@@ -302,12 +305,19 @@ void httpBegin() {
         http.setContentLength(CONTENT_LENGTH_UNKNOWN);
         http.send(200, "application/json", "");
         http.sendContent("[");
+        sysNetUntimed();   // a listing to a slow client is not a stall
         bool first = true;
         storeForEachFile([](void* ctx, const char* name, size_t size, bool active) {
             bool* f = (bool*)ctx;
             String e = String(*f ? "" : ",") + "{\"name\":\"" + jsonEscape(name) + "\",\"size\":" + String(size) + ",\"active\":" + (active ? "true" : "false") + "}";
             *f = false;
             http.sendContent(e);
+            // Only the watchdog here: the walk holds the store's lock and is
+            // reading the directory, so a capture tick, which can commit a
+            // line to flash, must not run inside it. A client that stalls
+            // mid-listing pauses the capture for the length of the stall,
+            // bounded by the file count; the transfer loop below is the path
+            // that needed pumping and has it.
             sysFeedWatchdog();
         }, &first);
         http.sendContent("]");
@@ -378,8 +388,15 @@ void httpBegin() {
         []() {
             http.sendHeader("Connection", "close");
             if (http.header("X-Dongle") != "1") { http.send(403, "text/plain", "missing X-Dongle: 1 header"); return; }
-            bool ok = Update.isFinished() && !Update.hasError();   // an upload with no image never began
-            http.send(200, "text/plain", ok ? "ok, rebooting" : Update.hasError() ? "update failed" : "no firmware in the upload");
+            // A fresh Update reports finished, since nothing written is
+            // nothing outstanding: only an upload that actually began can
+            // have flashed anything.
+            bool began = otaBegan;
+            otaBegan = false;
+            bool ok = began && Update.isFinished() && !Update.hasError();
+            if (!began) { http.send(400, "text/plain", "no firmware part in the request"); return; }
+            http.send(ok ? 200 : 500, "text/plain", ok ? "ok, rebooting" : "update failed");
+            sysNetUntimed();
             delay(300);
             if (ok) {
                 sysTickCapture();   // lines framed but not yet delivered
@@ -389,10 +406,17 @@ void httpBegin() {
         },
         []() {
             sysTickCapture();   // a slow link can take minutes; feed even while refusing
-            HTTPUpload& up = http.upload();
+            if (pollerActive()) pollerTick(mbbAwake(), consoleClients() > 0);   // the timeout that ends a stuck batch lives here: without it the transmit pin stays attached for the whole upload
+            sysNetUntimed();
             if (http.header("X-Dongle") != "1") return;
+            // The server hands a body that is not multipart to this same
+            // handler down its raw path, where there is no upload object at
+            // all and reading one would fault.
+            if (!http.header("Content-Type").startsWith("multipart/")) return;
+            HTTPUpload& up = http.upload();
             if (up.status == UPLOAD_FILE_START) {
                 Serial.printf("ota: %s\n", up.filename.c_str());
+                otaBegan = true;
                 if (Update.isRunning()) Update.abort();
                 if (!Update.begin(UPDATE_SIZE_UNKNOWN)) Serial.printf("ota: %s\n", Update.errorString());
             } else if (up.status == UPLOAD_FILE_WRITE) {
@@ -405,7 +429,7 @@ void httpBegin() {
                 Serial.println("ota: upload aborted");
             }
         });
-    const char* headers[] = {"X-Dongle"};
-    http.collectHeaders(headers, 1);
+    const char* headers[] = {"X-Dongle", "Content-Type"};   // the content type tells an upload from a raw body
+    http.collectHeaders(headers, 2);
     http.onNotFound(handleFile);
 }

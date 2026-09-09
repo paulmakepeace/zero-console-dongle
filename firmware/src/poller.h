@@ -12,6 +12,7 @@ void pollerTick(bool mbbAwake, bool consoleBusy);
 bool pollerRequest();   // false when the MBB has announced its hibernation: the request is not kept
 bool pollerActive();
 String pollerListJson();
+bool pollerHasCommand(const char* name);   // exactly one of the polled set
 const String* pollerOutput(const char* name);
 long pollerOutputAgeS(const char* name);   // seconds; -1 none, -2 from before this boot with the clock not yet set
 long pollerSoc();              // -1 until known
