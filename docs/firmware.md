@@ -101,10 +101,10 @@ its [README](../firmware/README.md):
    `config.h` under a heading that says so: the prompt string, how long the
    board takes to boot and to answer, how long after the hibernate line pin 8
    drops, and the interval it announces. They are margins over measurements
-   of one bike on one firmware revision, so the board reports what it
-   actually sees in the status under `observed`, each beside the value that
-   was assumed. A Zero firmware update, or another owner's revision, shows up
-   as a pair that no longer matches instead of as a misbehaviour weeks later.
+   of one bike on one firmware revision, with the measured figure kept in the
+   comment beside each. A Zero firmware update, or another owner's revision,
+   could move any of them, so they are worth re-checking against a new bike
+   before this firmware is trusted on it.
 
 8. **Light sleep when the bike is unattended.** The dongle sleeps only once
    the bike has gone a configurable number of days, three by default,
