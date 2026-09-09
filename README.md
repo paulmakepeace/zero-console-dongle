@@ -20,6 +20,8 @@ characterised and the CAN and buck parts are on order. See
 
 - [docs/console-port.md](docs/console-port.md): where the port is, measured
   pinout, serial settings, adapters, a legible picocom session, captures.
+- [docs/owner-asks.md](docs/owner-asks.md): what owners said they want to
+  see, against what the console offers and what the dongle shows.
 - [docs/mbb-reference.md](docs/mbb-reference.md): what the console offers
   without a login. Commands, config table and bitfield, PDU channels, fault
   names, CAN networks.
