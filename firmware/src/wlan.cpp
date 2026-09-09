@@ -35,7 +35,8 @@ static uint32_t resumeFailures = 0;
 // Written by the WiFi event task, read by the loop task.
 static volatile uint32_t wifiDisconnects = 0;
 static volatile uint8_t lastReason = 0;   // the driver's reason for the last disconnect: 15 and 2 are what a wrong password looks like
-static volatile uint8_t refusals = 0;     // consecutive disconnects of the password-refused kind
+static volatile uint8_t refusals = 0;
+static volatile bool wrongKey = false;   // set from the event task, read and cleared by the loop task   // the last refusal was the key itself, not a link too weak to finish the handshake     // consecutive disconnects of the password-refused kind
 static std::atomic<uint32_t> ipEvents{0};   // joins seen by the event task; the loop counts them down
 static uint32_t ipEventsSeen = 0;
 
@@ -133,6 +134,7 @@ static void startServices() {
 }
 
 static void stopServices() {
+    if (mdnsUp) { MDNS.end(); mdnsUp = false; }   // a resume starts it again; left set, it was never re-announced after a sleep
     if (!servicesUp) return;
     servicesUp = false;
     consoleStop();
@@ -192,6 +194,11 @@ void wifiBegin() {
             bool refused = r == WIFI_REASON_AUTH_FAIL || r == WIFI_REASON_AUTH_EXPIRE || r == WIFI_REASON_AUTH_LEAVE ||
                            r == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT || r == WIFI_REASON_HANDSHAKE_TIMEOUT || r == WIFI_REASON_CONNECTION_FAIL;
             refusals = refused ? (refusals < 255 ? refusals + 1 : 255) : 0;
+            // Only the authentication failures are the key itself. A
+            // handshake that timed out is what a weak signal looks like, and
+            // erasing on one loses a correct password typed at the edge of
+            // the range, which is where someone provisioning a bike stands.
+            wrongKey = r == WIFI_REASON_AUTH_FAIL || r == WIFI_REASON_AUTH_EXPIRE || r == WIFI_REASON_AUTH_LEAVE;
         }
         Serial.printf("wifi: disconnected, reason %d\n", r);
     }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
@@ -234,11 +241,11 @@ void wifiTick() {
     // Retry the saved network every 30 s. A network that stays out of reach
     // for ten minutes, or a password it refuses, gets the setup network up
     // beside the retries, so a phone can fix it; the join takes it down.
-    bool refused = refusals >= 1;   // 802.11 says which it is: a handshake timeout or an authentication failure is a refused key
-    if (refused && !keyProven && credsSaved) {   // a key just typed and refused: a typo, gone, and the board is unprovisioned again
+    bool refused = refusals >= 1;   // a refused key or a link too weak to finish: either way, put the setup network up beside the retries
+    if (wrongKey && !keyProven && credsSaved) {   // the key itself was rejected, and it has never joined: a typo, gone, and the board is unprovisioned again
         Serial.println("wifi: the new password was refused; cleared");
         wifiResetCredentials();
-        refusals = 0;
+        refusals = 0; wrongKey = false;
         if (!setupUp) startSetup("the password was refused");
         staQuiet(true);
         return;

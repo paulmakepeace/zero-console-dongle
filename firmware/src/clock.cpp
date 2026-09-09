@@ -136,13 +136,19 @@ void clockTick() {
     // The step: where the clock is now against where the last tick's reading
     // would have carried it. After a light sleep this is the sleep timer's
     // error, the number the planner's margin has to cover.
-    long stepMs = seenMonoUs ? (long)((wallUs - (seenWallUs + (monoUs - seenMonoUs))) / 1000) : 0;
+    // The first sync of a boot carries the whole distance from the epoch, so
+    // it measures nothing; a step past a day is that, or a clock so wrong the
+    // number would not be read as an error anyway.
+    int64_t stepUs = seenMonoUs ? wallUs - (seenWallUs + (monoUs - seenMonoUs)) : 0;
+    bool measured = stepUs > -86400000000LL && stepUs < 86400000000LL;
+    long stepMs = measured ? (long)(stepUs / 1000) : 0;
     seenWallUs = wallUs; seenMonoUs = monoUs;
     bool raced = source == TIME_MBB && millis() - lastMbbStepMs < 2000;   // a step may have overwritten the sync
     source = TIME_NTP;
     lastNtpSyncMs = millis();
     if (noteHandler) {
-        String note = "dongle: clock set from ntp, now " + clockStamp() + ", stepped " + (stepMs >= 0 ? "+" : "") + String(stepMs / 1000.0, 1) + " s";
+        String note = "dongle: clock set from ntp, now " + clockStamp() +
+                      (measured ? ", stepped " + String(stepMs >= 0 ? "+" : "") + String(stepMs / 1000.0, 1) + " s" : ", first fix of this boot");
         noteHandler(note.c_str());
     }
     if (raced) configTzTime(tzSetting, ntpSetting);   // ask again; the answer wins

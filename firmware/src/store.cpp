@@ -16,6 +16,7 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include "pure/names.h"
+#include "pure/keep.h"
 #include "pure/zstream.h"
 #include "pure/dictkeeper.h"
 
@@ -108,6 +109,10 @@ static size_t totalBytes() {
 
 // The board's own files beside the logs: the dictionaries and the poller's
 // last batch. Not listed, never reclaimed, not for DELETE.
+// The board's own files, not the bike's: never listed, reclaimed or deleted.
+// The saved poll batch is one of them, and it sits in the root rather than
+// the log directory, where nothing walks anyway; the name is matched here
+// so that stays true if it ever moves.
 static bool houseFile(const char* n) { return strncmp(n, "dict-", 5) == 0 || strcmp(n, POLL_SAVE_NAME) == 0; }
 
 void storeForEachFile(void (*fn)(void*, const char*, size_t, bool), void* ctx) {
@@ -131,28 +136,24 @@ static bool ensureSpace() {
     int refusals = 0;
     for (int round = 0; round < 4; round++) {
         sysFeedWatchdog();
-        char oldest[8][65];
-        int n = 0;
+        KeepSmallest<8, 65> oldest;   // names sort by creation, so the smallest are the oldest
         forEachFile([&](const char* name, size_t) {
             if (houseFile(name) || activeName == name || isOpenForRead(name)) return;
             if (floor[0] && strcmp(name, floor) <= 0) return;
-            // Keep the eight smallest, sorted: insert, then drop the largest.
-            int i = n < 8 ? n++ : 7;
-            if (i == 7 && n == 8 && strcmp(name, oldest[7]) >= 0) return;
-            while (i > 0 && strcmp(name, oldest[i - 1]) < 0) { strlcpy(oldest[i], oldest[i - 1], 65); i--; }
-            strlcpy(oldest[i], name, 65);
+            oldest.offer(name);
         }, false);
+        size_t n = oldest.n;
         if (n == 0) break;
-        for (int i = 0; i < n; i++) {
+        for (size_t i = 0; i < n; i++) {
             sysFeedWatchdog();
-            strlcpy(floor, oldest[i], sizeof floor);
-            if (!LittleFS.remove(pathOf(oldest[i]))) {
-                Serial.printf("store: cannot delete %s\n", oldest[i]);
+            strlcpy(floor, oldest.item[i], sizeof floor);
+            if (!LittleFS.remove(pathOf(oldest.item[i]))) {
+                Serial.printf("store: cannot delete %s\n", oldest.item[i]);
                 if (++refusals >= 3) { Serial.println("store: giving up on the reclaim for now"); return false; }
                 continue;
             }
             refusals = 0;
-            Serial.printf("store: deleted %s for space\n", oldest[i]);
+            Serial.printf("store: deleted %s for space\n", oldest.item[i]);
             if (freeBytes() >= FS_MIN_FREE) return true;   // the filesystem counts in blocks; ask it, do not guess
         }
     }

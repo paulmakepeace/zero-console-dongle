@@ -1,6 +1,6 @@
 #pragma once
 
-#define FW_VERSION      "0.11.3"
+#define FW_VERSION      "0.11.4"
 #define DONGLE_NAME     "zero-dongle"      // base of the hostname, mDNS name and setup AP name; the last four hex digits of the MAC are appended
 // The setup network's password defaults to "zero-" plus the last six hex digits
 // of the MAC, printed at boot, and can be replaced from the setup page.

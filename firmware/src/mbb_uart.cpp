@@ -78,8 +78,9 @@ static void txDetach() {
 // powering down must not find pin 9 driven. A deliberate wake is the one
 // exception: pin 9 high is the MBB's wake signal, and it is driven for the
 // wake's own hold whatever pin 8 says.
-static volatile uint32_t wakeUntilMs = 0;
+static volatile uint32_t wakeUntilMs = 0;   // 0 for none; cleared the moment it expires, since a deadline kept forever comes back true 24.9 days later when millis() wraps past it
 static bool wakeOn() { return wakeUntilMs && (int32_t)(millis() - wakeUntilMs) < 0; }
+static bool wakeExpired() { return wakeUntilMs && (int32_t)(millis() - wakeUntilMs) >= 0; }
 static bool holdOver() {
     if (wakeOn()) return false;
     return (!txHeld && (int32_t)(millis() - txHoldUntilMs) > 0) || !lineHigh;
@@ -94,9 +95,19 @@ void mbbWake(uint32_t holdMs) {
     txAttach();   // the idle-high line is the wake signal
     xSemaphoreGive(txMtx);
 }
-uint32_t mbbWakeHoldS() { return wakeOn() ? (wakeUntilMs - millis()) / 1000 : 0; }
+uint32_t mbbWakeHoldS() {   // one read of each, so a hold that expires between them cannot report 49 days
+    uint32_t until = wakeUntilMs;
+    if (!until) return 0;
+    int32_t left = (int32_t)(until - millis());
+    return left > 0 ? (uint32_t)left / 1000 : 0;
+}
 
 static void checkHold() {
+    if (wakeExpired()) {
+        xSemaphoreTake(txMtx, portMAX_DELAY);
+        if (wakeExpired()) wakeUntilMs = 0;
+        xSemaphoreGive(txMtx);
+    }
     if (txAttached && holdOver()) {
         xSemaphoreTake(txMtx, portMAX_DELAY);
         if (txAttached && holdOver()) txDetach();
@@ -173,7 +184,7 @@ static void captureTask(void*) {
             if (!nowAwake) framer.flush(postLine);   // a session keeps its own tail
             xSemaphoreTake(txMtx, portMAX_DELAY);
             awake = nowAwake;
-            if (!awake) txDetach();
+            if (!awake && !wakeOn()) txDetach();   // a wake drives pin 9 precisely while the console block is down
             xSemaphoreGive(txMtx);
             post(nowAwake ? EV_AWAKE : EV_ASLEEP, nullptr, 0);
         }

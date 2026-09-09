@@ -56,9 +56,10 @@ static char bikeState[16] = "";
 // edge, a quiet moment, and read at boot, so the command page has the
 // bike's last known state before the MBB's next wake.
 static void saveOutputs() {
+    if (!clockValid()) return;   // an output with no wall time is no use after a reboot; the flag stays, the next edge tries again
     saveDue = false;
-    if (!clockValid()) return;   // an output with no wall time is no use after a reboot
-    File f = LittleFS.open(String("/") + POLL_SAVE_NAME, "w");
+    String path = String("/") + POLL_SAVE_NAME, tmp = path + ".new";
+    File f = LittleFS.open(tmp, "w");
     if (!f) return;
     long now = (long)time(nullptr);
     for (int i = 0; i < NCMD; i++) {
@@ -67,7 +68,12 @@ static void saveOutputs() {
         f.printf("%ld %u %s\n", at, (unsigned)outputs[i].length(), CMDS[i]);   // the name last: it may hold a space
         f.print(outputs[i]);
     }
+    bool whole = f.getWriteError() == 0;
     f.close();
+    // The old save is only replaced once the new one is whole: a flash that
+    // fills partway through must not cost both.
+    if (whole) { LittleFS.remove(path); LittleFS.rename(tmp, path); }
+    else LittleFS.remove(tmp);
 }
 
 static void loadOutputs() {

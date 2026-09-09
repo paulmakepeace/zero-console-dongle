@@ -18,6 +18,7 @@ static bool enabled = false;
 static uint32_t afterDays = 3;
 static uint32_t graceMs = SLEEP_GRACE_MS;
 static long lastAttendedS = 0;       // wall time the bike was last seen attended; 0 for never seen
+static bool provoked = false;        // this session was started by the dongle's own wake: its lines are not attendance
 static bool attendedDirty = false;   // needs saving, done while the MBB sleeps
 static int storage = 0;              // long-term storage mode as the MBB last stated it: 1 on, -1 off, 0 not known
 static bool storageNote = false;     // a change to put in the log from the loop's next pass, after the MBB's own line
@@ -53,7 +54,9 @@ static long nowS() { return (long)time(nullptr); }
 void sleepNoteLine(const char* line, size_t len) {
     long s = parseHibernateSeconds(line, len);
     if (s > 0) plan.noteHibernate(nowS(), s);
-    if (isBikeAttended(line, len) && clockValid()) { lastAttendedS = nowS(); attendedDirty = true; }
+    // A session the dongle itself provoked prints the very lines that mean
+    // attendance, so it would postpone the sleep by the whole days rule.
+    if (!provoked && isBikeAttended(line, len) && clockValid()) { lastAttendedS = nowS(); attendedDirty = true; }
     // Storage mode is whatever the MBB said last; a key-on forgets it until
     // the MBB says it again at its next wake, so the dongle stays reachable
     // for the hour after a ride.
@@ -110,7 +113,10 @@ static bool doSleep(long seconds, long untilWakeS) {
     return true;
 }
 
+void sleepNoteProvokedWake() { provoked = true; }
+
 void sleepTick(bool mbbAwake, bool busy) {
+    if (!mbbAwake) provoked = false;   // the session the wake provoked is over
     uint32_t now = millis();
     if (mbbAwake != wasAwake) {
         wasAwake = mbbAwake;

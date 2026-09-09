@@ -348,9 +348,14 @@ void httpBegin() {
     http.on("/api/wake", HTTP_POST, []() {   // pin 9 high for a hold: wakes a hibernating MBB and keeps it awake, for the CCM check-in experiment
         if (!tokenOk()) return;
         touch();
+        // Only a hibernating MBB is woken. A reset landing on a wake that is
+        // charging the 12 V battery abandons the top-up, which is the drain
+        // this experiment exists to study.
+        if (mbbAwake()) { http.send(409, "text/plain", "the MBB is already awake; nothing to wake"); return; }
         long hold = http.hasArg("hold") ? http.arg("hold").toInt() : 120;
         if (hold < 1) hold = 1;
         if (hold > 900) hold = 900;
+        sleepNoteProvokedWake();   // the lines this session prints are not the bike being attended
         mbbWake((uint32_t)hold * 1000UL);
         http.send(200, "text/plain", "waking, held for " + String(hold) + " s");
     });

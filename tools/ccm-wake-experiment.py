@@ -14,7 +14,10 @@ and the hourly wakes are on the same record. One CSV line per sample, to
 --out (default logs/ccm-wake-<date>.csv). Compare the registration and
 connection columns against the app's "checked in" stamp afterwards.
 
-The bike must be off and the MBB hibernating; the dongle on mains.
+The bike must be off and the MBB hibernating; the dongle on mains. A wake is
+refused while the MBB is already awake, so a cycle that lands on the MBB's
+own hourly wake is skipped rather than resetting it and abandoning a 12 V
+top-up; the sampling continues either way, which is the comparison.
 """
 import argparse
 import json
@@ -78,7 +81,7 @@ def main():
             try:
                 print("wake:", post(a.host, "/api/wake?hold=%d" % a.hold))
             except Exception as exc:
-                print("wake failed:", exc)
+                print("wake refused or failed (the MBB may be awake already):", exc)
             end = time.time() + a.hold + 60
             while time.time() < end:
                 sample(a.host, "hold-%d" % cycle, out)

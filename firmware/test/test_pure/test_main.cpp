@@ -9,6 +9,7 @@
 #include "hibernate.h"
 #include "mbb_parse.h"
 #include "rows.h"
+#include "keep.h"
 #include "dictkeeper.h"
 
 void setUp() {}
@@ -324,6 +325,26 @@ void test_keeper_candidate_buffer_is_bounded() {
 // --- readings ----------------------------------------------------------------
 static bool row(const char* s, RowValue& r) { return parseRow(s, strlen(s), r); }
 
+void test_keep_smallest_fills_its_last_slot() {
+    KeepSmallest<4, 16> k;
+    for (const char* n : {"e", "d", "c", "b", "a", "f"}) k.offer(n);
+    TEST_ASSERT_EQUAL(4, k.n);
+    TEST_ASSERT_EQUAL_STRING("a", k.item[0]); TEST_ASSERT_EQUAL_STRING("b", k.item[1]);
+    TEST_ASSERT_EQUAL_STRING("c", k.item[2]); TEST_ASSERT_EQUAL_STRING("d", k.item[3]);
+    // The name that fills the last slot must be taken, not compared against it.
+    KeepSmallest<4, 16> j;
+    for (const char* n : {"a", "b", "c", "d"}) j.offer(n);
+    TEST_ASSERT_EQUAL(4, j.n);
+    TEST_ASSERT_EQUAL_STRING("d", j.item[3]);
+    KeepSmallest<2, 16> two;
+    two.offer("b0002-001.log.z"); two.offer("b0001-001.log.z"); two.offer("b0003-001.log.z");
+    TEST_ASSERT_EQUAL_STRING("b0001-001.log.z", two.item[0]);
+    TEST_ASSERT_EQUAL_STRING("b0002-001.log.z", two.item[1]);
+    KeepSmallest<3, 16> few;
+    few.offer("x");
+    TEST_ASSERT_EQUAL(1, few.n); TEST_ASSERT_EQUAL_STRING("x", few.item[0]);
+}
+
 void test_framer_knows_the_prompt() {
     LineFramer<64> f;
     std::vector<std::string> out;
@@ -432,6 +453,7 @@ int main() {
     RUN_TEST(test_prompt_and_unsolicited);
     RUN_TEST(test_soc_and_bike_state);
     RUN_TEST(test_pack_row);
+    RUN_TEST(test_keep_smallest_fills_its_last_slot);
     RUN_TEST(test_framer_knows_the_prompt);
     RUN_TEST(test_row_comma_table);
     RUN_TEST(test_row_dash_list);

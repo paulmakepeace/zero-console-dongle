@@ -143,7 +143,7 @@ credentials.
 | `/api/cmd/NAME`      | GET    | the last output of that command, from the poller or from a console client that typed it, text, with an `X-Age-Seconds` header; 503 until polled, 404 if unknown |
 | `/api/cmd/poll`      | POST   | start the batch: at once with the MBB awake and no console client, skipping the 20 s settle, otherwise at its next wake; a batch already running is the answer; 409 once the MBB has announced its hibernation |
 | `/api/readings`      | GET    | JSON list of the figures owners asked for, by name with group, value, unit and age, kept from whatever line carried them; the main page's Bike table |
-| `/api/wake?hold=S`   | POST   | drive pin 9 high for S seconds (1 to 900, default 120), which wakes a hibernating MBB and keeps it awake for the hold; `wake_hold_s` in the status counts it down. For the cellular check-in experiment (`tools/ccm-wake-experiment.py`) |
+| `/api/wake?hold=S`   | POST   | drive pin 9 high for S seconds (1 to 900, default 120), which wakes a hibernating MBB and keeps it awake for the hold; `wake_hold_s` in the status counts it down. 409 when the MBB is already awake, since a reset landing on the hourly 12 V top-up abandons it. The session it provokes does not count as the bike being attended. For the cellular check-in experiment (`tools/ccm-wake-experiment.py`). This is the one route with a hardware consequence and, like every other, the header is a cross-site guard rather than authentication: anyone on the home network can hold the MBB awake |
 
 DELETE, `/update`, `/api/wifi/reset`, `POST /api/settings` and `POST /api/cmd/poll` change state and require the header
 `X-Dongle: 1`, which a form on another website cannot send from your
