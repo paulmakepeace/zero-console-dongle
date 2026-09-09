@@ -122,6 +122,15 @@ def adapter_open(dev):
 def t_roundtrip(host, ad):
     print("roundtrip")
     c = console(host)
+    # With nothing answering the adapter, the schedule's batches spend 48 s
+    # of every 60 timing out, holding the transmit pin and taking whatever
+    # arrives as the current command's answer. Wait for one to end; the open
+    # console then keeps the next from starting.
+    t0 = time.time()
+    while status(host)["poll"]["active"] and time.time() - t0 < 60:
+        time.sleep(1)
+    time.sleep(2.5)           # the batch's own release NUL follows its end by the hold
+    ad.reset_input_buffer()   # that, and a command the batch sent into silence
     ad.write(b"DEBUG: 09/07/2026 19:55:00.000 bench line\r\n")
     time.sleep(0.5)
     got = c.recv(500)
@@ -136,6 +145,25 @@ def t_roundtrip(host, ad):
     s = status(host)
     check(not s["tx_attached"], "transmit pin released after the hold")
     check(ad.read(10) == b"\x00", "the release reached the adapter as one NUL")
+    # A poll command typed on the console is kept as the batch would keep it,
+    # from the answer going by; the bench answers as the MBB.
+    c.sendall(b"bms\n")
+    time.sleep(0.5)
+    ad.read(100)   # the command, as the MBB would see it
+    ad.write(b"bms\r\n" + ANSWERS[b"bms"] + b"ZERO MBB> ")
+    # The prompt has no line end: the dongle writes it after two seconds of
+    # silence, and only then is the answer complete.
+    t0 = time.time()
+    while time.time() - t0 < 8:
+        row = {r["name"]: r for r in json.loads(get(host, "/api/cmd")[1])}["bms"]
+        if row["ok"] and 0 <= row["age_s"] <= 8:
+            break
+        time.sleep(0.5)
+    code, body = get(host, "/api/cmd/bms")
+    check(code == 200 and "soc" in body and row["ok"] and 0 <= row["age_s"] <= 8,
+          "a bms typed on the console was kept %.1f s after the answer, age %s s: %r" % (time.time() - t0, row["age_s"], body[:40]))
+    time.sleep(2.5)
+    ad.read(10)   # the hold's release NUL, so the next scenario starts clean
     c.close()
 
 
@@ -443,7 +471,7 @@ ORDER = ["roundtrip", "break", "poll", "storage", "sleep", "lightsleep"]
 TOUCHES = {
     "mbb_uart": ["roundtrip", "break", "sleep"],
     "console": ["roundtrip", "lightsleep"],
-    "poller": ["poll"],
+    "poller": ["poll", "roundtrip"],
     "mbb_parse": ["poll", "storage"],
     "store": ["poll", "sleep"],
     "zstream": ["sleep"], "dictkeeper": ["sleep"], "names": ["sleep"], "framer": ["roundtrip", "sleep"],

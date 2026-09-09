@@ -37,7 +37,9 @@ its [README](../firmware/README.md):
    command's end; the schedule waits 20 s after the MBB wakes, a request
    does not, and the poller never runs
    while it sleeps or once it has announced its hibernation, and stands
-   aside for a console client, finishing the command in flight. The
+   aside for a console client, finishing the command in flight. A command
+   of the set that the client types is kept from its answer as it goes by,
+   on the same timeout, so the page is as fresh as the session. The
    announcement expires after a minute if the MBB stays up, a key-on
    inside the countdown, and a poll requested during it is refused rather
    than kept. A failed attempt never replaces the last good output; the

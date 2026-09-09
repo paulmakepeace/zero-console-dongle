@@ -2,11 +2,12 @@
 #include <Arduino.h>
 
 // Runs a fixed command set on the MBB on a slow schedule while it is awake
-// and no console client is connected, and keeps the last output of each.
+// and no console client is connected, and keeps the last output of each;
+// one of the set typed by a console client is kept the same way.
 void pollerBegin(uint32_t intervalS);
 void pollerSetInterval(uint32_t s);   // 0 turns the schedule off; a request still runs
 uint32_t pollerInterval();
-bool pollerConsumeLine(const char* line, size_t len);   // true: a line the batch kept for the API; the log takes it regardless
+bool pollerConsumeLine(const char* line, size_t len);   // true: a line kept for the API; the log takes it regardless
 void pollerTick(bool mbbAwake, bool consoleBusy);
 bool pollerRequest();   // false when the MBB has announced its hibernation: the request is not kept
 bool pollerActive();

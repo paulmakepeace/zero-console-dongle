@@ -140,7 +140,7 @@ credentials.
 | `/setup`             | GET    | the setup page: a network to join and the settings |
 | `/setup`             | POST   | its form: `ssid` and `pass` to join, if given, plus the settings fields of `/api/settings`; the reply goes out before the join starts |
 | `/api/cmd`           | GET    | JSON list of the polled commands: age and size of the last good output, whether the last attempt succeeded, age of the last failure |
-| `/api/cmd/NAME`      | GET    | the last output of that command, text, with an `X-Age-Seconds` header; 503 until polled, 404 if unknown |
+| `/api/cmd/NAME`      | GET    | the last output of that command, from the poller or from a console client that typed it, text, with an `X-Age-Seconds` header; 503 until polled, 404 if unknown |
 | `/api/cmd/poll`      | POST   | start the batch: at once with the MBB awake and no console client, skipping the 20 s settle, otherwise at its next wake; 409 once the MBB has announced its hibernation |
 
 DELETE, `/update`, `/api/wifi/reset`, `POST /api/settings` and `POST /api/cmd/poll` change state and require the header

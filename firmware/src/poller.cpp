@@ -4,7 +4,9 @@
 // Output comes back through the capture module's line queue; the prompt line
 // closes a command and the rest is the command's output, kept here for the
 // API. The log gets every line as well, behind a "dongle: poll" line per
-// batch, so a session's polls read as a console transcript.
+// batch, so a session's polls read as a console transcript. A poll command
+// typed by a console client is kept the same way as its answer goes by, so
+// the page is as fresh as the session without a command of the poller's own.
 #include "poller.h"
 #include "config.h"
 #include "mbb_uart.h"
@@ -37,6 +39,9 @@ static int cur = -1;
 static uint32_t cmdStartedMs = 0;
 static bool expectEcho = false;
 static String buf;
+static int watch = -1;              // slot of a poll command typed on the console whose answer is going by; -1 for none
+static uint32_t watchStartedMs = 0;
+static bool consoleOn = false;      // latched from the tick: an echo with no client is not a typed command
 static uint32_t awakeSinceMs = 0;
 static bool wasAwake = false;
 static long soc = -1;
@@ -116,18 +121,28 @@ static void finish() {
     storeTick(true);   // the batch just ended and the MBB is quiet: commit now, so the output buffer never fills mid-batch and forces an erase while it is talking
 }
 
-static void closeCurrent(bool ok) {
-    if (cur < 0 || cur >= NCMD) { finish(); return; }
-    outputOk[cur] = ok;
-    if (ok) { outputs[cur] = buf; outputAtMs[cur] = millis() ? millis() : 1; outputEpoch[cur] = 0; saveDue = true; }
-    else failedAtMs[cur] = millis() ? millis() : 1;   // the last good output stays
-    if (ok && strcmp(CMDS[cur], "bms") == 0) soc = parseSoc(buf.c_str(), buf.length());
-    if (ok && (strcmp(CMDS[cur], "state") == 0 || strcmp(CMDS[cur], "status") == 0)) {
+// buf holds command i's whole output: keep it for the API, and read from it
+// what the status carries.
+static void keep(int i) {
+    outputs[i] = buf; outputAtMs[i] = millis() ? millis() : 1; outputEpoch[i] = 0; outputOk[i] = true; saveDue = true;
+    if (strcmp(CMDS[i], "bms") == 0) soc = parseSoc(buf.c_str(), buf.length());
+    if (strcmp(CMDS[i], "state") == 0 || strcmp(CMDS[i], "status") == 0) {
         char st[16];
         if (parseBikeState(buf.c_str(), buf.length(), st, sizeof st)) strlcpy(bikeState, st, sizeof bikeState);
         PackRow r;
         if (parsePackRow(buf.c_str(), buf.length(), r)) { pack = r; havePack = true; soc = r.soc; }
     }
+}
+
+static void append(const char* line, size_t len) {
+    if (buf.length() + len + 1 <= POLL_MAX_BYTES) { buf.concat(line, len); buf += '\n'; }
+    else if (!buf.endsWith("[dongle: output truncated]\n")) buf += "[dongle: output truncated]\n";
+}
+
+static void closeCurrent(bool ok) {
+    if (cur < 0 || cur >= NCMD) { finish(); return; }
+    if (ok) keep(cur);
+    else { outputOk[cur] = false; failedAtMs[cur] = millis() ? millis() : 1; }   // the last good output stays
     buf = "";
     cur++;
     if (cur >= NCMD || finishAfterThis) finish();
@@ -138,7 +153,31 @@ bool pollerConsumeLine(const char* line, size_t len) {
     static const char stopping[] = "MBB will hibernate";
     for (size_t i = 0; i + sizeof(stopping) - 1 <= len; i++)
         if (memcmp(line + i, stopping, sizeof(stopping) - 1) == 0) { mbbStopping = true; stoppingSinceMs = millis() ? millis() : 1; break; }
-    if (!running || cur < 0 || cur >= NCMD) return false;
+    if (!running) {
+        // No batch: a poll command typed by a console client echoes as one
+        // line, and its answer is kept as the batch would keep it.
+        if (watch < 0) {
+            if (consoleOn) {
+                // The prompt has no line end of its own: typed soon enough
+                // after it, the echo shares its line.
+                static const char p[] = "ZERO MBB>";
+                if (len >= sizeof(p) - 1 && memcmp(line, p, sizeof(p) - 1) == 0) { line += sizeof(p) - 1; len -= sizeof(p) - 1; }
+                while (len && *line == ' ') { line++; len--; }
+                if (len > 0 && len < 16) {
+                    char name[16];
+                    memcpy(name, line, len); name[len] = 0;
+                    int i = indexOf(name);
+                    if (i >= 0) { watch = i; watchStartedMs = millis(); buf = ""; }
+                }
+            }
+            return false;
+        }
+        if (isPrompt(line, len)) { keep(watch); buf = ""; watch = -1; return true; }
+        if (isUnsolicited(line, len) || (len >= 7 && memcmp(line, "dongle:", 7) == 0)) return false;
+        append(line, len);
+        return true;
+    }
+    if (cur < 0 || cur >= NCMD) return false;
     if (isPrompt(line, len)) { closeCurrent(true); return true; }
     if (isUnsolicited(line, len)) return false;   // the log wants these whatever we are doing
     if (len >= 7 && memcmp(line, "dongle:", 7) == 0) return false;   // the dongle's own markers belong in the file
@@ -146,13 +185,16 @@ bool pollerConsumeLine(const char* line, size_t len) {
         expectEcho = false;
         if (len == strlen(CMDS[cur]) && memcmp(line, CMDS[cur], len) == 0) return true;   // our own echo
     }
-    if (buf.length() + len + 1 <= POLL_MAX_BYTES) { buf.concat(line, len); buf += '\n'; }
-    else if (!buf.endsWith("[dongle: output truncated]\n")) buf += "[dongle: output truncated]\n";
+    append(line, len);
     return true;
 }
 
 void pollerTick(bool mbbAwake, bool consoleBusy) {
     uint32_t now = millis();
+    consoleOn = consoleBusy;
+    // A typed command the MBB never closed, or one it went to sleep under, is
+    // let go on the batch's own timeout; the last good output stays.
+    if (watch >= 0 && !running && (!mbbAwake || now - watchStartedMs > POLL_TIMEOUT_MS)) { watch = -1; buf = ""; }
     if (mbbAwake != wasAwake) {
         wasAwake = mbbAwake;
         if (mbbAwake) { awakeSinceMs = now; mbbStopping = false; }
@@ -178,6 +220,7 @@ void pollerTick(bool mbbAwake, bool consoleBusy) {
     requested = false;
     finishAfterThis = false;
     running = true;
+    watch = -1;   // the batch owns buf from here
     cur = 0;
     storeAppend(clockStamp() + " dongle: poll", false);
     mbbTxHold(true);
