@@ -16,8 +16,6 @@
 static TimeSource source = TIME_NONE;
 static uint32_t lastNtpSyncMs = 0;
 static volatile bool ntpSyncPending = false;
-static uint32_t lastMbbStepMs = 0;
-static int64_t seenWallUs = 0, seenMonoUs = 0;   // the clock against the monotonic timer at the last tick, for the size of an NTP step
 static ClockNoteHandler noteHandler;
 static StampConsensus consensus;
 // Fixed storage: lwIP keeps the server name pointer, so it must never move.
@@ -119,7 +117,6 @@ void clockMaybeSetFromMbb(const char* line, size_t len) {
     String before = clockStamp();
     settimeofday(&tv, nullptr);
     source = TIME_MBB;
-    lastMbbStepMs = millis();
     if (noteHandler) {
         String note = "dongle: clock stepped from " + before + " to " + clockStamp() + " by the MBB";
         noteHandler(note.c_str());
@@ -127,29 +124,15 @@ void clockMaybeSetFromMbb(const char* line, size_t len) {
 }
 
 void clockTick() {
-    struct timeval now;
-    gettimeofday(&now, nullptr);
-    int64_t wallUs = (int64_t)now.tv_sec * 1000000LL + now.tv_usec;
-    int64_t monoUs = esp_timer_get_time();
-    if (!ntpSyncPending) { seenWallUs = wallUs; seenMonoUs = monoUs; return; }
+    // SNTP sets the system clock itself and then raises this flag; the loop
+    // only promotes the source. An MBB stamp cannot have overwritten the sync,
+    // since clockMaybeSetFromMbb stands down while it is pending.
+    if (!ntpSyncPending) return;
     ntpSyncPending = false;
-    // The step: where the clock is now against where the last tick's reading
-    // would have carried it. After a light sleep this is the sleep timer's
-    // error, the number the planner's margin has to cover.
-    // The first sync of a boot carries the whole distance from the epoch, so
-    // it measures nothing; a step past a day is that, or a clock so wrong the
-    // number would not be read as an error anyway.
-    int64_t stepUs = seenMonoUs ? wallUs - (seenWallUs + (monoUs - seenMonoUs)) : 0;
-    bool measured = stepUs > -86400000000LL && stepUs < 86400000000LL;
-    long stepMs = measured ? (long)(stepUs / 1000) : 0;
-    seenWallUs = wallUs; seenMonoUs = monoUs;
-    bool raced = source == TIME_MBB && millis() - lastMbbStepMs < 2000;   // a step may have overwritten the sync
     source = TIME_NTP;
     lastNtpSyncMs = millis();
     if (noteHandler) {
-        String note = "dongle: clock set from ntp, now " + clockStamp() +
-                      (measured ? ", stepped " + String(stepMs >= 0 ? "+" : "") + String(stepMs / 1000.0, 1) + " s" : ", first fix of this boot");
+        String note = "dongle: clock set from ntp, now " + clockStamp();
         noteHandler(note.c_str());
     }
-    if (raced) configTzTime(tzSetting, ntpSetting);   // ask again; the answer wins
 }
