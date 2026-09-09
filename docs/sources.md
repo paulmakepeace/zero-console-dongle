@@ -17,6 +17,15 @@
   what the OEM app hides: 12 V battery voltage and health, altitude, LTE-M
   signal, satellite count, a theft-attempt flag, location. The fields the
   console's `ccm` and `in` print locally, seen from the cloud end.
+- Facebook zmcowners group, post 3739208356148345 (2021-03-04): Zero had the
+  third-party Android app ZeroNG removed from Google Play by DMCA, and its
+  source repository taken down as well. The app read the same cloud API the
+  Zero app's remote-connect uses. Only that app was hit; other third-party
+  apps for earlier generations stayed up, and its iOS build stayed up. The
+  author said the pictures, icons and text were his own and that he would
+  have renamed anything they objected to had they asked; others read the
+  app's look as passing for official. He wondered whether publishing what he
+  had found about the SR platform's SPORT+ mode was the trigger.
 - Facebook zmcowners group, post 5880543678681458 (2023-02-15): a 2022 Gen3
   stolen by being wheeled away and recovered from the app's GPS fix. The
   owner's notes: the GPS reports only while the 12 V system is live, the
