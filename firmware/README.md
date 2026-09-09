@@ -157,6 +157,11 @@ refreshes, and every other client then waits. The tools allow for it with
 eight-second timeouts and the pull script with fifteen; close the tab
 before timing anything.
 
+Pull one field out of any of these with `jq`, rather than a python
+one-liner: `curl -s http://zero-dongle-a12c.local/api/status | jq '.observed'`,
+or `jq -c '{fw, boot, uart: .uart.overflows}'` for a summary line. `tools/status.py`
+is the whole-board summary; `jq` is for the field you happen to want.
+
 TCP console on port 6638, advertised over mDNS as `_zero-console._tcp`:
 
 ```bash
