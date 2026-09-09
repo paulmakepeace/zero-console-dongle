@@ -1,5 +1,16 @@
 # Open questions
 
+- Whether holding the MBB awake makes the cellular module check in. Answered
+  no, for five minutes at a time: overnight on 2026-09-09, fourteen wakes
+  from hibernation each held the MBB up for about five minutes, and
+  `cell_network_registration`, `connected_to_starcom` and
+  `cell_signal_percent` read zero in all 840 samples, with the `ccm` rows
+  refreshing throughout (median age 43 s). The module is alive during those
+  wakes, since `gps_is_valid` reads 1 and its heartbeat state of charge
+  moved over the night, so it has a fix and is being read; it simply does
+  not attach to the network. Still open: whether a longer hold does, since
+  five minutes may be short for an LTE-M attach, and what the module is
+  waiting for. The data is in a git-ignored CSV under logs/.
 - What sets the cellular module's schedule. The hourly wake charges the
   12 V battery only when the module answers, roughly one wake in a dozen to
   fifty by the console captures and the app logs alike, and the rest time
