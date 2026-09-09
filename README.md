@@ -38,6 +38,9 @@ characterised and the CAN and buck parts are on order. See
 - [docs/sources.md](docs/sources.md): references.
 - [docs/handoff.md](docs/handoff.md): the state of the two boards, the threads
   left half finished, and how a change is verified here.
+- [docs/dev-process.md](docs/dev-process.md): the change cycle from edit to
+  bike, which board is which, and how to read a bench failure without
+  thrashing.
 - [firmware/](firmware/): the PlatformIO project, Arduino framework. Its
   README has the build, the tests, first boot and the endpoints.
 - [tools/](tools/): [`tools/console.sh`](tools/console.sh) opens a legible, logged console session;
