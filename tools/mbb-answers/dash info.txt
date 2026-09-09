@@ -1,0 +1,18 @@
+
+******************************************************************
+*			Dash Information                    *
+******************************************************************
+
+                           Speed_kph,          0,          0
+                     State_of_Charge,         84,          0
+                  Estimated_Range_km,        113,          0
+                    Active_Ride_Mode,          2,          0
+             Active_Traction_Control,          1,          0
+                 Active_Heated_Grips,          4,          0
+                         Odometer_km,      14532,          0
+                         Odometer_mi,       9032,          0
+               cruise_control_status,          1,          0
+                    cruise_speed_kmh,          0,          0
+            clock_hours_24_from_dash,         22,          0
+             clock_minutes_from_dash,         38,          0
+             clock_seconds_from_dash,         49,          0

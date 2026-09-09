@@ -1,0 +1,28 @@
+
+******************************************************************
+*			MSC State                           *
+******************************************************************
+
+            Parameter,      Value,     Units,    Valid,   In Test
+ Front_Wheel_Pressure,          0,      ubar,       No,         0
+  Rear_Wheel_Pressure,          0,      ubar,       No,         0
+     Requested_Torque,          0,       uNm,      Yes,         0
+  Mode_Change_Allowed,          1,          ,      Yes,         0
+             MTC_Mode,          0,          ,      Yes,         0
+     Pending_MTC_Mode,          0,          ,      Yes,         0
+             ABS_Mode,          0,          ,      Yes,         0
+    Front_Wheel_Speed,          0,     mm/hr,      Yes,         0
+     Rear_Wheel_Speed,          0,     mm/hr,      Yes,         0
+       ABS_lamp_state,          0,          ,      Yes,         0
+      Front_ABS_Event,          0,          ,      Yes,         0
+       Rear_ABS_Event,          0,          ,      Yes,         0
+                Pitch,        169,    degx10,      Yes,         0
+                 Lean,       -135,    degx10,      Yes,         0
+       X_acceleration,      29186,      ugee,      Yes,         0
+       Y_acceleration,     219559,      ugee,      Yes,         0
+       Z_acceleration,     944729,      ugee,      Yes,         0
+            MSC_Alive,          1,          ,      Yes,         0
+     Bike_Tipped_Over,          0,          ,      Yes,         0
+            Tip_Angle,        131,    degx10,      Yes,         0
+             Yaw_rate,         10,    mdeg/s,      Yes,         0
+                  Yaw,          0,     u_deg,      Yes,         0

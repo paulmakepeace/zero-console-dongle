@@ -1,0 +1,62 @@
+
+******************************************************************
+*              Bike Status                                  *
+******************************************************************
+
+ Bike State: PWSU
+
+************************** Inputs ***************************
+                               Input,      Value,    In Test
+                              Key_On,          0,          0
+                      Kickstand_Down,          1,          0
+                       Motor_Stopped,          1,          0
+                         Immobilizer,          1,          0
+                       EVSE_Attached,          0,          0
+                     Charge_Complete,          0,          0
+                   Schedule_Charging,          0,          0
+              Time_till_leave_charge,        -20,          0
+         wait_for_next_active_window,          0,          0
+                          12V_Heater,          0,          0
+                        DC-DC_to_12V,          1,          0
+
+************************ Disables ***************************
+                             Disable,      Value,    In Test
+                         Kill_Switch,          1,          0
+                    Motor_Controller,          1,          0
+                      Contactor_Open,          1,          0
+                   Discharge_Disable,          0,          0
+                             Tipover,          0,          0
+                 12V_Battery_Heating,          0,          0
+ Bike Control: 0x404070 
+ Bike Disable: 0x85 
+
+* * * BATTERY INFO * * * 
+
+ BMS | SOC |  Pack V  | Current | Capacity|  L cell  | H temp | L temp | Cont | Elig
+ ----+-----+----------+---------+---------+----------+--------+--------+------+------+
+   2   76 %  108102 mV  26 mA     84 AH    3858 mV    25 C    23 C      -     + + 
+
+* * * CONTROLLER * * * 
+ Motor RPM: 		0 rpm
+ Motor Temperature: 	0 C
+ DC Bus Voltage: 	0 mV
+ Fault Code: 		0 level- 0
+ Last time Temp PDO 	0 s, 0 us
+
+* * * CHARGER INFO * * * 
+ - No chargers registered.
+
+* * * DASH . TCS * * * 
+ Odometer: 	429496729 km
+ Ride Mode:	Eco
+ Traction Mode:	Uninitialized
+Invalid
+
+* * * FAULTS and DISABLES * * *
+Active faults:
+
+
+Pending faults:
+
+
+

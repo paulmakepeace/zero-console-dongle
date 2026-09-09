@@ -1,0 +1,27 @@
+
+******************************************************************
+*			MBB Measurements                    *
+******************************************************************
+
+          Measurement,      Value,     Units,    Valid,   In Test
+                DC-DC,      13163,        mV,      Yes,         0
+          12V_Battery,      13127,        mV,      Yes,         0
+         12V_Combined,      13131,        mV,      Yes,         0
+            Kickstand,          1,      Down,      Yes,         0
+                  Key,          1,        On,      Yes,         0
+          Kill_Switch,          1,       Run,      Yes,         0
+                 HVIL,          1,    Closed,      Yes,         0
+         Ambient_Temp,       3610,     Cx100,      Yes,         0
+          J1772_Pilot,         15,          ,       No,         0
+      J1772_Proximity,          1,   Disconn,      Yes,         0
+             Throttle,          0,       ppm,      Yes,         0
+           Throttle_0,        346,        dn,      Yes,         0
+           Throttle_1,       3072,        dn,      Yes,         0
+      Throttle Switch,          1,          ,      Yes,         0
+        Brake_Voltage,      11502,        mV,      Yes,         0
+              BMS_12V,      11783,        mV,      Yes,         0
+          Mode_Switch,          0,      Open,      Yes,         0
+        Chrg_Latch_Sw,          0,      Open,      Yes,         0
+             3v3_Good,          1,      True,      Yes,         0
+              5V_Good,          1,      True,      Yes,         0
+          blackout_sw,          1,      True,      Yes,         0

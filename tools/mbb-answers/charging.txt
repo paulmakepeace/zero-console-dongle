@@ -1,0 +1,51 @@
+
+******************************************************************
+*			Charging                            *
+******************************************************************
+
+          Measurement,      Value,     Units,    Valid,   In Test
+ EVSE_Connector_State,          1,   Disconn,      Yes,         0
+         EVSE_Command,          0,        No,      Yes,         0
+         Inlet_Region,          1,        NA,      Yes,         0
+          Latch_State,          4,          ,      Yes,         0
+        Pilot_Current,         15,          ,       No,         0
+             Charging,          0,        No,      Yes,         0
+      Charging_Paused,          0,        No,      Yes,         0
+   Chargers_Connected,          0,          ,      Yes,         0
+  Max_Battery_Current,          0,        mA,       No,         0
+   Charge_Current_Sum,          0,        mA,       No,         0
+   Max_Charge_Voltage,        0.0,        mV,       No,         0
+      Target_Charge_V,        0.0,        mV,       No,         0
+      Storage_Voltage,      106.0,        mV,      Yes,         0
+      Target_Override,          0,        No,      Yes,         0
+    SOC_Charge_Target,         85,    Pct(%),      Yes,         0
+ Charge_Target_Enable,          1,       Yes,      Yes,         0
+   Charge_Target_Init,          0,        No,      Yes,         0
+      Charge Complete,          0,        No,      Yes,         0
+    Extended Charging,          0,        No,      Yes,         0
+   Scheduled_Charging,          0,        No,      Yes,         0
+    Schedule_Override,          0,        No,      Yes,         0
+   Sched_Charging_Now,          1,       Yes,      Yes,         0
+   Sched_Charge_Delay,          0,       min,      Yes,         0
+   Sched_Charge_State,          1,   OVERIDE,      Yes,         0
+
+******************* Charging Schedule ***********************
+ Day, Start_Time, Offset, Plugin_Start, Plugin_Offset
+ Sun,      21:00,  10:00,        17:00,          7:00
+ Mon,      21:00,  10:00,        17:00,          7:00
+ Tue,      21:00,  10:00,        17:00,          7:00
+ Wed,      21:00,  10:00,        17:00,          7:00
+ Thu,      21:00,  10:00,        17:00,          7:00
+ Fri,      21:00,  10:00,        17:00,          7:00
+ Sat,      21:00,  10:00,        17:00,          7:00
+******************************************************************
+*			Chargers                            *
+******************************************************************
+Charger, En, OUT V, OUT A,  IN V,  IN A, IN HZ, CMD IN, CMD OUT, Ver,  Serial, CANid, Status
+******************************************************************
+Charging Debug:	Contactor OPEN
+Charging Debug:	Chargers_Connected - 0
+Charging Debug:	Charging pistol not properly connected
+Charging Debug:	Pilot current - INVALID
+******************************************************************
+

@@ -1,0 +1,27 @@
+BMS 2 interface data:
+
+ - status 0x80000036
+ - status2 0x0000
+- pack_current_ma 612
+ - time since status_rpdo_received 79
+
+ - max_charge_voltage 117.6 V
+ - target_charge_voltage 111.7 V
+ - pack_soc_pct 86
+ - discharge_allowed 100
+ - max_charge_current 128
+ - max_discharge_current 1280
+ - time since power_rpdo_received 88
+
+ - pack_capacity_ah 84
+ - min_pack_temp_c 30
+ - max_pack_temp_c 31
+ - lowest_cell_voltage_mv 3976
+ - time since pack_rpdo_received 91
+
+ - pack_open_circuit_voltage_mv 111423
+ - pack_voltage_mv 111423
+ - time since voltage_rpdo_received 93
+ - Contactor recently closed 0
+
+ - bms_compatibility_field 0x13

@@ -1,0 +1,53 @@
+
+******************************************************************
+*			CCM Data                            *
+******************************************************************
+
+  UTC_time: Wed, 09/09/2026 05:36:16
+
+                           Parameter,      Value,    In Test
+                       last_packet_s,          0,          0
+                      last_packet_ms,        770,          0
+                             unit_id,     masked,          0
+                              fw_ver,  2022.12.8,          0
+                          fw_ver_raw,     0xB308,          0
+                              hw_ver,          0,          0
+                       ccm_volts_x10,       1300,          0
+                         ignition_on,          1,          0
+                         ccm_accel_x,          0,          0
+                         ccm_accel_y,          4,          0
+                         ccm_accel_z,         15,          0
+
+               gps_longitude_radians,     masked,          0
+                gps_latitude_radians,     masked,   
+   0
+                       gps_is_valid,          1,          0
+
+                            cell_mcc,        310,          0
+                            cell_mnc,        260,          0
+                 cell_signal_percent,          0,          0
+ 
+          cell_network_registration,          0,          0
+                connected_to_starcom,          0,          0
+                   production_state,        REG,          0
+
+                              hb_soc,         84,          0
+                     hb_chg_time_min,          0,          0
+                           hb_ecu_id,         10,          0
+                              hb_rev,         26,          0
+
+                    bike_tipped_over,          0,          0
+                    bike_is_charging,          0,          0
+                    charge_completed,          0,          0
+                    charger_attached,          0,          0
+                        storage_mode,          0,          0
+                        cell_disable,          0,          0
+                  ccm_to_mbb_disable,          0,          0
+
+                    usr_confirm_done,          0,          0
+                      current_ecu_id,          0,          0
+                     current_ecu_rev,          0,          0
+                    current_ecu_bank,          0,          0
+                  current_ecu_needed,          0,          0
+                    current_ecu_size,          0,          0
+                           ota_state,       NONE,          0

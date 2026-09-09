@@ -1,0 +1,42 @@
+
+******************************************************************
+*                           BMS Data                        *
+******************************************************************
+Additional options:
+ - bms interface        Shows Interface data
+ - bms commands         Shows commands sent to bms
+ - bms eligibility/elig Shows eligibility information about the modules
+ - bms module           Shows module data
+ - bms status           Shows bms status data
+ - bms info             Shows bms information
+
+   use -v for verbose printout including unregistered modules
+
+ - bms login <bms> <level>  Log in to <bms> at <level>
+
+Module Management:
+ - LTSM state: DIS
+ - Selected to:
+    - precharge: 255
+    - close contactor: 255
+    - isolation: 255
+
+BMS snapshot:
+ - BMS 2
+     Module 2 info:
+     - time since last PDO received 69
+     - is registered     1
+     - eligible for charge 1
+     - eligible for discharge 1
+     - pack voltage      108099
+     - pack voltage oc   108099
+     - soc               76
+     - precharge command 0
+     - precharge state   0
+     - contactor command 0
+     - contactor state   0
+     - lock command      1
+     - pack full         0
+     - storage mode      Inactive
+     - num_bricks        0
+     - batt serial       00XX0000

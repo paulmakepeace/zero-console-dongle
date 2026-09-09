@@ -1,0 +1,21 @@
+
+******************************************************************
+*			PDU State                           *
+******************************************************************
+
+         Channel,   Current,   Units,   Valid,  In Test,          Fault, rq, at
+  12V_Switch_Pwr,       238,      mA,     Yes,        0,           None,  1,  1
+         ABS_MCU,        82,      mA,     Yes,        0,           None,  1,  1
+       High_Beam,         0,      mA,     Yes,        0,           None,  0,  0
+            Horn,         0,      mA,     Yes,        0,           None,  0,  0
+     Heated_Accs,         0,      mA,     Yes,        0,           None,  1,  0
+      Aux_Outlet,         4,      mA,     Yes,        0, No_Measurement,  1,  1
+       Headlight,      1642,      mA,     Yes,        0,           None,  1,  1
+     Cntlr_Logic,       446,      mA,     Yes,        0,           None,  1,  1
+     Brake_Light,         0,      mA,     Yes,        0,           None,  1,  1
+   Right_Blinker,         0,      mA,     Yes,        0,           None,  0,  0
+    Left_Blinker,         0,      mA,     Yes,        0,           None,  0,  0
+      12V_Heater,         0,      mA,     Yes,        0,           None,  0,  0
+   DC-DC_to_Batt,         0,      mA,      No,        0,           None,  1,  1
+ 12V_Heater_Temp,         0,       C,      No,        0,               ,  0,  0
+   Total_Current,      2438,      mA,     Yes,        0,               ,  0,  0

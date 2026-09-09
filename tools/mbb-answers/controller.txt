@@ -1,0 +1,22 @@
+
+******************************************************************
+*			Controller State                    *
+******************************************************************
+
+            Parameter,      Value,     Units,    Valid,   In Test
+            Motor_RPM,          0,       rpm,      Yes,         0
+        Actual_Torque,          0,       uNm,      Yes,         0
+           Req_Torque,          0,       uNm,      Yes,         0
+           Motor_Temp,         35,         C,      Yes,         0
+      Reverse_Allowed,          1,          ,      Yes,         0
+        Inverter_Temp,         25,         C,      Yes,         0
+       DC_Bus_Voltage,     111300,        mV,      Yes,         0
+       DC_Bus_Current,          0,        mA,      Yes,         0
+         System_Flags,      13440,          ,      Yes,         0
+           Fault_Code,          0,          ,      Yes,         0
+          Fault_Level,          0,          ,      Yes,         0
+    Motor_revolutions,   34345149,          ,      Yes,         0
+     Last_Speed_PDO_s,         87,       sec,      Yes,         0
+    Last_Speed_PDO_us,     900000,      usec,      Yes,         0
+      Last_Temp_PDO_s,         87,       sec,      Yes,         0
+     Last_Temp_PDO_us,     905000,      usec,      Yes,         0
