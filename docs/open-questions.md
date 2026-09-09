@@ -5,7 +5,12 @@
   fifty by the console captures and the app logs alike, and the rest time
   out. Whether the module wakes on its own clock, on signal, or on a server
   check-in is not known; the cover was on for both a charge and a timeout,
-  so signal alone does not explain it.
+  so signal alone does not explain it. Owners see the result from the far
+  end: location uploads every two to five hours with the ignition off, and
+  none while the 12 V system is down, which is the hibernating bike (see
+  [sources.md](sources.md), the 2023 theft post). An impact registered by
+  a parked bike reached its owner as a notification, so the module's
+  accelerometer, the `ccm_accel` rows of `ccm`, is read during those wakes.
 - Does the half-hour heartbeat happen from deep sleep? None appeared in
   eleven 96-second timeout wakes; the one charge wake printed it at its
   30-minute mark.
