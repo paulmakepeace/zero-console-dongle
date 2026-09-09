@@ -36,6 +36,8 @@ characterised and the CAN and buck parts are on order. See
 - [docs/compression.md](docs/compression.md): how the session files are
   compressed, the learned dictionary, before-and-after figures, flash wear.
 - [docs/sources.md](docs/sources.md): references.
+- [docs/handoff.md](docs/handoff.md): the state of the two boards, the threads
+  left half finished, and how a change is verified here.
 - [firmware/](firmware/): the PlatformIO project, Arduino framework. Its
   README has the build, the tests, first boot and the endpoints.
 - [tools/](tools/): [`tools/console.sh`](tools/console.sh) opens a legible, logged console session;
@@ -53,18 +55,23 @@ characterised and the CAN and buck parts are on order. See
 
 ## Next, in order
 
-1. Keep the dongle on the bike collecting wakes, and ride and pull the files
-   with [`tools/pull-logs.py`](tools/pull-logs.py). The open question the captures serve is what
-   sets the cellular module's schedule, since the 12 V charge rides on it;
-   see [docs/open-questions.md](docs/open-questions.md). Leave the bike in
-   storage mode across an hourly wake once: that capture shows the wake-time
-   line with the mode on, which the sleep trigger keys on.
-2. When the CAN and buck parts land, build the second shell with the phase 2
+1. Pull the bike's files often enough that the log directory stays under a
+   hundred: past that the space reclaim walks the whole directory from inside
+   the capture stage and stalls it for ten seconds, which times out every HTTP
+   request. Measured, and the first item in
+   [docs/open-questions.md](docs/open-questions.md). The bike reaches a
+   hundred in about four days without a pull.
+2. Keep the dongle on the bike collecting wakes, and ride and pull the files
+   with [`tools/pull-logs.py`](tools/pull-logs.py). Two captures are still
+   wanted: the wake-time storage-mode line, which the sleep trigger keys on,
+   and a natural RTC wake's boot time, to sit beside the 103 ms a pin 9 wake
+   measures. Both are in [docs/open-questions.md](docs/open-questions.md).
+3. When the CAN and buck parts land, build the second shell with the phase 2
    wiring and bench-test CAN first, both in
    [docs/hardware.md](docs/hardware.md).
-3. Fit the front LEDs and answer the LED questions in
+4. Fit the front LEDs and answer the LED questions in
    [docs/open-questions.md](docs/open-questions.md).
-4. Phase 2 firmware: CAN as a second stream, then the rest of the list in
+5. Phase 2 firmware: CAN as a second stream, then the rest of the list in
    [docs/firmware.md](docs/firmware.md).
 
 ## Talking to the console
