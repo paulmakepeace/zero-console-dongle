@@ -106,9 +106,13 @@ static size_t totalBytes() {
     return total;
 }
 
+// The board's own files beside the logs: the dictionaries and the poller's
+// last batch. Not listed, never reclaimed, not for DELETE.
+static bool houseFile(const char* n) { return strncmp(n, "dict-", 5) == 0 || strcmp(n, POLL_SAVE_NAME) == 0; }
+
 void storeForEachFile(void (*fn)(void*, const char*, size_t, bool), void* ctx) {
     Lock l;
-    forEachFile([&](const char* n, size_t size) { fn(ctx, n, size, activeName == n); }, true);
+    forEachFile([&](const char* n, size_t size) { if (!houseFile(n)) fn(ctx, n, size, activeName == n); }, true);
 }
 
 static size_t freeBytes() { return totalBytes() - LittleFS.usedBytes(); }
@@ -130,7 +134,7 @@ static bool ensureSpace() {
         char oldest[8][65];
         int n = 0;
         forEachFile([&](const char* name, size_t) {
-            if (strncmp(name, "dict-", 5) == 0 || activeName == name || isOpenForRead(name)) return;
+            if (houseFile(name) || activeName == name || isOpenForRead(name)) return;
             if (floor[0] && strcmp(name, floor) <= 0) return;
             // Keep the eight smallest, sorted: insert, then drop the largest.
             int i = n < 8 ? n++ : 7;
@@ -545,7 +549,7 @@ static bool nameOk(const String& name) { return logNameOk(name.c_str(), name.len
 StoreDeleteResult storeDelete(const String& name) {
     Lock l;
     if (!nameOk(name) || name == activeName || isOpenForRead(name)) return STORE_REFUSED;
-    if (name.startsWith("dict-")) return STORE_REFUSED;   // collected on their own once nothing names them
+    if (houseFile(name.c_str())) return STORE_REFUSED;   // the board's own: dictionaries are collected on their own, the poll batch is the poller's
     if (!LittleFS.exists(pathOf(name))) return STORE_NOT_FOUND;
     return LittleFS.remove(pathOf(name)) ? STORE_DELETED : STORE_REFUSED;
 }

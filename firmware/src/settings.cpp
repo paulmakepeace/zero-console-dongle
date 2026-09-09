@@ -11,21 +11,17 @@
 #include <Preferences.h>
 
 static String tzSetting, ntpSetting;
-static char setupPass[33];
 
 void settingsBegin() {
     Preferences p;
     p.begin("dongle", true);
     tzSetting = p.isKey("tz") ? p.getString("tz") : String(TZ_DEFAULT);
     ntpSetting = p.isKey("ntp") ? p.getString("ntp") : String(NTP_SERVER);
-    String pass = p.isKey("setup_pass") ? p.getString("setup_pass") : String(sysSetupPassDefault());
     p.end();
-    strlcpy(setupPass, pass.c_str(), sizeof setupPass);
 }
 
 const char* settingsTz() { return tzSetting.c_str(); }
 const char* settingsNtp() { return ntpSetting.c_str(); }
-const char* settingsSetupPass() { return setupPass; }
 
 String settingsJson() {
     return "{\"tz\":\"" + jsonEscape(tzSetting) + "\",\"ntp\":\"" + jsonEscape(ntpSetting) +
@@ -33,13 +29,12 @@ String settingsJson() {
            ",\"sleep_grace\":" + String(sleepGraceMs() / 1000) + ",\"use_s\":" + String(httpUseMs() / 1000) + "}";
 }
 
-bool settingsApply(const String& tz, const String& ntp, const String& pass, const String& sleep, const String& poll, const String& days, const String& grace, const String& use) {
-    if (tz.length() > 63 || ntp.length() > 64 || pass.length() > 32) return false;   // what the clock and the setup network can hold
+bool settingsApply(const String& tz, const String& ntp, const String& sleep, const String& poll, const String& days, const String& grace, const String& use) {
+    if (tz.length() > 63 || ntp.length() > 64) return false;   // what the clock can hold
     Preferences p;
     p.begin("dongle", false);
     if (tz.length() && tz != tzSetting) { tzSetting = tz; p.putString("tz", tz); }
     if (ntp.length() && ntp != ntpSetting) { ntpSetting = ntp; p.putString("ntp", ntp); }
-    if (pass.length() >= 8 && pass != setupPass) { strlcpy(setupPass, pass.c_str(), sizeof setupPass); p.putString("setup_pass", pass); }
     if (sleep == "0" || sleep == "1") { sleepSetEnabled(sleep == "1"); p.putBool("sleep", sleep == "1"); }
     if (poll.length() && poll.toInt() >= 0 && poll.toInt() < 100000) { pollerSetInterval(poll.toInt()); p.putUInt("poll", poll.toInt()); }
     if (days.length() && days.toInt() >= 0 && days.toInt() < 1000) { sleepSetAfterDays(days.toInt()); p.putUInt("sleep_days", days.toInt()); }

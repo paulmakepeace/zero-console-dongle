@@ -12,11 +12,18 @@
 #include "store.h"
 #include "clock.h"
 #include "pure/mbb_parse.h"
+#include <LittleFS.h>
 
 static const char* const CMDS[] = {POLL_CMDS};
 static const int NCMD = sizeof CMDS / sizeof CMDS[0];
+static int indexOf(const char* name) {
+    for (int i = 0; i < NCMD; i++) if (strcmp(CMDS[i], name) == 0) return i;
+    return -1;
+}
 static String outputs[NCMD];        // the last good output of each; a failed attempt does not replace it
-static uint32_t outputAtMs[NCMD];
+static uint32_t outputAtMs[NCMD];   // when an output was taken this boot; 0 for none, or one loaded from flash
+static long outputEpoch[NCMD];      // wall time of an output loaded from flash, 0 otherwise
+static bool saveDue = false;        // an output taken since the last save
 static bool outputOk[NCMD];         // the last attempt succeeded
 static uint32_t failedAtMs[NCMD];
 static bool mbbStopping = false;    // the MBB has announced its hibernation: no more commands
@@ -37,7 +44,46 @@ static PackRow pack = {-1, -1, 0, -1, -1, -999, -999};
 static bool havePack = false;
 static char bikeState[16] = "";
 
-void pollerBegin(uint32_t s) { intervalS = s; buf.reserve(POLL_MAX_BYTES + 128); }
+// The last batch outlives a reboot: written once per session at the asleep
+// edge, a quiet moment, and read at boot, so the command page has the
+// bike's last known state before the MBB's next wake.
+static void saveOutputs() {
+    saveDue = false;
+    if (!clockValid()) return;   // an output with no wall time is no use after a reboot
+    File f = LittleFS.open(String("/") + POLL_SAVE_NAME, "w");
+    if (!f) return;
+    long now = (long)time(nullptr);
+    for (int i = 0; i < NCMD; i++) {
+        if (!outputAtMs[i] && !outputEpoch[i]) continue;
+        long at = outputAtMs[i] ? now - (long)((millis() - outputAtMs[i]) / 1000) : outputEpoch[i];
+        f.printf("%s %ld %u\n", CMDS[i], at, (unsigned)outputs[i].length());
+        f.print(outputs[i]);
+    }
+    f.close();
+}
+
+static void loadOutputs() {
+    File f = LittleFS.open(String("/") + POLL_SAVE_NAME, "r");
+    if (!f) return;
+    while (f.available()) {
+        String head = f.readStringUntil('\n');
+        char name[16]; long at; unsigned len;
+        if (sscanf(head.c_str(), "%15s %ld %u", name, &at, &len) != 3 || len > POLL_MAX_BYTES + 64) break;
+        int i = indexOf(name);
+        String body;
+        body.reserve(len);
+        while (body.length() < len && f.available()) {
+            char chunk[257];
+            size_t n = f.readBytes(chunk, min((size_t)256, (size_t)(len - body.length())));
+            if (!n) break;
+            body.concat(chunk, n);
+        }
+        if (i >= 0 && body.length() == len) { outputs[i] = body; outputEpoch[i] = at; outputOk[i] = true; }
+    }
+    f.close();
+}
+
+void pollerBegin(uint32_t s) { intervalS = s; buf.reserve(POLL_MAX_BYTES + 128); loadOutputs(); }
 void pollerSetInterval(uint32_t s) { intervalS = s; }
 uint32_t pollerInterval() { return intervalS; }
 bool pollerRequest() { if (mbbStopping) return false; requested = true; return true; }
@@ -48,11 +94,6 @@ bool pollerPack(long& s, long& mv, long& ma, long& ah, long& hi, long& lo) {
     if (!havePack) return false;
     s = pack.soc; mv = pack.packMv; ma = pack.currentMa; ah = pack.capacityAh; hi = pack.tempHiC; lo = pack.tempLoC;
     return true;
-}
-
-static int indexOf(const char* name) {
-    for (int i = 0; i < NCMD; i++) if (strcmp(CMDS[i], name) == 0) return i;
-    return -1;
 }
 
 static void sendCurrent() {
@@ -78,7 +119,7 @@ static void finish() {
 static void closeCurrent(bool ok) {
     if (cur < 0 || cur >= NCMD) { finish(); return; }
     outputOk[cur] = ok;
-    if (ok) { outputs[cur] = buf; outputAtMs[cur] = millis() ? millis() : 1; }
+    if (ok) { outputs[cur] = buf; outputAtMs[cur] = millis() ? millis() : 1; outputEpoch[cur] = 0; saveDue = true; }
     else failedAtMs[cur] = millis() ? millis() : 1;   // the last good output stays
     if (ok && strcmp(CMDS[cur], "bms") == 0) soc = parseSoc(buf.c_str(), buf.length());
     if (ok && (strcmp(CMDS[cur], "state") == 0 || strcmp(CMDS[cur], "status") == 0)) {
@@ -112,7 +153,11 @@ bool pollerConsumeLine(const char* line, size_t len) {
 
 void pollerTick(bool mbbAwake, bool consoleBusy) {
     uint32_t now = millis();
-    if (mbbAwake != wasAwake) { wasAwake = mbbAwake; if (mbbAwake) { awakeSinceMs = now; mbbStopping = false; } }
+    if (mbbAwake != wasAwake) {
+        wasAwake = mbbAwake;
+        if (mbbAwake) { awakeSinceMs = now; mbbStopping = false; }
+        else if (saveDue) saveOutputs();   // the session's last state, at the quiet edge
+    }
     // An announcement the MBB did not follow through on (a key-on inside the
     // countdown keeps it up) stops mattering after a minute.
     if (mbbStopping && mbbAwake && now - stoppingSinceMs > 60000) mbbStopping = false;
@@ -144,7 +189,7 @@ String pollerListJson() {
     for (int i = 0; i < NCMD; i++) {
         if (i) s += ",";
         s += "{\"name\":\"" + String(CMDS[i]) + "\",\"bytes\":" + String(outputs[i].length()) +
-             ",\"age_s\":" + String(outputAtMs[i] ? (long)((millis() - outputAtMs[i]) / 1000) : -1) +
+             ",\"age_s\":" + String(pollerOutputAgeS(CMDS[i])) +
              ",\"ok\":" + (outputOk[i] ? "true" : "false") +
              ",\"failed_s\":" + String(failedAtMs[i] ? (long)((millis() - failedAtMs[i]) / 1000) : -1) + "}";
     }
@@ -153,10 +198,15 @@ String pollerListJson() {
 
 const String* pollerOutput(const char* name) {
     int i = indexOf(name);
-    return i < 0 || !outputAtMs[i] ? nullptr : &outputs[i];
+    return i < 0 || (!outputAtMs[i] && !outputEpoch[i]) ? nullptr : &outputs[i];
 }
 
-uint32_t pollerOutputAgeS(const char* name) {
+// Seconds since the output was taken; -1 for none, -2 for one from before
+// this boot whose age waits on the clock.
+long pollerOutputAgeS(const char* name) {
     int i = indexOf(name);
-    return i < 0 || !outputAtMs[i] ? UINT32_MAX : (millis() - outputAtMs[i]) / 1000;
+    if (i < 0) return -1;
+    if (outputAtMs[i]) return (long)((millis() - outputAtMs[i]) / 1000);
+    if (outputEpoch[i]) return clockValid() ? (long)time(nullptr) - outputEpoch[i] : -2;
+    return -1;
 }

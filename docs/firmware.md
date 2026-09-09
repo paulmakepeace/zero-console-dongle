@@ -62,7 +62,11 @@ its [README](../firmware/README.md):
    into the log with the rest of the batch. The store commits at the end
    of every batch, a quiet moment by construction, so the batches' bytes
    never fill the output buffer while the MBB is talking and force an
-   erase under it.
+   erase under it. The last batch is written to its own file at the
+   asleep edge, once per session, and read at boot, so the command page
+   has the bike's last known state, with its age, before the MBB's next
+   wake; the file is the board's own, beside the dictionaries, and is
+   neither listed nor reclaimed.
 8. **Light sleep when the bike is unattended.** The dongle sleeps only once
    the bike has gone a configurable number of days, three by default,
    without any of the three lines that say it is looked after: a 12 V
@@ -189,8 +193,9 @@ Phase 2, in likely order:
   bus is on pins 6 and 14, and at what rate, is the first thing it tells us.
 - **Push instead of pull**, MQTT to the homelab, once pull has proven the
   files.
-- **A fixed firmware other owners can flash** and configure from a browser:
-  Improv WiFi with esp-web-tools.
+- **A fixed firmware other owners can flash** from a browser with
+  esp-web-tools, provisioned over the USB cable with Improv WiFi beside
+  the setup network.
 - **Store shape for CAN.** A second file per session needs a store handle
   per stream with one commit and reclaim policy, reclaim by session rather
   than by name so a session's files go together, and the listing grouped
@@ -198,18 +203,12 @@ Phase 2, in likely order:
   text.
 - **Boot-loop control.** Count boots that die inside 60 s in RTC memory, which
   survives a soft reset with no flash wear, and after three of them start
-  in a safe mode with the filesystem and WiFiManager left out so the board
+  in a safe mode with the filesystem and the network left out so the board
   stays reachable and flashable over USB. The boot counter itself moves to
   RTC memory with a periodic NVS write, so a loop cannot wear the NVS
   either.
-- **A non-blocking boot connect.** WiFiManager's autoConnect at boot and
-  its connect on a portal save each hold the loop task for about 20 s, the
-  longest stalls the capture queue has to ride out. Starting the join and
-  letting the network tick handle the result removes them. WiFiManager
-  also registers its own update, restart and erase routes on the setup
-  network whatever the menu shows; a replacement (Improv) closes that.
-- **Network on its own task.** The HTTP server, the console and
-  WiFiManager all run on the loop task, so a body sent one byte at a time
+- **Network on its own task.** The HTTP server and the console run on
+  the loop task, so a body sent one byte at a time
   holds the loop until the watchdog fires; the LAN-only posture makes that
   acceptable in phase 1. An async server, or the network on its own task with
   a queue to the store, removes the dependence. The console and the poller

@@ -2,14 +2,13 @@
 #include <Arduino.h>
 
 // What the setup page and /api/settings apply and save: timezone, NTP
-// server, the setup network's password, sleep on or off, the poll interval
-// and the days before sleeping, plus two bench knobs that are applied and
-// never saved. Nothing needs a restart. The owners read their own saved
-// values at boot; this owner loads the three that are nobody else's.
+// server, sleep on or off, the poll interval and the days before sleeping,
+// plus two bench knobs that are applied and never saved. Nothing needs a
+// restart. The owners read their own saved values at boot; this owner
+// loads the two that are nobody else's.
 void settingsBegin();
-bool settingsApply(const String& tz, const String& ntp, const String& pass, const String& sleep, const String& poll, const String& days,
+bool settingsApply(const String& tz, const String& ntp, const String& sleep, const String& poll, const String& days,
                    const String& grace = String(), const String& use = String());   // false: a value too long, nothing applied
 String settingsJson();
 const char* settingsTz();
 const char* settingsNtp();
-const char* settingsSetupPass();

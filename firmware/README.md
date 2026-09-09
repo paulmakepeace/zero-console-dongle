@@ -79,18 +79,24 @@ reads one, and `git push --follow-tags` sends them with the branch.
 Every board names itself `zero-dongle-XXXX`, the last four hex digits of
 its MAC, and uses that name for its hostname, mDNS name and setup network,
 so several boards can share a network. The bike's unit is
-`zero-dongle-a12c`; write the suffix on each board. The setup network's
-password is `zero-` plus the last six hex digits of the MAC, printed on the
-serial console at boot, and can be replaced from the setup page.
+`zero-dongle-a12c`; write the suffix on each board. The setup network is
+open: it is up for minutes, on a bike, and goes down at the join, so a
+password would be a speed bump for whoever is already close enough to
+reach the buttons.
 
 With no WiFi stored the dongle raises the setup network, and keeps raising
 it after each sleep until it is provisioned; the setup network counts as
 use for its first ten minutes and while someone is on it, after which an
-unprovisioned board sleeps like any other. Join it from a
-phone, pick the home network and enter its password; the same page takes
-the timezone in POSIX form, the NTP server, a new setup password, whether
-to sleep between MBB sessions, the days unattended before sleeping and
-the poll interval, all stored in flash and applied at once, no reboot.
+unprovisioned board sleeps like any other. Join it from a phone: the
+setup page opens on its own, the way a hotspot's sign-in page does, and
+is `http://192.168.4.1/setup` if it does not. The page takes the home network's name and
+password, and the settings, the timezone in POSIX form, the NTP server,
+whether to sleep between MBB sessions, the days
+unattended before sleeping and the poll interval, all stored in flash
+and applied at once, no reboot. The same page is `/setup` on the home
+network. The join is the driver's own and nothing waits for it: the
+capture, the log and the console run through it, and the setup network
+goes down the moment the join lands.
 Sleep is armed only once the bike has gone `sleep_days` days, three by
 default, without a 12 V top-up, the cellular module answering or a
 key-on, the three lines that say it is being looked after; 0 arms it
@@ -105,18 +111,16 @@ a page opened or an action taken, while a status check and a page's own
 refreshes do not count. A host that has not spoken to the dongle since
 before the sleep may take a few seconds, once in a while fifteen, to
 reach it after the wake while it looks the dongle's address up again;
-the pull script's retries cover that. If the stored network
-refuses the password three times running the setup network comes up again
-for ten minutes, after which the retry resumes, since a marginal link can
-fail three handshakes too; if the network is out of reach the dongle just
-retries every 30 s with no setup network, however long that lasts, and one
-failed handshake on a good password raises nothing. If the home network was renamed, hold the DevKit's
-BOOT button while powering up and the setup network comes up. The setup
-network carries nothing but the setup page: the log server and the console
-come up on every join of the home network and go down whenever the setup
-network is raised. Capture runs regardless of WiFi state. `POST
-/api/wifi/reset` clears the credentials. A forgotten setup password can be
-replaced from the home network with `POST /api/settings`.
+the pull script's retries cover that. With a network stored and no join
+the dongle keeps trying, and raises the setup network beside the tries
+so a phone can put it right: at once when the network refuses the
+password three times running, after ten minutes when it is out of reach;
+the join takes it down again.
+Holding the DevKit's BOOT button while powering up raises it at once. The
+setup network carries the setup page alone; the log server and the
+console come up on every join of the home network and go down with it.
+Capture runs regardless of WiFi state. `POST /api/wifi/reset` clears the
+credentials.
 
 ## Endpoints
 
@@ -131,8 +135,10 @@ replaced from the home network with `POST /api/settings`.
 | `/update`            | POST   | firmware image as `firmware` in a multipart body; the status page has the form |
 | `/api/wifi/reset`    | POST   | forget WiFi and reboot into setup          |
 | `/api/settings`      | GET    | JSON: timezone, NTP server, sleep on or off, days unattended before sleeping, poll interval, and the two bench knobs in seconds, the grace before a sleep and the use window |
-| `/api/settings`      | POST   | form fields `tz`, `ntp`, `setup_pass`, `sleep` (0 or 1), `sleep_days` (0 for always), `poll` (seconds, 0 for never), any subset, applied at once; 400 with nothing applied when a value is over its length (tz 63, ntp 64, setup_pass 32 characters), and a `setup_pass` under 8 characters, a `sleep_days` over 999, a `poll` over 99999 or a knob under 5 s is ignored with the rest applied; `sleep_grace` and `use_s` (seconds) are bench knobs, applied but not saved |
+| `/api/settings`      | POST   | form fields `tz`, `ntp`, `sleep` (0 or 1), `sleep_days` (0 for always), `poll` (seconds, 0 for never), any subset, applied at once; 400 with nothing applied when a value is over its length (tz 63, ntp 64 characters), and a `sleep_days` over 999, a `poll` over 99999 or a knob under 5 s is ignored with the rest applied; `sleep_grace` and `use_s` (seconds) are bench knobs, applied but not saved |
 | `/cmd`               | GET    | tabbed page of the polled command outputs  |
+| `/setup`             | GET    | the setup page: a network to join and the settings |
+| `/setup`             | POST   | its form: `ssid` and `pass` to join, if given, plus the settings fields of `/api/settings`; the reply goes out before the join starts |
 | `/api/cmd`           | GET    | JSON list of the polled commands: age and size of the last good output, whether the last attempt succeeded, age of the last failure |
 | `/api/cmd/NAME`      | GET    | the last output of that command, text, with an `X-Age-Seconds` header; 503 until polled, 404 if unknown |
 | `/api/cmd/poll`      | POST   | start the batch: at once with the MBB awake and no console client, skipping the 20 s settle, otherwise at its next wake; 409 once the MBB has announced its hibernation |

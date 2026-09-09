@@ -34,17 +34,18 @@ void httpStart() { if (!up) { up = true; http.begin(); } }
 void httpStop() { if (up) { up = false; http.stop(); } }
 void httpTick() { if (up) http.handleClient(); }
 
-static const char PAGE[] PROGMEM = R"HTML(<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+static const char PAGE[] PROGMEM = R"HTML(<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1,maximum-scale=1"><meta name=color-scheme content="light dark">
 <title>zero-dongle</title>
-<style>body{font:14px system-ui,sans-serif;margin:1em;max-width:60em}pre{background:#f4f4f4;padding:.5em;overflow-x:auto;font-size:12px}table{border-collapse:collapse}td{padding:.1em .8em .1em 0}a{margin-right:1em}</style>
+<style>:root{color-scheme:light dark}html,body{margin:0;max-width:100%;overflow-x:hidden}body{font:14px system-ui,sans-serif;padding:1em;box-sizing:border-box;width:100%;background:Canvas;color:CanvasText}pre{background:rgba(127,127,127,.15);padding:.5em;overflow-x:auto;font-size:12px}table{border-collapse:collapse;width:100%;table-layout:fixed}td{padding:.1em .8em .1em 0;overflow-wrap:anywhere;word-break:break-all}td:first-child{width:9em;word-break:normal}body,p,div{overflow-wrap:anywhere;word-break:break-word}a{margin-right:1em}</style>
 <h2 id=t>zero-dongle</h2><p><a href=/cmd>Command outputs</a></p><table id=s></table>
 <h3>Files</h3><div id=fs></div><div id=f></div>
 <h3>Last lines</h3><pre id=l></pre>
 <h3>Firmware update</h3>
 <input type=file id=fw accept=.bin> <button id=go>Flash</button> <span id=fwmsg></span>
+<p><a href=/setup style="color:#b00">Reinitialize network</a></p>
 <script>
 async function j(u){return (await fetch(u)).json()}
-function row(t,k,v){const tr=t.insertRow();tr.insertCell().textContent=k;tr.insertCell().textContent=typeof v=='object'?JSON.stringify(v):v}
+function row(t,k,v){const tr=t.insertRow();tr.insertCell().textContent=k;tr.insertCell().textContent=/^u\d{6}\.\d{3}$/.test(v)?'before the clock was set, '+parseFloat(v.slice(1))+' s after boot':typeof v=='object'?JSON.stringify(v):v}
 let tick=0;
 async function refresh(){
  const s=await j('/api/status'); document.getElementById('t').textContent=s.name;
@@ -66,31 +67,90 @@ document.getElementById('go').onclick=async()=>{
 refresh();setInterval(refresh,5000);
 </script>)HTML";
 
-static const char CMD_PAGE[] PROGMEM = R"HTML(<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+// The setup page: the network to join and the settings, on the setup
+// network and the home network alike. Plain fields, one script to post
+// them with the header a cross-site form cannot set.
+static const char SETUP_PAGE[] PROGMEM = R"HTML(<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1,maximum-scale=1"><meta name=color-scheme content="light dark">
+<title>zero-dongle setup</title>
+<style>:root{color-scheme:light dark}html,body{margin:0;max-width:100%;overflow-x:hidden}body{font:16px system-ui,sans-serif;padding:1em;box-sizing:border-box;width:100%;background:Canvas;color:CanvasText}label{display:block;margin:.6em 0}input{width:100%;max-width:100%;padding:.3em;box-sizing:border-box;font-size:16px}button{margin-top:1em;padding:.4em 1em}body,p,label,summary,h2,a,span{overflow-wrap:anywhere;word-break:break-word}.spin{display:inline-block;width:.9em;height:.9em;border:2px solid #ccc;border-top-color:#333;border-radius:50%;vertical-align:middle;animation:s 1s linear infinite}@keyframes s{to{transform:rotate(360deg)}}</style>
+<h2 id=t>zero-dongle setup</h2>
+<form id=f>
+<h3>Network</h3>
+<label>WiFi network <input name=ssid autocapitalize=off autofocus enterkeyhint=next></label>
+<label>WiFi password <input name=pass type=password enterkeyhint=go></label>
+<details><summary>Advanced settings</summary>
+<label>Timezone, POSIX form <input name=tz></label>
+<label>NTP server <input name=ntp></label>
+<label>Sleep between MBB sessions, 1 or 0 <input name=sleep></label>
+<label>Sleep only after N days unattended, 0 for always <input name=sleep_days></label>
+<label>Poll the MBB every N seconds, 0 for never <input name=poll></label>
+</details>
+<button id=a>Apply</button>
+<p id=m></p>
+</form>
+<p id=w>Network: looking</p>
+<script>
+const R={2:'wrong password',3:'wrong password',4:'the network refused the association',15:'wrong password',201:'network not found',202:'wrong password',204:'wrong password',205:'connection failed'};
+let busy=0,d0=0,dn=0,typing=0;
+async function w(){const e=document.getElementById('w');try{const s=await (await fetch('/api/status')).json();const n=s.wifi;const up=n.ip&&n.ip!='0.0.0.0';dn=n.disconnects;
+ if(up||(busy&&n.disconnects>d0)){busy=0;document.getElementById('a').disabled=false}
+ e.textContent='';
+ if(up){e.textContent='Network: joined '+n.ssid+' as '+n.ip+'. The board is at ';const a=document.createElement('a');a.href='http://'+s.name+'.local/';a.target='_blank';a.textContent=s.name+'.local';e.appendChild(a);e.appendChild(document.createTextNode('; open it in Safari once this sheet closes, in about twenty seconds.'))}
+ else e.textContent='Network: '+(busy?'joining':n.last_reason&&!typing?'not joined, last attempt: '+(R[n.last_reason]||'reason '+n.last_reason):'not joined yet');
+ if(busy){e.appendChild(document.createTextNode(' '));const sp=document.createElement('span');sp.className='spin';e.appendChild(sp)}
+ }catch(x){e.textContent='Network: no answer; rejoin '+location.hostname+' if the phone dropped it'}}
+w();setInterval(w,3000);
+fetch('/api/settings').then(r=>r.json()).then(s=>{for(const k of ['tz','ntp','sleep','sleep_days','poll']) document.querySelector('[name='+k+']').value=s[k]}).catch(()=>{});
+fetch('/api/status').then(r=>r.json()).then(s=>{document.getElementById('t').textContent=s.name+' setup'}).catch(()=>{});
+const F=document.getElementById('f');
+F.elements.ssid.addEventListener('keydown',e=>{if(e.key=='Enter'){e.preventDefault();F.elements.pass.focus()}});
+for(const k of ['ssid','pass']) F.elements[k].addEventListener('focus',()=>{typing=1;w()});
+F.onsubmit=async e=>{e.preventDefault();
+ const b=new URLSearchParams(new FormData(e.target)); document.getElementById('m').textContent='Applying'; busy=!!b.get('ssid'); typing=0; d0=dn; document.getElementById('a').disabled=true;
+ const r=await fetch('/setup',{method:'POST',headers:{'X-Dongle':'1','Content-Type':'application/x-www-form-urlencoded'},body:b});
+ document.getElementById('m').textContent=await r.text();};
+</script>)HTML";
+
+static const char CMD_PAGE[] PROGMEM = R"HTML(<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1,maximum-scale=1"><meta name=color-scheme content="light dark">
 <title>zero-dongle commands</title>
-<style>body{font:14px system-ui,sans-serif;margin:1em;max-width:70em}pre{background:#f4f4f4;padding:.5em;overflow-x:auto;font-size:12px;min-height:10em}button{margin:0 .3em .5em 0;padding:.3em .8em}button.on{font-weight:bold;background:#ddd}#age{color:#666}</style>
-<p><a href=/>Status</a></p>
+<style>:root{color-scheme:light dark}html,body{margin:0;max-width:100%;overflow-x:hidden}body{font:14px system-ui,sans-serif;padding:1em;box-sizing:border-box;width:100%;background:Canvas;color:CanvasText}pre{background:rgba(127,127,127,.15);padding:.5em;overflow-x:auto;font-size:12px;min-height:10em}button{margin:0 .3em .5em 0;padding:.3em .8em}button.on{font-weight:bold;background:rgba(127,127,127,.3)}#age{color:#888;overflow-wrap:anywhere}body{overflow-wrap:anywhere;word-break:break-word}.spin{display:inline-block;width:.9em;height:.9em;border:2px solid #ccc;border-top-color:#333;border-radius:50%;vertical-align:middle;animation:s 1s linear infinite}@keyframes s{to{transform:rotate(360deg)}}</style>
+<p><a href=/>&#9664; Back to main</a></p>
 <div id=tabs></div>
 <div id=age></div>
 <pre id=out>loading</pre>
-<button id=poll>Poll now</button> <span id=msg></span>
 <script>
-let cur=null;
+let cur=null,list=[],want=0;
+const out=document.getElementById('out'),age=document.getElementById('age');
+function when(a){return a==-2?'from before this boot':a<0?'':a+' s ago'}
 async function tabs(){
- const list=await (await fetch('/api/cmd')).json();
+ list=await (await fetch('/api/cmd')).json();
  const t=document.getElementById('tabs'); t.textContent='';
- for(const c of list){const b=document.createElement('button'); b.textContent=c.name+(c.age_s<0?' (none)':''); b.className=c.name==cur?'on':''; b.onclick=()=>{cur=c.name;show()}; t.appendChild(b)}
- if(!cur&&list.length){cur=list[0].name}
+ for(const c of list){const b=document.createElement('button'); b.textContent=c.name; b.className=c.name==cur?'on':''; b.onclick=()=>pick(c.name); t.appendChild(b)}
+ if(!cur&&list.length) cur=list[0].name;
 }
+function spin(){out.textContent='';const s=document.createElement('span');s.className='spin';out.appendChild(s)}
+let note='';
 async function show(){
  if(!cur) return;
+ for(const b of document.querySelectorAll('#tabs button')) b.className=b.textContent==cur?'on':'';
  const r=await fetch('/api/cmd/'+encodeURIComponent(cur));
- document.getElementById('out').textContent=r.ok?await r.text():('('+r.status+' '+await r.text()+')');
- const a=r.headers.get('X-Age-Seconds'); document.getElementById('age').textContent=a?cur+', '+a+' s ago':'';
- for(const b of document.querySelectorAll('#tabs button')) b.className=b.textContent.startsWith(cur)?'on':'';
+ const a=+r.headers.get('X-Age-Seconds');
+ if(r.ok){out.textContent=await r.text();age.textContent=cur+(when(a)?', '+when(a):'')+note}
+ else{age.textContent=cur+': '+(await r.text())+note;if(!want) out.textContent=''}
+ return r.ok?a:-1;
 }
-document.getElementById('poll').onclick=async()=>{const r=await fetch('/api/cmd/poll',{method:'POST',headers:{'X-Dongle':'1'}}); document.getElementById('msg').textContent=await r.text(); setTimeout(()=>{tabs();show()},20000)};
-tabs().then(show); setInterval(()=>{tabs();show()},15000);
+async function pick(name){
+ cur=name; note=''; const had=await show();
+ const s=await (await fetch('/api/status')).json();
+ if(!s.mbb_awake){note=' (the MBB is asleep; a fresh answer comes at its next wake)';await show();return}
+ const p=await fetch('/api/cmd/poll',{method:'POST',headers:{'X-Dongle':'1'}});
+ if(!p.ok){note=' ('+await p.text()+')';await show();return}
+ want=1; if(had==-1) spin(); else {age.textContent=cur+', '+when(had)+' ';const sp=document.createElement('span');sp.className='spin';age.appendChild(sp)}
+ const t0=Date.now();
+ while(Date.now()-t0<40000){await new Promise(r=>setTimeout(r,2000));const now=await show();if(now>=0&&(had<0||now<had)){want=0;return}}
+ want=0; note=' (no fresh answer yet)'; await show();
+}
+tabs().then(()=>pick(cur)); setInterval(()=>{if(!want) show()},15000);
 </script>)HTML";
 
 static String statusJson() {   // a health check is not use: a watcher must not keep the dongle awake
@@ -122,7 +182,7 @@ static String statusJson() {   // a health check is not use: a watcher must not 
         long soc, mv, ma, ah, hi, lo;
         bool have = pollerPack(soc, mv, ma, ah, hi, lo);
         s += ",\"pack\":{\"soc\":" + String(pollerSoc()) + ",\"bike_state\":\"" + jsonEscape(pollerBikeState()) + "\"" +
-             ",\"age_s\":" + String(pollerOutputAgeS("status") == UINT32_MAX ? -1 : (long)pollerOutputAgeS("status"));
+             ",\"age_s\":" + String(pollerOutputAgeS("status"));
         if (have) s += ",\"mv\":" + String(mv) + ",\"ma\":" + String(ma) + ",\"ah\":" + String(ah) +
                        ",\"temp_hi_c\":" + String(hi) + ",\"temp_lo_c\":" + String(lo);
         s += "}";
@@ -154,7 +214,7 @@ static void handleCmd(const String& name) {
         http.send(known ? 503 : 404, "text/plain", known ? "not polled yet" : "no such command");
         return;
     }
-    http.sendHeader("X-Age-Seconds", String(pollerOutputAgeS(name.c_str())));
+    http.sendHeader("X-Age-Seconds", String(pollerOutputAgeS(name.c_str())));   // -2: from before this boot, the clock not yet set
     http.send(200, "text/plain", *out);
 }
 
@@ -162,6 +222,12 @@ static void handleFile() {
     String uri = http.uri();
     if (uri.startsWith("/api/cmd/")) { handleCmd(uri.substring(9)); return; }
     if (!uri.startsWith("/logs/")) {   // a stray probe is not use
+        if (wifiOnSetupNetwork(http.client().localIP())) {   // a phone checking for the internet: this is a captive network, here is its page; its sheet closes when the setup network goes
+            http.sendHeader("Cache-Control", "no-store");
+            http.sendHeader("Location", "http://" + WiFi.softAPIP().toString() + "/setup");
+            http.send(302, "text/html", "<a href=\"/setup\">setup</a>");
+            return;
+        }
         http.send(404, "text/plain", "not found");
         return;
     }
@@ -237,17 +303,32 @@ void httpBegin() {
     http.on("/api/settings", HTTP_GET, []() {
         http.send(200, "application/json", settingsJson());
     });
-    http.on("/api/settings", HTTP_POST, []() {   // form fields tz, ntp, setup_pass, sleep, poll, sleep_days, and the bench knobs sleep_grace and use_s; any subset
+    http.on("/api/settings", HTTP_POST, []() {   // form fields tz, ntp, sleep, poll, sleep_days, and the bench knobs sleep_grace and use_s; any subset
         if (!tokenOk()) return;
         touch();
-        if (!settingsApply(http.arg("tz"), http.arg("ntp"), http.arg("setup_pass"), http.arg("sleep"), http.arg("poll"), http.arg("sleep_days"),
+        if (!settingsApply(http.arg("tz"), http.arg("ntp"), http.arg("sleep"), http.arg("poll"), http.arg("sleep_days"),
                            http.arg("sleep_grace"), http.arg("use_s"))) {
-            http.send(400, "text/plain", "a value is too long: tz 63, ntp 64, setup_pass 32 characters at most");
+            http.send(400, "text/plain", "a value is too long: tz 63, ntp 64 characters at most");
             return;
         }
         http.send(200, "text/plain", "applied");
     });
     http.on("/cmd", HTTP_GET, []() { touch(); http.send_P(200, "text/html", CMD_PAGE); });
+    http.on("/setup", HTTP_GET, []() { touch(); http.send_P(200, "text/html", SETUP_PAGE); });
+    http.on("/setup", HTTP_POST, []() {   // the setup page's form: a network to join, if given, and the settings
+        if (!tokenOk()) return;
+        touch();
+        if (!settingsApply(http.arg("tz"), http.arg("ntp"), http.arg("sleep"), http.arg("poll"), http.arg("sleep_days"))) {
+            http.send(400, "text/plain", "a value is too long: tz 63, ntp 64 characters at most");
+            return;
+        }
+        String ssid = http.arg("ssid");
+        if (ssid.length() == 0) { http.send(200, "text/plain", "Settings applied."); return; }
+        if (ssid.length() > 32 || http.arg("pass").length() > 64) { http.send(400, "text/plain", "network name 32 and password 64 characters at most"); return; }
+        http.send(200, "text/plain", "Settings applied; joining " + ssid + ". The setup network goes down once joined; then find the board at " + String(sysNodeName()) + ".local.");
+        delay(200);   // the reply out before the radio changes
+        wifiJoin(ssid.c_str(), http.arg("pass").c_str());
+    });
     http.on("/api/cmd", HTTP_GET, []() { http.send(200, "application/json", pollerListJson()); });
     http.on("/api/cmd/poll", HTTP_POST, []() {
         if (!tokenOk()) return;

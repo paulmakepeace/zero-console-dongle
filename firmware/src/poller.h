@@ -12,7 +12,7 @@ bool pollerRequest();   // false when the MBB has announced its hibernation: the
 bool pollerActive();
 String pollerListJson();
 const String* pollerOutput(const char* name);
-uint32_t pollerOutputAgeS(const char* name);
+long pollerOutputAgeS(const char* name);   // seconds; -1 none, -2 from before this boot with the clock not yet set
 long pollerSoc();              // -1 until known
 bool pollerPack(long& soc, long& packMv, long& currentMa, long& capacityAh, long& tempHiC, long& tempLoC);   // from the last status
 const char* pollerBikeState(); // "" until known

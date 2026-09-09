@@ -1,6 +1,6 @@
 #pragma once
 
-#define FW_VERSION      "0.9.5"
+#define FW_VERSION      "0.10.0"
 #define DONGLE_NAME     "zero-dongle"      // base of the hostname, mDNS name and setup AP name; the last four hex digits of the MAC are appended
 // The setup network's password defaults to "zero-" plus the last six hex digits
 // of the MAC, printed at boot, and can be replaced from the setup page.
@@ -19,15 +19,15 @@
 #define HTTP_PORT       80
 #define CONSOLE_PORT    6638
 #define CONSOLE_CLIENTS 2
-#define AUTH_FAILS_FOR_PORTAL 3   // consecutive authentication failures before the setup network is raised
 #define HTTP_USE_MS     (10 * 60 * 1000UL)   // a page opened or an action taken counts as use for this long: someone is about, and a few minutes awake cost nothing worth guarding
-#define AUTH_PORTAL_MS  600000    // how long a setup network raised by those failures stays up unattended before the retry resumes
+#define SETUP_NET_MS    600000    // not joined this long with credentials: the setup network comes up beside the retries; and how long a fresh one counts as use
 
 // The poller: a fixed command set on a slow schedule while the MBB is awake.
 #define POLL_CMDS       "status", "charging", "bms", "pdu", "in", "faults"
 #define POLL_INTERVAL_S 60
 #define POLL_SETTLE_MS  20000    // no commands into a MBB that is still booting
 #define POLL_TIMEOUT_MS 8000     // a command with no prompt back by then is abandoned
+#define POLL_SAVE_NAME  "poll.txt"   // the last batch, kept across reboots so the command page has an answer before the MBB's next wake
 #define POLL_MAX_BYTES  3072     // kept per command
 
 // Light sleep between MBB sessions.

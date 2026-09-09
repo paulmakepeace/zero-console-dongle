@@ -18,17 +18,14 @@
 #include "esp_system.h"
 #include "esp_mac.h"
 
-// The board's identity, derived once from the eFuse MAC before anything
-// else needs it: every owner that names the board takes it from here.
+// The board's name, derived once from the eFuse MAC before anything else
+// needs it: every owner that names the board takes it from here.
 static char nodeName[32];
-static char setupPassDefault[16];
 const char* sysNodeName() { return nodeName; }
-const char* sysSetupPassDefault() { return setupPassDefault; }
 static void sysIdentity() {
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_STA);   // valid before the WiFi driver starts
     snprintf(nodeName, sizeof nodeName, "%s-%02x%02x", DONGLE_NAME, mac[4], mac[5]);
-    snprintf(setupPassDefault, sizeof setupPassDefault, "zero-%02x%02x%02x", mac[3], mac[4], mac[5]);
     Serial.printf("zero-dongle: this board is %s, MAC %02x:%02x:%02x:%02x:%02x:%02x\n", nodeName,
                   mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 }
