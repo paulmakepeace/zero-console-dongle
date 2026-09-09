@@ -59,7 +59,10 @@ its [README](../firmware/README.md):
    frunk. The MBB also prints its answers to the cellular module's own
    commands on the console, `ltsm en mod 2` from the app for one, and an
    answer that lands inside a poll's is kept with that output and goes
-   into the log with the rest of the batch.
+   into the log with the rest of the batch. The store commits at the end
+   of every batch, a quiet moment by construction, so the batches' bytes
+   never fill the output buffer while the MBB is talking and force an
+   erase under it.
 8. **Light sleep when the bike is unattended.** The dongle sleeps only once
    the bike has gone a configurable number of days, three by default,
    without any of the three lines that say it is looked after: a 12 V

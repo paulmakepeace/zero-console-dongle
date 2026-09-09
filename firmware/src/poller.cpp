@@ -72,6 +72,7 @@ static void finish() {
     cur = -1;
     mbbTxHold(false);
     lastPollMs = millis();
+    storeTick(true);   // the batch just ended and the MBB is quiet: commit now, so the output buffer never fills mid-batch and forces an erase while it is talking
 }
 
 static void closeCurrent(bool ok) {

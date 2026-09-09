@@ -41,7 +41,10 @@ upload and the wait for the board to report the new version;
 one line per board, or only the changes; [`tools/bench.py`](../tools/bench.py)
 runs the regression through the adapter on the bench board (roundtrip,
 break, poll, storage, sleep, and a light-sleep scenario that sets the grace
-and the use window short for the run), about five minutes in all, and refuses the bike unit. Board names and addresses both
+and the use window short for the run), about five minutes in all, and refuses the bike unit.
+`auto` runs only the scenarios the source files changed since the last tag
+can break, from a map in the script; `quick` is everything but the
+three-minute light sleep. The full run is for a release. Board names and addresses both
 work; `DONGLE_HOST` and `DONGLE_BOARDS` set the defaults.
 
 ## Tests

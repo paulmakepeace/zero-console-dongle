@@ -2,7 +2,12 @@
 """Bench regression for the dongle with the CP2102 adapter standing in for the
 MBB: adapter TXD to the dongle's pin 8 input, adapter RXD to its pin 9 output.
 
-Usage: tools/bench.py [roundtrip|break|poll|storage|sleep|lightsleep|all] [--host H] [--adapter DEV]
+Usage: tools/bench.py [SCENARIO ...|quick|auto|all] [--host H] [--adapter DEV]
+
+Scenarios run in the order given. quick is every scenario but lightsleep,
+about a minute and a half; auto picks the scenarios for the source files
+changed since the last tag, committed or not, from the map at the end of
+this file; all is everything, about five minutes.
 
   roundtrip  a line from the adapter reaches a TCP console client, and a
              console keystroke reaches the adapter with the CR the MBB wants
@@ -431,9 +436,48 @@ def _t_lightsleep(host, ad):
         check(s["wifi"]["resume_failures"] == 0, "the WiFi driver restarted cleanly each time")
 
 
+# Which scenarios a change to each source file can break. A file not listed
+# gets everything. The order of ORDER is the order they run in: poll before
+# sleep, so no fresh awake edge is left to settle after.
+ORDER = ["roundtrip", "break", "poll", "storage", "sleep", "lightsleep"]
+TOUCHES = {
+    "mbb_uart": ["roundtrip", "break", "sleep"],
+    "console": ["roundtrip", "lightsleep"],
+    "poller": ["poll"],
+    "mbb_parse": ["poll", "storage"],
+    "store": ["poll", "sleep"],
+    "zstream": ["sleep"], "dictkeeper": ["sleep"], "names": ["sleep"], "framer": ["roundtrip", "sleep"],
+    "sleep": ["storage", "lightsleep"], "hibernate": ["storage", "lightsleep"],
+    "clock": ["lightsleep"], "mbb_time": ["sleep"],
+    "wlan": ["lightsleep"], "http": ["poll", "lightsleep"], "settings": ["storage", "lightsleep"],
+    "json_escape": ["poll"], "util": ["poll"],
+}
+
+
+def changed_scenarios():
+    """The scenarios for the firmware files changed since the last tag, the working tree included."""
+    import subprocess
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    tag = subprocess.run(["git", "describe", "--tags", "--abbrev=0"], cwd=root, capture_output=True, text=True).stdout.strip()
+    files = subprocess.run(["git", "diff", "--name-only", tag], cwd=root, capture_output=True, text=True).stdout.split()
+    picked = set()
+    for f in files:
+        if not f.startswith("firmware/src/"):
+            continue
+        stem = os.path.basename(f).split(".")[0]
+        if stem == "config":   # a version bump alone touches nothing
+            diff = subprocess.run(["git", "diff", tag, "--", f], cwd=root, capture_output=True, text=True).stdout
+            if not any(l.startswith(("+#", "-#")) and "FW_VERSION" not in l for l in diff.splitlines()):
+                continue
+        if stem in ("main", "config"):
+            return ORDER
+        picked.update(TOUCHES.get(stem, ORDER))
+    return [s for s in ORDER if s in picked]
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("test", nargs="?", default="all", choices=["roundtrip", "break", "poll", "storage", "sleep", "lightsleep", "all"])
+    ap.add_argument("test", nargs="*", default=["all"], choices=ORDER + ["quick", "auto", "all"])
     ap.add_argument("--host", default=os.environ.get("DONGLE_HOST", "zero-dongle-ebdc.local"))
     ap.add_argument("--adapter", default=os.environ.get("DONGLE_ADAPTER"))
     args = ap.parse_args()
@@ -447,8 +491,18 @@ def main():
         sys.exit("bench: refusing to run against the bike unit")
     print("bench: %s through %s" % (args.host, dev))
     ad = adapter_open(dev)
-    tests = {"roundtrip": t_roundtrip, "break": t_break, "poll": t_poll, "storage": t_storage, "sleep": t_sleep, "lightsleep": t_lightsleep}   # poll before sleep: no fresh awake edge to settle after
-    for name in (tests if args.test == "all" else [args.test]):
+    tests = {"roundtrip": t_roundtrip, "break": t_break, "poll": t_poll, "storage": t_storage, "sleep": t_sleep, "lightsleep": t_lightsleep}
+    names = []
+    for t in args.test:
+        if t == "all": names += ORDER
+        elif t == "quick": names += [s for s in ORDER if s != "lightsleep"]
+        elif t == "auto":
+            picked = changed_scenarios()
+            print("bench: auto picked %s" % (", ".join(picked) if picked else "nothing: no firmware source changed since the last tag"))
+            names += picked
+        else: names.append(t)
+    names = [s for s in ORDER if s in names]
+    for name in names:
         try:
             tests[name](args.host, ad)
         except Exception as exc:
