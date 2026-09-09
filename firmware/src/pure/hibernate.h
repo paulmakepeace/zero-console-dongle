@@ -70,17 +70,16 @@ struct SleepPlan {
 
     void noteHibernate(long nowS, long seconds) { haveHib = true; hibAtS = nowS; hibSec = seconds; sleptForHib = false; }
     long until(long nowS, long fallbackS) const { return secondsUntilMbbWake(haveHib, hibAtS, hibSec, nowS, fallbackS); }
-    // Seconds to sleep now, 0 to stay up. A wait longer than the fallback is
-    // not something the MBB can have meant: a mangled digit in the count, or
-    // a clock stepped backwards under a plan held in wall time. Either way
-    // the fallback is the longest a sleep may be, so the worst case is
-    // waking early rather than sleeping through the bike's next session.
+    // Seconds to sleep now, 0 to stay up. The MBB's own announced count is
+    // the plan; the fallback is only for having none. A wait beyond a day is
+    // not something the MBB can have meant, from a mangled digit in the count
+    // or a clock stepped backwards under a plan held in wall time, and that
+    // sanity bound is deliberately not the fallback: clamping to the guess
+    // would throw away a longer interval the bike genuinely announced.
+    static const long SANE_MAX_S = 86400;
     long next(long nowS, long fallbackS, long marginPct, long minS) {
         long u = until(nowS, fallbackS);
-        // The MBB announces the fallback's own value, so the bound has to sit
-        // a little above it or an ordinary announcement plus a small backward
-        // step would throw away a good plan.
-        if (haveHib && (u < -60 || u > fallbackS + 60)) { haveHib = false; sleptForHib = false; u = fallbackS; }
+        if (haveHib && (u < -60 || u > SANE_MAX_S)) { haveHib = false; sleptForHib = false; u = fallbackS; }
         if (haveHib && sleptForHib) return 0;
         return sleepSeconds(u, marginPct, minS);
     }

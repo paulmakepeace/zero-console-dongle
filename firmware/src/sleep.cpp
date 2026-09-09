@@ -18,6 +18,7 @@ static bool enabled = false;
 static uint32_t afterDays = 3;
 static uint32_t graceMs = SLEEP_GRACE_MS;
 static long lastAttendedS = 0;       // wall time the bike was last seen attended; 0 for never seen
+static long obsHibS = 0;             // the last announced hibernate interval
 static bool provoked = false;        // this session was started by the dongle's own wake: its lines are not attendance
 static uint32_t provokedAtMs = 0;    // when, so a wake the MBB never answered does not hold the flag
 static bool provokedWoke = false;    // the MBB did come up, so the flag ends with the session rather than on a timer
@@ -55,7 +56,10 @@ static long nowS() { return (long)time(nullptr); }
 
 void sleepNoteLine(const char* line, size_t len) {
     long s = parseHibernateSeconds(line, len);
-    if (s > 0) plan.noteHibernate(nowS(), s);
+    if (s > 0) obsHibS = s;   // what this bike announces; MBB_HIB_S is the assumption behind the fallback
+    // With no wall clock the plan would anchor near the epoch and be thrown
+    // away as stale the moment a clock arrives.
+    if (s > 0 && clockValid()) plan.noteHibernate(nowS(), s);
     // A session the dongle itself provoked prints the very lines that mean
     // attendance, so it would postpone the sleep by the whole days rule.
     if (!provoked && isBikeAttended(line, len) && clockValid()) { lastAttendedS = nowS(); attendedDirty = true; }
@@ -152,6 +156,8 @@ void sleepTick(bool mbbAwake, bool busy) {
     doSleep(s, until);
     asleepSinceMs = millis();   // a fresh grace: the MBB is due and a pull may want the files; after a refusal, pin 8 was up
 }
+
+long sleepObservedHibS() { return obsHibS; }
 
 String sleepStatusJson() {
     long due = plan.haveHib ? plan.until(nowS(), 0) : -1;

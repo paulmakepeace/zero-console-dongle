@@ -435,6 +435,11 @@ void test_plan_never_sleeps_past_the_fallback() {
     p.noteHibernate(1000, 36000000);
     long s = p.next(1010, 3600, 10, 30);
     TEST_ASSERT_TRUE(s <= 3600);
+    // But a longer interval the bike genuinely announced is kept, not clamped
+    // down to the fallback we guessed.
+    SleepPlan two;
+    two.noteHibernate(1000, 7200);
+    TEST_ASSERT_TRUE(two.next(1010, 3600, 10, 30) > 3600);
     // A clock stepped backwards under a plan held in wall time.
     SleepPlan q;
     q.noteHibernate(1000000, 3600);

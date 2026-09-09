@@ -27,6 +27,7 @@ static String outputs[NCMD];        // the last good output of each; a failed at
 static uint32_t outputAtMs[NCMD];   // when an output was taken this boot; 0 for none, or one loaded from flash
 static long outputEpoch[NCMD];      // wall time of an output loaded from flash, 0 otherwise
 static bool saveDue = false;        // an output taken since the last save
+static uint32_t obsAnswerMaxMs = 0;  // the longest a command has taken to answer; MBB_ANSWER_MS is the assumption
 static bool outputOk[NCMD];         // the last attempt succeeded
 static uint32_t failedAtMs[NCMD];
 static bool mbbStopping = false;    // the MBB has announced its hibernation: no more commands
@@ -157,6 +158,7 @@ static void append(const char* line, size_t len) {
 }
 
 static void closeCurrent(bool ok) {
+    if (ok) { uint32_t took = millis() - cmdStartedMs; if (took > obsAnswerMaxMs) obsAnswerMaxMs = took; }
     bool quiet = ok || millis() - mbbLastByteMs() > IDLE_FLUSH_MS;   // closed on its prompt, or the line has gone quiet: a command closed on its timeout may still be printing
     if (cur < 0 || cur >= NCMD) { finish(quiet); return; }
     if (ok) keep(cur);
@@ -289,6 +291,8 @@ String pollerListJson() {
     }
     return s + "]";
 }
+
+uint32_t pollerObservedAnswerMaxMs() { return obsAnswerMaxMs; }
 
 bool pollerHasCommand(const char* name) { return indexOf(name) >= 0; }
 

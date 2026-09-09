@@ -29,6 +29,11 @@ static volatile uint32_t lastByteMs = 0;
 static volatile uint32_t txHoldUntilMs = 0;
 static volatile bool txHeld = false;   // a batch in progress: the timed hold does not end it
 static volatile uint32_t overflows = 0, backpressure = 0, frameErrors = 0;
+// What this bike actually does, against the constants that assume it.
+static volatile uint32_t obsBootMs = 0;        // the line coming up to the MBB's first byte
+static volatile uint32_t obsLineLowAfterMs = 0; // the last byte to the line going down
+static volatile uint32_t obsPrompts = 0;       // answers that ended with the prompt we match
+static uint32_t lineUpAtMs = 0;
 static std::atomic<uint32_t> queueDrops{0};   // added on the capture task, taken on the loop task
 static TaskHandle_t captureHandle;
 static SemaphoreHandle_t txMtx;
@@ -189,8 +194,14 @@ static void captureTask(void*) {
         }
         // Bytes mean the line is powered even when a sample lands in a low bit;
         // three quiet low samples (about 60 ms) mean it is not.
+        bool wasHigh = lineHigh;
         if (realBytes || level) { lowSamples = 0; lineHigh = true; }
         else if (lowSamples < 3 && ++lowSamples == 3) lineHigh = false;
+        // The line coming up is the MBB being powered; the first byte after
+        // that is it having booted. Measuring from the awake flag instead
+        // would measure nothing, since the bytes are what set that flag.
+        if (lineHigh && !wasHigh) lineUpAtMs = now ? now : 1;
+        if (!lineHigh && wasHigh) obsLineLowAfterMs = now - lastByteMs;
         bool nowAwake = (now - lastActivityMs) < SLEEP_AFTER_MS;
         if (nowAwake != awake) {
             if (!nowAwake) framer.flush(postLine);   // a session keeps its own tail
@@ -204,7 +215,8 @@ static void captureTask(void*) {
         if (n > 0) {
             if (rawHandler) rawHandler(buf, n);
             framer.feed(buf, n, postLine);
-            if (framer.endsWith("ZERO MBB> ")) framer.flush(postLine);   // the prompt has no line end: out at once, not after the idle flush, so a command closes the moment it is answered
+            if (lineUpAtMs) { obsBootMs = now - lineUpAtMs; lineUpAtMs = 0; }   // how long this MBB took to say anything after it was powered
+            if (framer.endsWith(MBB_PROMPT)) { obsPrompts = obsPrompts + 1; framer.flush(postLine); }   // the prompt has no line end: out at once, not after the idle flush, so a command closes the moment it is answered
         }
         if (framer.len && (now - lastByteMs) > IDLE_FLUSH_MS) framer.flush(postLine);   // anything else without a newline, or a prompt cut across two reads
         drainEvents();   // markers land after the bytes they interrupted
@@ -282,6 +294,10 @@ void mbbTxHold(bool on) {
     txHeld = on;
     if (!on) txHoldUntilMs = millis() + TX_HOLD_MS;   // the normal hold runs out from here
 }
+uint32_t mbbObservedBootMs() { return obsBootMs; }
+uint32_t mbbObservedLineLowAfterMs() { return obsLineLowAfterMs; }
+uint32_t mbbObservedPrompts() { return obsPrompts; }
+
 uint32_t mbbCaptureStackFree() { return captureHandle ? uxTaskGetStackHighWaterMark(captureHandle) : 0; }
 
 size_t mbbWrite(const uint8_t* data, size_t len) {

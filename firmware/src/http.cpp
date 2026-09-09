@@ -208,6 +208,13 @@ static String statusJson() {   // a health check is not use: a watcher must not 
     s += ",\"sleep\":" + sleepStatusJson();
     s += ",\"heap_free\":" + String(ESP.getFreeHeap()) + ",\"heap_min_free\":" + String(ESP.getMinFreeHeap()) +
          ",\"heap_max_alloc\":" + String(ESP.getMaxAllocHeap());
+    // What this bike does, next to what config.h assumes it does: a Zero
+    // firmware change shows up here rather than as a misbehaviour weeks on.
+    s += ",\"observed\":{\"boot_ms\":" + String(mbbObservedBootMs()) + ",\"assumed_boot_ms\":" + String(MBB_BOOT_MS) +
+         ",\"answer_max_ms\":" + String(pollerObservedAnswerMaxMs()) + ",\"assumed_answer_ms\":" + String(MBB_ANSWER_MS) +
+         ",\"line_low_after_ms\":" + String(mbbObservedLineLowAfterMs()) + ",\"assumed_line_low_within_ms\":" + String(SLEEP_AFTER_MS) +
+         ",\"hib_announced_s\":" + String(sleepObservedHibS()) + ",\"assumed_hib_s\":" + String(MBB_HIB_S) +
+         ",\"prompts\":" + String(mbbObservedPrompts()) + "}";
     s += ",\"loop_max_ms\":" + sysLoopMaxJson();
     s += ",\"stack_free\":{\"loop\":" + String(uxTaskGetStackHighWaterMark(nullptr)) +
          ",\"capture\":" + String(mbbCaptureStackFree()) + "}";

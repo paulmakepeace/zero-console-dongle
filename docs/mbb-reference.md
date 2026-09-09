@@ -33,7 +33,10 @@ With pin 9 held high the MBB stays in shallow hibernation; see the
 console-pin section of [hardware.md](hardware.md) for why an attached
 adapter does that. With pin 9 low it prints `INFO: MBB will hibernate in
 under 30 seconds`, then `Saving Stats, Hibernating for 3600 sec` 30 s later,
-and pin 8 drops within about 5 s of that line: deep sleep.
+and pin 8 drops within about 5 s of that line: deep sleep. Measured from the
+board on 2026-09-09, the drop came 281 ms after the last byte, so the 5 s is
+an upper bound on a wake that ended with more to say rather than the delay
+itself; `SLEEP_AFTER_MS` keeps the looser figure as its margin.
 
 Every hour of sleep, counted from the `Hibernating` line to the second, the
 MBB wakes itself by RTC timer. From deep sleep that is a full boot: the

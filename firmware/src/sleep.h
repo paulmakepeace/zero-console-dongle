@@ -14,4 +14,5 @@ uint32_t sleepAfterDays();
 void sleepNoteLine(const char* line, size_t len);   // the Hibernating line, the attended lines, the storage-mode lines
 void sleepNoteProvokedWake();   // the session about to start is the dongle's own doing: its attended lines are not attendance, until the MBB sleeps again
 void sleepTick(bool mbbAwake, bool busy);            // busy: a console client, a page or action in the use window, the setup network, a poll in flight or the transmit pin attached
+long sleepObservedHibS();   // the last hibernate interval this bike announced; MBB_HIB_S is the assumption
 String sleepStatusJson();

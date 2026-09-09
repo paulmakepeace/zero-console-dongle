@@ -1,6 +1,6 @@
 #pragma once
 
-#define FW_VERSION      "0.11.5"
+#define FW_VERSION      "0.11.6"
 #define DONGLE_NAME     "zero-dongle"      // base of the hostname, mDNS name and setup AP name; the last four hex digits of the MAC are appended
 // The setup network's password defaults to "zero-" plus the last six hex digits
 // of the MAC, printed at boot, and can be replaced from the setup page.
@@ -25,8 +25,8 @@
 // The poller: a fixed command set on a slow schedule while the MBB is awake.
 #define POLL_CMDS       "status", "charging", "bms", "pdu", "in", "faults", "bms interface", "controller", "msc", "dash info", "ccm", "obd", "performance"
 #define POLL_INTERVAL_S 60
-#define POLL_SETTLE_MS  20000    // no commands into a MBB that is still booting
-#define POLL_TIMEOUT_MS 8000     // a command with no prompt back by then is abandoned
+#define POLL_SETTLE_MS  20000    // no commands into a MBB that is still booting: five times MBB_BOOT_MS
+#define POLL_TIMEOUT_MS 8000     // a command with no prompt back by then is abandoned: eight times MBB_ANSWER_MS
 #define POLL_SAVE_NAME  "poll.txt"   // the last batch, kept across reboots so the command page has an answer before the MBB's next wake
 #define POLL_MAX_BYTES  3072     // kept per command
 
@@ -35,7 +35,7 @@
 #define SLEEP_MARGIN_PCT 10       // sleep this much less than the time until the MBB is due: the RC clock runs long
 #define PROVOKED_WAIT_MS 60000   // a wake the MBB never answered stops marking the session after this
 #define SLEEP_MIN_S      30       // shorter than this is not worth the WiFi round trip
-#define SLEEP_FALLBACK_S 3600     // with no announcement seen, plan on an hour
+#define SLEEP_FALLBACK_S MBB_HIB_S   // with no announcement seen, plan on the interval this bike announces
 #define SLEEP_AFTER_DAYS 3        // sleep only once the bike has gone this long without a 12 V top-up, a cellular answer or a key-on; 0 for always
 
 #define LOG_DIR         "/logs"
@@ -46,10 +46,26 @@
 
 #define MARK_MIN_MS     2000   // the least time between two markers of the same kind: a garbage line rate must not become a marker rate
 #define IDLE_FLUSH_MS   2000   // a partial line is written after this much silence; the prompt goes out at once
-#define SLEEP_AFTER_MS  5000   // MBB counted asleep after this long with pin 8 low and no bytes
-#define AWAKE_HIGH_MS   60     // pin 8 high this long with nothing arriving counts as awake
-#define TX_HOLD_MS      2000   // TX stays attached this long after the last byte sent
 #define RECLAIM_GAP_MS  2000   // a failed write retries reclamation at most this often
+
+// ---------------------------------------------------------------------------
+// Observations of the bike, not choices of ours.
+//
+// Everything below describes how one MBB behaves: a 2020 SR/S on firmware
+// revision 44. They are assumptions about someone else's product, and a Zero
+// firmware update or another owner's revision could move any of them. Each is
+// margin over a measurement, and the board reports what it actually sees in
+// the status JSON's "observed" object, so drift shows up as a number that no
+// longer matches rather than as a misbehaviour weeks later. Compare them
+// before trusting this firmware on a bike that is not this one.
+// ---------------------------------------------------------------------------
+#define MBB_PROMPT      "ZERO MBB> "   // observed: every answer ends with it, and it never gets a line end. The framer flushes on it, so a change here loses command framing rather than degrading it. Watched as observed.prompts
+#define SLEEP_AFTER_MS  5000   // observed: the line drops about 5 s after the last byte. The dongle calls the MBB asleep after this, so a line that dropped later would be called asleep while still talking. Watched as observed.line_low_after_ms
+#define AWAKE_HIGH_MS   60     // observed: the line idles high while the console block is powered
+#define TX_HOLD_MS      2000   // observed: a command and its answer are well inside this
+#define MBB_BOOT_MS     4000   // observed: 103 ms from the line coming up to the first byte on a pin 9 wake (2026-09-09); the 4 s is the older figure from a cold RTC wake and is kept as the margin. POLL_SETTLE_MS is the margin over it. Watched as observed.boot_ms
+#define MBB_ANSWER_MS   1000   // observed: the longest answer measured is 264 ms (2026-09-09). POLL_TIMEOUT_MS is the margin over it. Watched as observed.answer_max_ms
+#define MBB_HIB_S       3600   // observed: every hibernate announcement says 3600. Only a gap-filler: the announced count is what the planner uses. Watched as observed.hib_announced_s
 #define IDLE_COMMIT_MS  3000   // lines reach flash once the MBB has been quiet this long
 #define MAX_PENDING_MS  15000  // or after this long regardless, or when the output buffer is full
 // The session stream's fixed arrays: dictionary, history window, longest line, output buffer, hash table.
