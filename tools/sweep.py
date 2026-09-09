@@ -17,8 +17,13 @@ Outputs are for reading, not for committing: some carry serial numbers,
 and ccm carries the bike's position. --out defaults under logs/, which is
 git-ignored.
 
-Large answers back to back have overflowed the dongle's UART buffer and lost
-bytes; a "dongle: UART overflow" line inside an output marks the damage.
+Large answers back to back overflow the dongle's UART FIFO: an answer that
+fills the store's output buffer forces a flash commit while the next bytes
+are arriving, and the erase holds the UART interrupt off longer than the
+FIFO covers. So the sweep pauses after each prompt for longer than the
+store's quiet-time commit rule (IDLE_COMMIT_MS, 3 s), and the commit lands
+in the gap. --pause shortens it at the cost of "dongle: UART overflow"
+lines inside the outputs.
 """
 import argparse
 import json
@@ -119,6 +124,7 @@ def main():
     ap.add_argument("--only", default=None, help="comma-separated subset of the command list")
     ap.add_argument("--timeout", type=float, default=8.0, help="seconds to wait for one command's prompt")
     ap.add_argument("--settle", type=float, default=0.4, help="quiet gap after the prompt that ends a read")
+    ap.add_argument("--pause", type=float, default=3.5, help="seconds of silence after each answer, so the store commits in the gap")
     ap.add_argument("--list", action="store_true", help="print the command list and exit")
     args = ap.parse_args()
 
@@ -172,6 +178,7 @@ def main():
         if silent >= 2:
             print("sweep: no prompt twice; the MBB has gone, stopping here")
             break
+        time.sleep(args.pause)
     sock.close()
 
     with open(os.path.join(out, "sweep.txt"), "w") as f:
