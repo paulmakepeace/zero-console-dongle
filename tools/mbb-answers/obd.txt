@@ -1,0 +1,13 @@
+
+******************************************************************
+*			OBD Data                            *
+******************************************************************
+
+                           Parameter,      Value,    In Test
+                              MIL_On,          0,          0
+                         Active_DTCs,          1,          0
+                        Pending_DTCs,          0,          0
+                  Key_cycle_last_DTC,       1471,          0
+                    Freeze_frame_DTC,      B1A0F,          0
+                      Monitor_status,   01000000,          0
+                        DTC_buffer_0,      B1A0F,          0

@@ -62,7 +62,7 @@ static void saveOutputs() {
     for (int i = 0; i < NCMD; i++) {
         if (!outputAtMs[i] && !outputEpoch[i]) continue;
         long at = outputAtMs[i] ? now - (long)((millis() - outputAtMs[i]) / 1000) : outputEpoch[i];
-        f.printf("%s %ld %u\n", CMDS[i], at, (unsigned)outputs[i].length());
+        f.printf("%ld %u %s\n", at, (unsigned)outputs[i].length(), CMDS[i]);   // the name last: it may hold a space
         f.print(outputs[i]);
     }
     f.close();
@@ -74,7 +74,7 @@ static void loadOutputs() {
     while (f.available()) {
         String head = f.readStringUntil('\n');
         char name[16]; long at; unsigned len;
-        if (sscanf(head.c_str(), "%15s %ld %u", name, &at, &len) != 3 || len > POLL_MAX_BYTES + 64) break;
+        if (sscanf(head.c_str(), "%ld %u %15[^\n]", &at, &len, name) != 3 || len > POLL_MAX_BYTES + 64) break;
         int i = indexOf(name);
         String body;
         body.reserve(len);

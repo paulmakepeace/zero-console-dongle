@@ -29,8 +29,9 @@ its [README](../firmware/README.md):
 6. **WiFi by provisioning.** No credentials in the build. With none stored,
    the dongle raises a setup access point and stores what is entered there.
 7. **The poller.** A fixed command set, `status`, `charging`, `bms`, `pdu`,
-   `in`, `faults`, `bms interface`, `controller`, `msc`, `dash info` and
-   `ccm`, the commands that carry the figures owners asked for (see
+   `in`, `faults`, `bms interface`, `controller`, `msc`, `dash info`,
+   `ccm`, `obd` and `performance`, the commands that carry the figures
+   owners asked for (see
    [owner-asks.md](owner-asks.md)), on a slow schedule while the MBB is
    awake, 60 s by default, and on request. Each response ends at the `ZERO MBB>` prompt,
    which is the frame delimiter. A batch is a transaction: the transmit pin
@@ -53,8 +54,8 @@ its [README](../firmware/README.md):
    transcript and the pulled files carry the bike's state every minute it
    was awake: a charge curve, a ride's pack temperatures. A batch is some
    10 KB raw, most of it text the dictionary already holds, and the poll
-   interval setting is the volume control; the eleven commands are some
-   17 KB raw a batch. The last output of each is served raw at
+   interval setting is the volume control; the thirteen commands are some
+   18 KB raw a batch. The last output of each is served raw at
    `/api/cmd/NAME` and on the tabbed page at `/cmd`; the bike state and
    the BMS row of `status`, state of charge, pack voltage and current,
    negative while the pack is being charged,
@@ -84,8 +85,9 @@ its [README](../firmware/README.md):
    with its wall time, so the main page's Bike table has the bike's last
    known figures before the MBB's next wake. Units are pinned per name
    rather than read from the row, since the third column is a unit in some
-   outputs and a label in others. The GPS fix and the cellular unit id are
-   not on the list. `/api/readings` serves the table.
+   outputs and a label in others; a row whose Valid column says No leaves
+   the last good value. The GPS fix and the cellular unit id are not on
+   the list. `/api/readings` serves the table.
 
 8. **Light sleep when the bike is unattended.** The dongle sleeps only once
    the bike has gone a configurable number of days, three by default,

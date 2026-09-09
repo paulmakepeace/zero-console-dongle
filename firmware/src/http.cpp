@@ -61,7 +61,7 @@ async function bike(){
 let tick=0;
 async function refresh(){
  const s=await j('/api/status'); document.getElementById('t').textContent=s.name;
- await bike();
+ try{await bike()}catch(e){}
  const t=document.getElementById('s'); t.textContent=''; for(const [k,v] of Object.entries(s)) row(t,k,v);
  const st=s.store; document.getElementById('fs').textContent=st.files+' file(s), '+(st.bytes/1024).toFixed(0)+' KB on flash of '+(st.fs_total/1024).toFixed(0)+' KB, compressing '+st.ratio+'x since boot'+(st.days_left>=0?', about '+st.days_left+' day(s) of space left at this rate':'');
  if(tick++%6) return;   // the file list every 30 s: a walk of the flash per fetch

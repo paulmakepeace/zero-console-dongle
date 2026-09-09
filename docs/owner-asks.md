@@ -20,7 +20,7 @@ carries it, and to where the dongle shows it. Command outputs are in
 | Watts, time and miles | `dash info` `Odometer_km`, `Odometer_mi`, `Estimated_Range_km`, `Speed_kph`; `performance` `total_Whr`; `stats` on and run time | readings from `dash info` and `performance`; `stats` is a one-shot |
 | 12 V battery voltage and health | `in` `12V_Battery`, `DC-DC`, `12V_Combined`, `BMS_12V` in mV | readings; no health figure, the OEM's is not explained anywhere |
 | EVSE pilot and per-charger power | `charging` `Pilot_Current`, `EVSE_Connector_State`, `Chargers_Connected`, the chargers table | readings for the three; the table on the command page |
-| Fault codes, DTCs | `faults`; `obd` `Active_DTCs`, `MIL_On`, `Freeze_frame_DTC` | `faults` on the command page; `obd` counts as readings |
+| Fault codes, DTCs | `faults`; `obd` `Active_DTCs`, `MIL_On`, `Freeze_frame_DTC` | `faults` on the command page; the `obd` counts as readings |
 | Cell signal, satellites, GPS fix | `ccm` `cell_signal_percent`, `cell_network_registration`, `connected_to_starcom`, `gps_is_valid`; the fix itself is in the same output | readings for the signal and the fix's validity; the coordinates are not shown and never leave the log |
 | Altitude | not on the console; the CCM reports it to the cloud only | no |
 | Theft attempt, anti-theft | not on the console | no |
@@ -30,5 +30,5 @@ carries it, and to where the dongle shows it. Command outputs are in
 | Point-and-tap on a phone, colour | the dongle's pages | the command page polls on tab selection; no colour |
 
 The commands that carry the wanted figures are `status`, `charging`, `bms`,
-`bms interface`, `controller`, `msc`, `dash info`, `in`, `ccm`, `faults`
-and `obd`; the poller runs them all but `obd` and `performance`.
+`bms interface`, `controller`, `msc`, `dash info`, `in`, `ccm`, `faults`,
+`obd` and `performance`; the poller runs them all.

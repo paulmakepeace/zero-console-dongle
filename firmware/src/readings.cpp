@@ -38,7 +38,7 @@ static int find(const RowValue& r) {
 
 static void note(const char* line, size_t len, long epoch) {
     RowValue r;
-    if (!parseRow(line, len, r)) return;
+    if (!parseRow(line, len, r) || !r.valid) return;   // an invalid figure leaves the last good one
     int i = find(r);
     if (i < 0) return;
     slots[i].value = r.value;
@@ -50,10 +50,11 @@ static void note(const char* line, size_t len, long epoch) {
 void readingsNoteLine(const char* line, size_t len) { note(line, len, 0); }
 
 void readingsFeed(const char* text, size_t len, long epoch) {
+    if (!epoch) return;   // a saved output with no wall time has no age to show
     size_t s = 0;
     for (size_t i = 0; i <= len; i++) {
         if (i == len || text[i] == '\n') {
-            if (i > s) note(text + s, i - s, epoch ? epoch : 1);
+            if (i > s) note(text + s, i - s, epoch);
             s = i + 1;
         }
     }
@@ -67,7 +68,7 @@ static long ageS(const Slot& x) {   // as the poller counts it: -1 never, -2 fro
 
 String readingsJson() {
     String s;
-    s.reserve(64 * N);
+    s.reserve(80 * N);
     s += "[";
     bool first = true;
     for (int i = 0; i < N; i++) {

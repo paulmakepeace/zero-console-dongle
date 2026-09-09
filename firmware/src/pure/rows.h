@@ -17,6 +17,7 @@ struct RowValue {
     size_t nameLen;
     long value;
     uint8_t decimals;
+    bool valid;         // false when a table's Valid column says No
 };
 
 // A signed integer with up to three decimals; false if the text is not one
@@ -57,6 +58,7 @@ inline bool parseRow(const char* line, size_t len, RowValue& out) {
         if (i == n || i >= len) return false;
         out.name = line + n; out.nameLen = i - n;
         while (i < len && line[i] == ' ') i++;
+        out.valid = true;
         return parseNumber(line + i, len - i, out.value, out.decimals);
     }
     // comma table: name up to the first comma, value the next field
@@ -69,7 +71,17 @@ inline bool parseRow(const char* line, size_t len, RowValue& out) {
     i++;
     while (i < len && line[i] == ' ') i++;
     if (i >= len) return false;
-    return parseNumber(line + i, len - i, out.value, out.decimals);
+    if (!parseNumber(line + i, len - i, out.value, out.decimals)) return false;
+    // The fourth field of a five-column table is Valid: "No" is a figure
+    // the MBB itself does not stand behind.
+    out.valid = true;
+    int commas = 0;
+    for (; i < len && commas < 2; i++) if (line[i] == ',') commas++;
+    if (commas == 2) {
+        while (i < len && line[i] == ' ') i++;
+        if (i + 2 <= len && line[i] == 'N' && line[i + 1] == 'o' && (i + 2 == len || line[i + 2] == ',' || line[i + 2] == ' ')) out.valid = false;
+    }
+    return true;
 }
 
 inline bool rowNameIs(const RowValue& r, const char* name) {

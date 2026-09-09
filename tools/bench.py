@@ -252,6 +252,7 @@ ANSWERS = {}
 for _f in glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), "mbb-answers", "*.txt")):
     with open(_f, "rb") as _fh:
         ANSWERS[os.path.basename(_f)[:-4].encode()] = _fh.read().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+LAST_CMD = b"performance"   # the poller's last command: the only answer the 40-line live window still shows at the batch's end
 # One unsolicited line the MBB might print mid-answer, for the pass-through check.
 UNSOLICITED = b"DEBUG:   09/07/2026 21:58:20.935  x.c : line 650 - Control flags changed\r\n"
 
@@ -280,7 +281,7 @@ class FakeMbb(threading.Thread):
                     time.sleep(self.first_delay)
                 self.seen.append(cmd)
                 answer = ANSWERS.get(cmd, b"unknown command\r\n")
-                if cmd == b"ccm":   # an unsolicited line lands in the middle of the last answer, between two of its lines, where the live window still shows it
+                if cmd == LAST_CMD:   # an unsolicited line lands in the middle of the last answer, between two of its lines, where the live window still shows it
                     cut = answer.find(b"\r\n", len(answer) // 2) + 2
                     answer = answer[:cut] + UNSOLICITED + answer[cut:]
                 self.ad.write(cmd + b"\r\n" + answer + b"ZERO MBB> ")
@@ -322,11 +323,11 @@ def t_poll(host, ad):
             s = status(host)
             if s["poll"]["active"] and s["tx_attached"]:
                 held = True
-            if not s["poll"]["active"] and len(mbb.seen) >= 11:
+            if not s["poll"]["active"] and len(mbb.seen) >= 13:
                 break
             time.sleep(0.3)
         check(held, "transmit pin held while the batch ran")
-        check(len(mbb.seen) >= 11, "all eleven commands reached the adapter: %r" % mbb.seen[:11])
+        check(len(mbb.seen) >= 13, "all thirteen commands reached the adapter: %r" % mbb.seen[:13])
         lst = json.loads(get(host, "/api/cmd")[1])
         check(all(c["ok"] for c in lst), "every command closed on its prompt: %r" % [(c["name"], c["ok"]) for c in lst])
         code, bms = get(host, "/api/cmd/bms")
@@ -341,14 +342,15 @@ def t_poll(host, ad):
         check(not status(host)["tx_attached"], "transmit pin released after the batch")
         live = get(host, "/live")[1]   # the last 40 lines: the end of the batch
         check("Control flags changed" in live, "the unsolicited line inside a response reached the log")
-        check("production_state" in live and "hb_soc" in live, "the responses themselves reached the log")
+        check("total_Whr" in live and "filt_batt_ma" in live, "the responses themselves reached the log")
         rd = {r["n"]: r for r in json.loads(get(host, "/api/readings")[1])}
-        want = {"Motor_Temp": 35, "lowest_cell_voltage_mv": 3976, "Lean": -135, "Odometer_km": 14532, "12V_Battery": 13127, "cell_signal_percent": 0}
+        want = {"Motor_Temp": 35, "lowest_cell_voltage_mv": 3976, "Lean": -135, "Odometer_km": 14532, "12V_Battery": 13127, "cell_signal_percent": 0, "Active_DTCs": 1, "total_Whr": 1331983}
         got = {k: rd.get(k, {}).get("v") for k in want}
         check(got == want and all(0 <= rd[k]["age_s"] <= 90 for k in want),
-              "the readings carry the figures from six outputs, fresh: %r" % got)
+              "the readings carry the figures from eight outputs, fresh: %r" % got)
         check(rd["max_charge_voltage"]["v"] == 117.6 and rd["max_charge_voltage"]["u"] == "V", "a decimal figure keeps its decimals: %r" % rd.get("max_charge_voltage"))
         check("gps_longitude_radians" not in rd and "unit_id" not in rd, "the fix and the unit id are not readings")
+        check("Pilot_Current" not in rd, "a row the MBB marks invalid is not a reading")
         try:
             get(host, "/api/cmd/nope")
             check(False, "unknown command is 404")

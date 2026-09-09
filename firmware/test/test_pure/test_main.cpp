@@ -348,6 +348,32 @@ void test_row_dash_list() {
     TEST_ASSERT_EQUAL(612, r.value);
 }
 
+void test_number_edges() {
+    long v; uint8_t d;
+    TEST_ASSERT_TRUE(parseNumber("+5", 2, v, d)); TEST_ASSERT_EQUAL(5, v);
+    TEST_ASSERT_FALSE(parseNumber("-", 1, v, d));
+    TEST_ASSERT_FALSE(parseNumber(".5", 2, v, d));
+    TEST_ASSERT_TRUE(parseNumber("5.", 2, v, d)); TEST_ASSERT_EQUAL(5, v); TEST_ASSERT_EQUAL(0, d);
+    TEST_ASSERT_TRUE(parseNumber("1.2345", 6, v, d)); TEST_ASSERT_EQUAL(1234, v); TEST_ASSERT_EQUAL(3, d);   // a fourth decimal is dropped
+    TEST_ASSERT_TRUE(parseNumber("-0.5 V", 6, v, d)); TEST_ASSERT_EQUAL(-5, v); TEST_ASSERT_EQUAL(1, d);
+    TEST_ASSERT_FALSE(parseNumber("21:00", 5, v, d));
+    TEST_ASSERT_FALSE(parseNumber("9999999999", 10, v, d));   // more than the console prints
+}
+
+void test_row_valid_column() {
+    RowValue r;
+    TEST_ASSERT_TRUE(row("        Pilot_Current,         15,          ,       No,         0", r));
+    TEST_ASSERT_FALSE(r.valid);   // the MBB marks the figure invalid
+    TEST_ASSERT_TRUE(row(" Front_Wheel_Pressure,          0,      ubar,       No,         0", r));
+    TEST_ASSERT_FALSE(r.valid);
+    TEST_ASSERT_TRUE(row("           Motor_Temp,         35,         C,      Yes,         0", r));
+    TEST_ASSERT_TRUE(r.valid);
+    TEST_ASSERT_TRUE(row("               cell_signal_percent,          0,          0", r));   // three fields: no Valid column
+    TEST_ASSERT_TRUE(r.valid);
+    TEST_ASSERT_TRUE(row(" - lowest_cell_voltage_mv 3976", r));
+    TEST_ASSERT_TRUE(r.valid);
+}
+
 void test_row_rejects_what_is_not_a_figure() {
     RowValue r;
     TEST_ASSERT_FALSE(row("            Parameter,      Value,     Units,    Valid,   In Test", r));   // a header
@@ -358,6 +384,12 @@ void test_row_rejects_what_is_not_a_figure() {
     TEST_ASSERT_FALSE(row("ZERO MBB> ", r));
     TEST_ASSERT_FALSE(row(" - time since status_rpdo_received 79", r));   // a multi-word name never matches a definition
     TEST_ASSERT_FALSE(row("", r));
+    TEST_ASSERT_FALSE(row("     ", r));
+    TEST_ASSERT_FALSE(row("        Pilot_Current,           ,          ,       No,         0", r));   // an empty value
+    TEST_ASSERT_FALSE(row("----+----", r));
+    TEST_ASSERT_FALSE(row(" - ", r));
+    TEST_ASSERT_TRUE(row("           Motor_Temp,         35, [dongle: line continues]", r));   // a cut line still carries its figure
+    TEST_ASSERT_EQUAL(35, r.value);
 }
 
 
@@ -388,6 +420,8 @@ int main() {
     RUN_TEST(test_pack_row);
     RUN_TEST(test_row_comma_table);
     RUN_TEST(test_row_dash_list);
+    RUN_TEST(test_number_edges);
+    RUN_TEST(test_row_valid_column);
     RUN_TEST(test_row_rejects_what_is_not_a_figure);
     return UNITY_END();
 }
