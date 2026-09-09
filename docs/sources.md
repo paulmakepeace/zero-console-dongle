@@ -12,6 +12,11 @@
 - Espressif, ESP-IDF programming guide, "Sleep Modes" for the ESP32: the
   definitions of light and deep sleep, the wake sources, and what each keeps.
 - electricmotorcycleforum.com, "Zero SR/F MY2020 OBD cable to serial console".
+- Facebook zmcowners group, photo 10165269412658619 (2026-07-27): an owner's
+  own phone app reading Zero's Starcom cloud with the OEM app login, showing
+  what the OEM app hides: 12 V battery voltage and health, altitude, LTE-M
+  signal, satellite count, a theft-attempt flag, location. The fields the
+  console's `ccm` and `in` print locally, seen from the cloud end.
 - Facebook zmcowners group: post 8283341791734956 (Kevin Campbell, 2024-09-23)
   and post 8326312574104544 (Ernst Glatzer, 2024-09-28). LED mode confirmation
   and the threshold measurements in [led-signals.md](led-signals.md).

@@ -21,7 +21,15 @@ outputs are in [mbb-reference.md](mbb-reference.md).
 | Point-and-tap on a phone rather than typed commands; colourised output | The dongle's pages | the command page polls on tab selection; no colour |
 | Which bikes, at what price | The thread's author: every Zero with the serial console, at model-dependent baud rates, plus CAN | this dongle is built for the SR/S MY2020 console |
 
+A 2026 post in the same group (photo 10165269412658619) showed an owner's
+phone app reading Zero's Starcom cloud with the OEM app login. What drew the
+replies was what the OEM app hides: the 12 V battery's voltage and health,
+altitude, LTE-M signal strength, satellite count, a theft-attempt flag and
+the bike's location, and again the main pack's state of health. The console
+prints the same things locally: `ccm` has the GPS fix, satellite validity,
+cell signal and network registration, `in` the 12 V and DC-DC rails.
+
 The pattern: the most-wanted figures live in `bms interface`, `controller`,
-`msc` and `dash info`, none of which the poller runs. State of health has no
+`msc`, `dash info`, `ccm` and `in`, of which only `in` is polled. State of health has no
 source line and would have to be derived from capacity over time, which the
 log makes possible.
