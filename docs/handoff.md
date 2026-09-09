@@ -22,10 +22,6 @@ a clean start before it is believed.
 
 ## Threads left open
 
-- **Working rules.** [`CLAUDE-pending.md`](../CLAUDE-pending.md) at the root
-  holds five rules about how work is verified here, each citing the defect
-  that bought it. They are waiting on a `CLAUDE.md`, which is the operator's
-  to write. Merging them is deliberate, not automatic.
 - **The space reclaim at a hundred files.** The first item in the README's
   list and the measured entry in [open-questions.md](open-questions.md). Now
   addressed but not re-measured: `FS_MAX_FILES` caps the log count as a
@@ -44,13 +40,23 @@ a clean start before it is believed.
   left on flash: an old name carries no id, so `dictCollect` reads it as
   naming no dictionary and could collect a dictionary an unpulled old file
   still needs. A full drain is a clean cutover and needs no migration code.
-- **Absolute deadlines.** Twenty-nine time comparisons in the firmware are
-  raw `millis()` arithmetic. Two separate bugs this project has hit were the
-  same shape: a deadline kept after it expired, which comes back true when
-  `millis()` wraps at 24.9 days, and a signed-versus-unsigned comparison. The
-  live sites are correct now and `mbb_uart.cpp` carries the comment saying
-  why. A small deadline type that cannot be stored expired, with the wrap
-  comparison in one place, would retire the class. Proposed, not built.
+- **Absolute deadlines.** Decided, not open: the raw `millis()` comparisons
+  are the wrap-safe elapsed form (`now - start >= interval`), and the two
+  sites that store an absolute deadline use the deliberate signed-difference
+  idiom in `mbb_uart.cpp`. A review of the whole tree found no live wrap or
+  signed/unsigned bug, only one latent off-by-one in `parseHibernateSeconds`,
+  now fixed. The proposed deadline type would not earn its complexity here, so
+  it is not being built; reopen this only if a third bug of the class appears.
+- **The clock decoupling.** The MBB/NTP/monotonic sync is simpler now that
+  `clockTick` no longer measures the NTP step or re-queries for a race that
+  cannot happen. The larger piece is still open: the sleep planner reads wall
+  time (`time(nullptr)`), so it depends on the sync being right. Moving it to
+  a monotonic elapsed counter would cut that dependency and let the consensus
+  stay purely for the cosmetic stamps and the coarse unattended-days count.
+  Whether that is safe turns on one bench fact: does `millis()` advance across
+  light sleep on this core? The current design uses wall time precisely
+  because it is advanced across sleep by the RTC. Settle that on the rig
+  before moving the planner.
 - **The longer cellular hold.** Five-minute holds do not make the module
   attach; the evidence and what stays open are in
   [open-questions.md](open-questions.md). The experiment to close it is
