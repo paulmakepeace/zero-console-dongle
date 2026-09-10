@@ -63,10 +63,11 @@ Which board is which, and how a change is verified, are in
   incrementally, which removes the walk and the size stats without a persisted
   catalog's crash-sync burden.
 
-  Still open: have `bench.py` clear old sessions above a file threshold so a
-  long bench day does not accrete a huge directory, and, when this first reaches
-  the bike, drain it with `tools/pull-logs.py` before flashing since old-format
-  names carry no dictionary id.
+  `bench.py` now trims old sessions before a run (`--max-files`, default derived
+  from the dongle's reported `fs_total`), and the bike was drained with
+  `tools/pull-logs.py` and flashed to 0.11.12 on 2026-09-10, so those are done.
+  The deeper log-rotation and compression-transform work lives on its own branch
+  (`compression-transform`), separate from this one.
 
 - **The clock decoupling: deferred, pending an actual problem.** The sleep
   planner reads wall time (`time(nullptr)`), so it depends on the MBB/NTP sync
