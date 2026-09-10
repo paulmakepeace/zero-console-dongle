@@ -139,8 +139,15 @@ def t_roundtrip(host, ad):
     time.sleep(0.5)
     back = ad.read(100)
     check(back == b"help\r\n", "console input reached the adapter as CR LF: %r" % back)
-    s = status(host)
-    check(s["tx_attached"], "transmit pin attached after the write")
+    # Poll within the 2 s hold rather than sampling once: a slow status round
+    # trip can otherwise land after the pin has already let go.
+    attached = False
+    t0 = time.time()
+    while time.time() - t0 < 1.5:
+        if status(host)["tx_attached"]:
+            attached = True
+            break
+    check(attached, "transmit pin attached after the write")
     time.sleep(2.5)
     s = status(host)
     check(not s["tx_attached"], "transmit pin released after the hold")
@@ -326,9 +333,16 @@ def t_poll(host, ad):
         time.sleep(3)
         mbb.seen.clear()   # the batch just waited out was answered too; the first delay applies to the requested one
         print("  ", post(host, "/api/cmd/poll"))
-        time.sleep(0.4)
-        live = get(host, "/live")[1]
-        tail = live.rstrip().split("\n")[-3:]   # a clock note may land beside it
+        # Poll /live until the marker reaches the tail: the batch may not have
+        # started by a fixed 0.4 s, and once answers arrive they flood it out
+        # of the forty-line window, so a single timed read races both edges.
+        tail = []
+        t0 = time.time()
+        while time.time() - t0 < 8:
+            tail = get(host, "/live")[1].rstrip().split("\n")[-3:]   # a clock note may land beside it
+            if any(l.endswith("dongle: poll") for l in tail):
+                break
+            time.sleep(0.3)
         check(any(l.endswith("dongle: poll") for l in tail), "the batch is announced in the log before its first answer: %r" % tail)
         held = False
         t0 = time.time()
