@@ -45,27 +45,47 @@ Which board is which, and how a change is verified, are in
   and bound the flash side (`storeSessionClose()` runs per asleep edge) if the
   storm turns out to toggle rather than desync.
 
-- **Reclaim: two loose ends.** The stall is fixed and measured: the reclaim
-  walk reads the dictionary id from the file name instead of opening each file,
-  timed 2026-09-09 at ~1 ms/file against ~33 ms/file for the old header open (35
-  files: 33 ms vs 1158 ms), so it no longer stalls the capture stage, and the
-  file-count cap that was a backstop for it has been removed (the byte reserve
-  is the limiter again). Left to do: have `bench.py` clear old sessions above a
-  file threshold so a long bench day does not accrete a huge directory, and,
-  when this first reaches the bike, drain it with `tools/pull-logs.py` before
-  flashing since old-format names carry no dictionary id.
+- **Reclaim: the per-file open is gone, but the walk count is not, and it can
+  still stall ~1 s near capacity.** The name-parse walk replaced the header
+  open per file (the old ~33 ms/file, 1158 ms over 35 files), which was the big
+  win. But a real measurement at a hundred files on the bench (2026-09-10, a
+  temporary `/api/debug/reclaimbench` since reverted) contradicts the earlier
+  single-point extrapolation of "~120 ms at 100 files":
 
-- **The clock decoupling.** A decision, not a blocker any more. The sleep
+  | files | one directory walk | worst-case reclaim (~7 walks) |
+  |------:|--------------------:|------------------------------:|
+  |    57 |               51 ms |                        353 ms |
+  |   100 |              138 ms |                      ~970 ms |
+  |   130 |              188 ms |                       ~1.3 s |
+
+  One walk is ~1.4 ms/file (slightly super-linear as `readdir` scans a fuller
+  directory), but `ensureSpace` walks the directory up to seven times per
+  reclaim (`dictCollect`'s up-to-three walks, plus one per delete round, up to
+  four), all under the store lock the capture stage takes. Worst case crosses a
+  second around 130 files, and the bike reaches ~100 in about four days without
+  a pull. So the reclaim is faster than before but not sub-second worst-case at
+  the file counts this will actually see. The fix at the right depth is to cut
+  the walk count (one pass that both collects dictionaries and finds the oldest,
+  rather than three-plus-one-per-round), or to cap the directory so the walk is
+  never long; the removed file-count cap was a blunt version of the latter. The
+  code comment at `store.cpp` "measured ~1 ms/file, so a large directory no
+  longer stalls the capture stage" now overstates the result and should be
+  corrected with these numbers.
+
+  Also still open: have `bench.py` clear old sessions above a file threshold so
+  a long bench day does not accrete a huge directory, and, when this first
+  reaches the bike, drain it with `tools/pull-logs.py` before flashing since
+  old-format names carry no dictionary id.
+
+- **The clock decoupling: deferred, pending an actual problem.** The sleep
   planner reads wall time (`time(nullptr)`), so it depends on the MBB/NTP sync
-  being right; a monotonic elapsed counter would cut that dependency. The rig
-  question that gated it is answered: `last_slept_s` (millis-measured) reads
-  about the sleep duration, so `millis()` advances across light sleep on this
-  core (the IDF adjusts it on wake), and the move is viable. What is left is the
-  call to make it: it changes sleep timing, which is safety-relevant on the bike
-  (an over-long sleep misses the MBB's wake), so weigh it deliberately rather
-  than fold it into a routine change. The lightsleep bench check that used to
-  flag this is fixed: it leans on the millis-based margin now, not the flaky NTP
-  step.
+  being right; a monotonic elapsed counter (like the boot-file naming) would cut
+  that dependency, and the rig question that gated it is answered (`millis()`
+  advances across light sleep, so the move is viable). But it changes
+  safety-relevant sleep timing for no observed failure, so it stays parked until
+  a real sync problem shows up rather than being done pre-emptively. The
+  lightsleep bench check that used to flag this already leans on the millis-based
+  margin, not the flaky NTP step, so nothing is waiting on it.
 
 - **The longer cellular hold, likely moot.** Whether a 900-second hold makes
   the module attach where five minutes did not. But the bike's `ccm` output
