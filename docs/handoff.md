@@ -40,8 +40,13 @@ Which board is which, and how a change is verified, are in
   assume (it uses wall time because the RTC advances it across sleep). Settle
   that on the rig before touching it.
 
-- **The longer cellular hold.** Whether a 900-second hold makes the module
-  attach where five minutes did not; the experiment is
-  `tools/ccm-wake-experiment.py` and the evidence is in
-  [open-questions.md](open-questions.md). Each wake costs about 10 mV off a
-  13,000 mV battery and suppresses that hour's natural wake.
+- **The longer cellular hold, likely moot.** Whether a 900-second hold makes
+  the module attach where five minutes did not. But the bike's `ccm` output
+  reads a T-Mobile SIM (mcc 310, mnc 260) with zero registration and zero
+  signal while GPS is valid, and T-Mobile shut its 3G network in mid-2022, so
+  this looks like an original 3G module that no network will take, and no hold
+  will change that. Confirm the modem generation first (the Telit model is not
+  in `ccm`; a Telit AT query or the physical label would give it) before
+  spending battery on the experiment. `tools/ccm-wake-experiment.py`, each wake
+  about 10 mV off a 13,000 mV battery, and it suppresses that hour's natural
+  wake.
