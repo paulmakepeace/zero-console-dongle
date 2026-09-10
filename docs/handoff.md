@@ -33,18 +33,17 @@ Which board is which, and how a change is verified, are in
   this first reaches the bike, drain it with `tools/pull-logs.py` before
   flashing, since old-format names carry no dictionary id.
 
-- **The clock decoupling.** Bench-gated. The sleep planner reads wall time
-  (`time(nullptr)`), so it depends on the MBB/NTP sync being right; moving it to
-  a monotonic elapsed counter would cut that dependency, but only if `millis()`
-  advances across light sleep on this core, which the current design does not
-  assume (it uses wall time because the RTC advances it across sleep). Settle
-  that on the rig before touching it. The one standing red bench check belongs
-  here: `bench.py`'s lightsleep "step within margin" reads the step at the
-  post-sleep NTP sync, which is `None` when that sync is a boot's first fix and
-  otherwise conflates the RC sleep error with any prior clock offset, so it is
-  unreliable (seen as both `None` and -26 s across runs) while the behavioural
-  sleep checks pass. Rework it to measure the isolated RC error, or the actual
-  wake-before-the-MBB margin, as part of this.
+- **The clock decoupling.** A decision, not a blocker any more. The sleep
+  planner reads wall time (`time(nullptr)`), so it depends on the MBB/NTP sync
+  being right; a monotonic elapsed counter would cut that dependency. The rig
+  question that gated it is answered: `last_slept_s` (millis-measured) reads
+  about the sleep duration, so `millis()` advances across light sleep on this
+  core (the IDF adjusts it on wake), and the move is viable. What is left is the
+  call to make it: it changes sleep timing, which is safety-relevant on the bike
+  (an over-long sleep misses the MBB's wake), so weigh it deliberately rather
+  than fold it into a routine change. The lightsleep bench check that used to
+  flag this is fixed: it leans on the millis-based margin now, not the flaky NTP
+  step.
 
 - **The longer cellular hold, likely moot.** Whether a 900-second hold makes
   the module attach where five minutes did not. But the bike's `ccm` output
