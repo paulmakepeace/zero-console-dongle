@@ -15,15 +15,24 @@ noise before reacting to it. The verification rules behind the steps are in
    the author is sure of, and the pause to skim it is the point: it is where a
    loop gets caught and broken early. Commit only what has been shown, so a fix
    is never claimed before it is seen.
-3. **Run the regressions on the bench.** `tools/bench.py auto --host
+3. **Adversarial review, to convergence.** Run a full `/code-review high` over
+   the change (whole files, every angle). Fix each significant finding, then run
+   the review *again*: a significant defect is not cleared by its fix alone,
+   because the fix is itself unreviewed code and often hides the next one (a
+   dead, unwired feature sat behind an over-deletion bug here on 2026-09-10).
+   Repeat until a full pass surfaces nothing significant. This gates the bench:
+   no regression is run until the review has converged, so the bench is spent
+   only on code a review already believes in. `/code-review ultra` is the
+   heavier, operator-triggered cloud pass for a whole branch or PR.
+4. **Run the regressions on the bench.** `tools/bench.py auto --host
    zero-dongle-ebdc.local` (`auto` picks the scenarios for the changed files;
    `all` is everything). This is the gate before a version.
-4. **Green? Bump, tag, then hand off the push.** Bump `FW_VERSION` and commit
+5. **Green? Bump, tag, then hand off the push.** Bump `FW_VERSION` and commit
    it, make the annotated `vX.Y.Z` tag with a roll-up body dated to that
    commit, then hand over the push. The bump and tag come before the push, and
    the push is the operator's.
-5. **Then either** go back to step 1 for the next change,
-6. **or deploy to the bike** when the change is what an experiment or more data
+6. **Then either** go back to step 1 for the next change,
+7. **or deploy to the bike** when the change is what an experiment or more data
    needs. Flash it by name, after draining it; a routine change does not go to
    the bike just because it passed.
 
@@ -38,12 +47,12 @@ rssi around -30, the bike is far) and which board drives the adapter.
 
 Never run `bench.py` against the bike: it holds the adapter line low, which on
 the bike is the MBB's own output. Flash the bench first, every time; flash the
-bike only by naming it (step 6).
+bike only by naming it (step 7).
 
 ## Reading a bench failure without oscillating
 
-A red check in step 3 is one of three things. Work them in this order, and do
-not revert or patch until you know which:
+A red check in the bench step (step 4) is one of three things. Work them in this
+order, and do not revert or patch until you know which:
 
 1. **Flaky.** Re-run the one scenario from a clean start. Timing-tight checks
    (the transmit-pin release, the poll markers) fail under load and pass on a
@@ -72,7 +81,8 @@ last flash prints, before `ebdc.local` resolves again.
 
 ## Standing rules
 
-- The bench is the gate before a version bump (step 3 before step 4).
+- The adversarial review converges before the bench runs (step 3 before step 4);
+  the bench is the gate before a version bump (step 4 before step 5).
 - Every version bump gets an annotated `vX.Y.Z` tag, roll-up body, dated to
   the commit.
 - Pushes are the operator's: commit, verify, hand the command over.
