@@ -27,12 +27,23 @@ Which board is which, and how a change is verified, are in
   blocker on fixing it. The flood is `onState()`, but `nowAwake` is gated on the
   5 s `SLEEP_AFTER_MS` threshold and cannot legitimately flip at that rate, so
   it is not a simple awake-flap and the real mechanism is not yet identified (an
-  event-stream desync, or a path not found by reading). Next: add a counter at
-  the `EV_AWAKE` post site and in `onState`, ship it, and catch the flood in the
-  wild since the bench trigger is unreliable; a rate-limit on the edge
-  logging/posting would bound the wedge regardless of the mechanism. On the bike
-  pin 8 is the MBB's driven output, so the real-world trigger differs from the
-  bench's floating pin.
+  event-stream desync, or a path not found by reading). On the bike pin 8 is the
+  MBB's driven output, so the real-world trigger differs from the bench's
+  floating pin.
+
+  Groundwork shipped in 0.11.11 so the next flood is diagnosable without a
+  console: `/api/status` now carries `uart.awake_edges`, the count the capture
+  task posts, beside the existing `awake_count` the loop records. In a flood the
+  two discriminate the mechanism: **they track together** means the awake edge
+  really is toggling at that rate (the sample logic, against reading); **the
+  delivery `awake_count` races far past `awake_edges`** means the loop is reading
+  a desynced event stream, manufacturing edges the capture task never posted. The
+  `onState` console print is now coalesced to at most one line a second (a
+  suppressed-count summary), which both bounds the loop starvation on the 115200
+  console drain and keeps HTTP reachable so those counters can be read live during
+  the storm. Still to do once a repro is in hand: fix the identified mechanism,
+  and bound the flash side (`storeSessionClose()` runs per asleep edge) if the
+  storm turns out to toggle rather than desync.
 
 - **Reclaim: two loose ends.** The stall is fixed and measured: the reclaim
   walk reads the dictionary id from the file name instead of opening each file,

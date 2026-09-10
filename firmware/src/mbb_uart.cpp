@@ -30,6 +30,7 @@ static volatile uint32_t txHoldUntilMs = 0;
 static volatile bool txHeld = false;   // a batch in progress: the timed hold does not end it
 static volatile uint32_t overflows = 0, backpressure = 0, frameErrors = 0;
 static std::atomic<uint32_t> queueDrops{0};   // added on the capture task, taken on the loop task
+static std::atomic<uint32_t> awakeEdges{0};   // awake edges as the capture task posts them; compared with the loop's awake_count, a gap is an event-stream desync, not a real flap
 static TaskHandle_t captureHandle;
 static SemaphoreHandle_t txMtx;
 static QueueHandle_t uartQueue;
@@ -198,6 +199,7 @@ static void captureTask(void*) {
             awake = nowAwake;
             if (!awake && !wakeOn()) txDetach();   // a wake drives pin 9 precisely while the console block is down
             xSemaphoreGive(txMtx);
+            if (nowAwake) awakeEdges.fetch_add(1);
             post(nowAwake ? EV_AWAKE : EV_ASLEEP, nullptr, 0);
         }
         checkHold();
@@ -276,6 +278,7 @@ uint32_t mbbOverflows() { return overflows; }
 uint32_t mbbBackpressure() { return backpressure; }
 uint32_t mbbFrameErrors() { return frameErrors; }
 uint32_t mbbQueueDrops() { return queueDrops.load(); }
+uint32_t mbbAwakeEdges() { return awakeEdges.load(); }
 bool mbbLineHigh() { return lineHigh; }
 
 void mbbTxHold(bool on) {

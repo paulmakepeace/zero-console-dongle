@@ -83,7 +83,19 @@ static void onRaw(const uint8_t* data, size_t len) {
 }
 
 static void onState(bool awake) {
-    Serial.printf("mbb: %s\n", awake ? "awake" : "asleep");
+    // The console print is coalesced to at most one line a second: a wedge floods
+    // this edge at ~120 KB/s, and unlimited printing blocks the loop on the 115200
+    // console drain, which is a large part of how the board goes dark. Rate-limited
+    // it stays reachable, so /api/status uart.awake_edges is readable during the
+    // storm; a summary line reports the burst instead of thousands of identical ones.
+    static uint32_t lastPrintMs = 0, suppressed = 0;
+    uint32_t now = millis();
+    if (now - lastPrintMs >= 1000) {
+        if (suppressed) Serial.printf("mbb: %s (+%lu more edges in the last second)\n", awake ? "awake" : "asleep", (unsigned long)suppressed);
+        else Serial.printf("mbb: %s\n", awake ? "awake" : "asleep");
+        lastPrintMs = now ? now : 1;
+        suppressed = 0;
+    } else suppressed++;
     storeNoteEdge(awake);
     if (!awake) storeSessionClose();   // a session opens on its first line, not on the edge
 }
