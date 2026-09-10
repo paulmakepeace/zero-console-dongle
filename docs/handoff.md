@@ -8,15 +8,22 @@ Which board is which, and how a change is verified, are in
 
 ## To do
 
-- **The awake-flap network wedge (the "went dark" bug).** A pin-8 condition
-  that flaps the line rapidly makes `onState()` log and post an edge on every
-  transition with no rate limit; the flood (seen at ~120 KB/s of `mbb: awake`
-  on the console) starves the loop task until HTTP and the network go dark, and
-  the watchdog does not catch it because nothing is strictly hung. Reproduced
-  on the bench by leaving the adapter line marginal. This is the open-questions
-  "went dark on the network, needed a key cycle". Fix: put hysteresis on the
-  awake decision and rate-limit the edge logging the way the UART markers
-  already are, so a flapping line cannot flood the loop.
+- **The network wedge (the "went dark" bug).** Under some marginal pin-8
+  condition the board floods `mbb: awake` on the console at ~120 KB/s and the
+  loop task starves until HTTP and the network go dark; it does not self-recover
+  (no watchdog reboot). This is the open-questions "went dark, needed a key
+  cycle". Seen on the bench when a closed adapter port left pin 8 floating, but
+  it is **intermittent**: the same close, and a deliberate sustained break, both
+  often leave the board fine, so it is not reproducible on demand, which is the
+  blocker on fixing it. The flood is `onState()`, but `nowAwake` is gated on the
+  5 s `SLEEP_AFTER_MS` threshold and cannot legitimately flip at that rate, so
+  it is not a simple awake-flap and the real mechanism is not yet identified (an
+  event-stream desync, or a path not found by reading). Next: add a counter at
+  the `EV_AWAKE` post site and in `onState`, ship it, and catch the flood in the
+  wild since the bench trigger is unreliable; a rate-limit on the edge
+  logging/posting would bound the wedge regardless of the mechanism. On the bike
+  pin 8 is the MBB's driven output, so the real-world trigger differs from the
+  bench's floating pin.
 
 - **Reclaim: verify, and cap the bench.** The reclaim is implemented (a
   file-count cap, and the dictionary id read from the file name instead of
