@@ -25,13 +25,15 @@ Which board is which, and how a change is verified, are in
   pin 8 is the MBB's driven output, so the real-world trigger differs from the
   bench's floating pin.
 
-- **Reclaim: verify, and cap the bench.** The reclaim is implemented (a
-  file-count cap, and the dictionary id read from the file name instead of
-  opening each file). Left to do: re-measure the ~100-file case on the bench to
-  confirm the walk is now sub-second, and have `bench.py` clear old sessions
-  above a file threshold so a long bench day does not walk into the stall. When
-  this first reaches the bike, drain it with `tools/pull-logs.py` before
-  flashing, since old-format names carry no dictionary id.
+- **Reclaim: two loose ends.** The stall is fixed and measured: the reclaim
+  walk reads the dictionary id from the file name instead of opening each file,
+  timed 2026-09-09 at ~1 ms/file against ~33 ms/file for the old header open (35
+  files: 33 ms vs 1158 ms), so it no longer stalls the capture stage, and the
+  file-count cap that was a backstop for it has been removed (the byte reserve
+  is the limiter again). Left to do: have `bench.py` clear old sessions above a
+  file threshold so a long bench day does not accrete a huge directory, and,
+  when this first reaches the bike, drain it with `tools/pull-logs.py` before
+  flashing since old-format names carry no dictionary id.
 
 - **The clock decoupling.** A decision, not a blocker any more. The sleep
   planner reads wall time (`time(nullptr)`), so it depends on the MBB/NTP sync

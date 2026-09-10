@@ -119,20 +119,17 @@ static size_t freeBytes() { return totalBytes() - LittleFS.usedBytes(); }
 
 static void dictCollect();
 
-// Delete oldest first until the reserve is back and the log count is under
-// its cap. The cap is the backstop against the directory growing to where a
-// reclaim walk stalls the capture stage (measured past ~100 files); the
-// puller draining the bike is how the count stays low in normal use. One
-// walk collects the eight oldest deletable names, then they go in order
-// until both criteria are met; a name that will not delete is skipped from
-// then on, and three refusals in a row end the attempt.
+// Delete oldest first until the reserve is back. One walk collects the eight
+// oldest deletable names, then they go in order until the filesystem says
+// the reserve is back; a name that will not delete is skipped from then on,
+// and three refusals in a row end the attempt. The walk is name-only now (the
+// dictionary id is in the file name), measured ~1 ms/file, so a large
+// directory no longer stalls the capture stage the way it did with a header
+// open per file.
 static bool ensureSpace() {
-    size_t logFiles = 0;
-    forEachFile([&](const char* name, size_t) { if (!houseFile(name)) logFiles++; }, false);   // a name-only walk: no stat, no open
-    bool need = freeBytes() < FS_MIN_FREE || logFiles > FS_MAX_FILES;
-    if (!need) return false;
+    if (freeBytes() >= FS_MIN_FREE) return false;
     dictCollect();   // dictionaries nothing names cost nothing to drop, and go first
-    if (freeBytes() >= FS_MIN_FREE && logFiles <= FS_MAX_FILES) return true;
+    if (freeBytes() >= FS_MIN_FREE) return true;
     char floor[65] = "";   // names at or below this were tried and refused
     int refusals = 0;
     for (int round = 0; round < 4; round++) {
@@ -154,9 +151,8 @@ static bool ensureSpace() {
                 continue;
             }
             refusals = 0;
-            logFiles--;
             Serial.printf("store: deleted %s for space\n", oldest.item[i]);
-            if (freeBytes() >= FS_MIN_FREE && logFiles <= FS_MAX_FILES) return true;   // the filesystem counts in blocks; ask it, do not guess
+            if (freeBytes() >= FS_MIN_FREE) return true;   // the filesystem counts in blocks; ask it, do not guess
         }
     }
     Serial.println("store: the reserve is not back; every file is active, being read, or will not delete");

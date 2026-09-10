@@ -64,10 +64,7 @@ async function refresh(){
  const s=await j('/api/status'); document.getElementById('t').textContent=s.name;
  try{await bike()}catch(e){}
  const t=document.getElementById('s'); t.textContent=''; for(const [k,v] of Object.entries(s)) row(t,k,v);
- const st=s.store; const fsEl=document.getElementById('fs');
- fsEl.textContent=st.files+' file(s), '+(st.bytes/1024).toFixed(0)+' KB on flash of '+(st.fs_total/1024).toFixed(0)+' KB, compressing '+st.ratio+'x since boot'+(st.days_left>=0?', about '+st.days_left+' day(s) of space left at this rate':'');
- fsEl.style.color=st.files>=70?'#b00':st.files>=50?'#b60':'';
- if(st.files>=50) fsEl.textContent+='; pull the logs'+(st.files>=70?' now, the oldest go at 80':' soon');
+ const st=s.store; document.getElementById('fs').textContent=st.files+' file(s), '+(st.bytes/1024).toFixed(0)+' KB on flash of '+(st.fs_total/1024).toFixed(0)+' KB, compressing '+st.ratio+'x since boot'+(st.days_left>=0?', about '+st.days_left+' day(s) of space left at this rate':'');
  if(tick++%6) return;   // the file list every 30 s: a walk of the flash per fetch
  const f=await j('/logs'); const d=document.getElementById('f'); d.textContent='';
  for(const x of f){const div=document.createElement('div'); if(x.active){div.textContent=x.name+' '+x.size+' bytes (active, see last lines)'}else{const a=document.createElement('a');a.href='/logs/'+encodeURIComponent(x.name);a.textContent=x.name;div.appendChild(a);div.appendChild(document.createTextNode(' '+x.size+' bytes'))} d.appendChild(div)}

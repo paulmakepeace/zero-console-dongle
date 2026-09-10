@@ -40,7 +40,6 @@
 
 #define LOG_DIR         "/logs"
 #define FS_MIN_FREE     (96 * 1024)   // delete the oldest file below this much free space
-#define FS_MAX_FILES    80            // and cap the log count here: a reclaim walk past ~100 files stalls the capture stage, so the puller drains the bike and this is the backstop
 #define LAST_LINES      40            // lines kept in RAM for the status page
 #define LAST_LINE_CHARS 200           // each cut to this many characters there
 #define SESSION_MAX_BYTES (256 * 1024) // a session that never sleeps rolls to a new file here
