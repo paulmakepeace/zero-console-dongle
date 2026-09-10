@@ -421,6 +421,16 @@ void test_row_valid_column() {
     TEST_ASSERT_TRUE(r.valid);
 }
 
+void test_row_pdu_current() {   // the pdu table has more columns than the 5-column ones; Valid is still the 4th
+    RowValue r;
+    TEST_ASSERT_TRUE(row("   Total_Current,      2438,      mA,     Yes,        0,               ,  0,  0", r));
+    TEST_ASSERT_TRUE(r.valid); TEST_ASSERT_TRUE(rowNameIs(r, "Total_Current")); TEST_ASSERT_EQUAL(2438, r.value);
+    TEST_ASSERT_TRUE(row("  12V_Switch_Pwr,       238,      mA,     Yes,        0,           None,  1,  1", r));
+    TEST_ASSERT_TRUE(r.valid); TEST_ASSERT_TRUE(rowNameIs(r, "12V_Switch_Pwr")); TEST_ASSERT_EQUAL(238, r.value);
+    TEST_ASSERT_TRUE(row("   DC-DC_to_Batt,         0,      mA,      No,        0,           None,  1,  1", r));
+    TEST_ASSERT_FALSE(r.valid);   // the No column marks it invalid, past the extra pdu columns
+}
+
 void test_row_rejects_what_is_not_a_figure() {
     RowValue r;
     TEST_ASSERT_FALSE(row("            Parameter,      Value,     Units,    Valid,   In Test", r));   // a header
@@ -531,6 +541,7 @@ int main() {
     RUN_TEST(test_row_dash_list);
     RUN_TEST(test_number_edges);
     RUN_TEST(test_row_valid_column);
+    RUN_TEST(test_row_pdu_current);
     RUN_TEST(test_row_rejects_what_is_not_a_figure);
     return UNITY_END();
 }

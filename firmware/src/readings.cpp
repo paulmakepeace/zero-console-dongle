@@ -21,6 +21,7 @@ static const Def DEFS[] = {
     {"Speed_kph", "trip", "km/h"}, {"State_of_Charge", "trip", "%"}, {"Estimated_Range_km", "trip", "km"},
     {"Odometer_km", "trip", "km"}, {"Odometer_mi", "trip", "mi"}, {"Active_Ride_Mode", "trip", ""}, {"total_Whr", "trip", "Wh"},
     {"DC-DC", "12v", "mV"}, {"12V_Battery", "12v", "mV"}, {"12V_Combined", "12v", "mV"}, {"BMS_12V", "12v", "mV"},
+    {"Total_Current", "12v", "mA"}, {"DC-DC_to_Batt", "12v", "mA"},   // the 12 V amps, from pdu: total load, and the charge into the 12 V battery (valid only while charging)
     {"cell_signal_percent", "cell", "%"}, {"cell_network_registration", "cell", ""}, {"connected_to_starcom", "cell", ""},
     {"gps_is_valid", "cell", ""}, {"storage_mode", "cell", ""}, {"hb_soc", "cell", "%"},
     {"EVSE_Connector_State", "charge", ""}, {"Pilot_Current", "charge", "A"}, {"Chargers_Connected", "charge", ""},
