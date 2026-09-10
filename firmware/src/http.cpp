@@ -105,14 +105,14 @@ static const char SETUP_PAGE[] PROGMEM = R"HTML(<!doctype html><meta charset=utf
 <button id=a>Apply</button>
 <p id=m></p>
 </form>
-<p id=w>Network: looking</p>
+<div id=w>Network: looking</div>
 <script>
 const R={2:'wrong password',3:'wrong password',4:'the network refused the association',15:'wrong password',201:'network not found',202:'wrong password',204:'wrong password',205:'connection failed'};
 let busy=0,d0=0,dn=0,typing=0;
 async function w(){const e=document.getElementById('w');try{const s=await (await fetch('/api/status')).json();const n=s.wifi;const up=n.ip&&n.ip!='0.0.0.0';dn=n.disconnects;
  if(up||(busy&&n.disconnects>d0)){busy=0;document.getElementById('a').disabled=false}
  e.textContent='';
- if(up){e.textContent='Network: joined '+n.ssid+' as '+n.ip+'. The board is at ';const a=document.createElement('a');a.href='http://'+s.name+'.local/';a.target='_blank';a.textContent=s.name+'.local';e.appendChild(a);e.appendChild(document.createTextNode('; open it in Safari once this sheet closes, in about twenty seconds.'))}
+ if(up){const t=document.createElement('div');t.textContent='Joined '+n.ssid+' as '+n.ip+'.';e.appendChild(t);const b=document.createElement('button');b.textContent='Open '+s.name+'.local →';b.style.cssText='display:block;width:80%;margin:.8em auto;padding:.8em;font-size:1.15em';b.onclick=()=>{location.href='http://'+s.name+'.local/'};e.appendChild(b);const h=document.createElement('div');h.style.cssText='color:#888;font-size:.85em;text-align:center';h.textContent='Your phone offers to open it in the browser. If it does not load, wait for this sheet to close and the phone to rejoin '+n.ssid+', then tap again.';e.appendChild(h)}
  else e.textContent='Network: '+(busy?'joining':n.last_reason&&!typing?'not joined, last attempt: '+(R[n.last_reason]||'reason '+n.last_reason):'not joined yet');
  if(busy){e.appendChild(document.createTextNode(' '));const sp=document.createElement('span');sp.className='spin';e.appendChild(sp)}
  }catch(x){e.textContent='Network: no answer; rejoin '+location.hostname+' if the phone dropped it'}}
