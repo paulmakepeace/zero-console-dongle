@@ -38,7 +38,13 @@ Which board is which, and how a change is verified, are in
   a monotonic elapsed counter would cut that dependency, but only if `millis()`
   advances across light sleep on this core, which the current design does not
   assume (it uses wall time because the RTC advances it across sleep). Settle
-  that on the rig before touching it.
+  that on the rig before touching it. The one standing red bench check belongs
+  here: `bench.py`'s lightsleep "step within margin" reads the step at the
+  post-sleep NTP sync, which is `None` when that sync is a boot's first fix and
+  otherwise conflates the RC sleep error with any prior clock offset, so it is
+  unreliable (seen as both `None` and -26 s across runs) while the behavioural
+  sleep checks pass. Rework it to measure the isolated RC error, or the actual
+  wake-before-the-MBB margin, as part of this.
 
 - **The longer cellular hold, likely moot.** Whether a 900-second hold makes
   the module attach where five minutes did not. But the bike's `ccm` output
