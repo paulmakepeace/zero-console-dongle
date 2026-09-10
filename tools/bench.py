@@ -46,6 +46,7 @@ import socket
 import sys
 import time
 import urllib.request
+import urllib.parse
 import threading
 
 import serial
@@ -299,6 +300,39 @@ def post(host, path, body=None):
 def get(host, path):
     with urllib.request.urlopen("http://%s%s" % (host, path), timeout=8) as r:
         return r.status, r.read().decode()
+
+
+def delete_log(host, name):
+    req = urllib.request.Request("http://%s/logs/%s" % (host, urllib.parse.quote(name)), method="DELETE")
+    req.add_header("X-Dongle", "1")
+    with urllib.request.urlopen(req, timeout=8) as r:
+        return r.status
+
+
+def clear_old_sessions(host, keep):
+    # A long bench day accretes session files the way the bike would over days,
+    # which is realistic but slows every reclaim walk and every listing. Trim to
+    # the newest `keep` before a run so the directory does not grow without
+    # bound; the dongle's own reclaim is what the storage scenario exercises, not
+    # this. Names sort by creation, so the smallest names are the oldest.
+    try:
+        code, listing = get(host, "/logs")
+        files = json.loads(listing) if code == 200 else []
+    except Exception as exc:
+        print("bench: could not list files to trim (%s); leaving them" % exc)
+        return
+    sessions = sorted(f["name"] for f in files if f.get("active") is False)   # only files explicitly not active; never the open one
+    excess = len(sessions) - keep
+    if excess <= 0:
+        return
+    deleted = 0
+    for name in sessions[:excess]:
+        try:
+            delete_log(host, name)
+            deleted += 1
+        except Exception as exc:
+            print("bench: could not delete %s (%s); skipping" % (name, exc))   # a busy or briefly-unreachable file is skipped, not a reason to abandon the trim
+    print("bench: trimmed %d old session file(s), keeping the newest %d" % (deleted, keep))
 
 
 def t_poll(host, ad):
@@ -595,6 +629,8 @@ def main():
     ap.add_argument("test", nargs="*", default=["all"], choices=ORDER + ["quick", "auto", "all"])
     ap.add_argument("--host", default=os.environ.get("DONGLE_HOST", "zero-dongle-ebdc.local"))
     ap.add_argument("--adapter", default=os.environ.get("DONGLE_ADAPTER"))
+    ap.add_argument("--max-files", type=int, default=-1,
+                    help="trim to the newest N session files before the run so a long bench day does not accrete; -1 (default) derives the cap from the dongle's reported fs_total, 0 leaves them")
     args = ap.parse_args()
     dev = args.adapter
     if not dev:
@@ -610,9 +646,10 @@ def main():
     # a run started right after another one finds nothing there. Wait for it
     # rather than reporting its absence as a failure.
     t0 = time.time()
+    st = None
     while time.time() - t0 < 90:
         try:
-            status(args.host)
+            st = status(args.host)
             break
         except Exception:
             if time.time() - t0 < 2:
@@ -628,6 +665,12 @@ def main():
         post(args.host, "/api/settings", b"sleep_days=3&sleep_grace=120&use_s=600")
     except Exception as exc:
         sys.exit("bench: could not put %s into a known state: %s" % (args.host, exc))
+    keep = args.max_files
+    if keep < 0:   # auto: derive from the dongle's own reported capacity, about one nominal 6 KB session per slot,
+        fs_total = (st or {}).get("store", {}).get("fs_total", 0)   # so the bench dir tops out near a real bike's file count and the reclaim walk stays bounded (~1.4 ms/file)
+        keep = fs_total // 6144 if fs_total else 0   # no capacity reported: leave the files rather than guess a cap
+    if keep > 0:
+        clear_old_sessions(args.host, keep)
     ad = adapter_open(dev)
     ad.reset_input_buffer()   # anything a dead run left queued is not this run's
     tests = {"roundtrip": t_roundtrip, "break": t_break, "poll": t_poll, "storage": t_storage, "sleep": t_sleep, "lightsleep": t_lightsleep}
