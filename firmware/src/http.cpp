@@ -39,7 +39,7 @@ void httpTick() { if (up) http.handleClient(); }
 static const char PAGE[] PROGMEM = R"HTML(<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1,maximum-scale=1"><meta name=color-scheme content="light dark">
 <title>zero-dongle</title>
 <style>:root{color-scheme:light dark}html,body{margin:0;max-width:100%;overflow-x:hidden}body{font:14px system-ui,sans-serif;padding:1em;box-sizing:border-box;width:100%;background:Canvas;color:CanvasText}pre{background:rgba(127,127,127,.15);padding:.5em;overflow-x:auto;font-size:12px}table{border-collapse:collapse;width:100%;table-layout:fixed}td{padding:.1em .8em .1em 0;overflow-wrap:anywhere;word-break:break-all}td:first-child{width:9em;word-break:normal}body,p,div{overflow-wrap:anywhere;word-break:break-word}a{margin-right:1em}</style>
-<h2 id=t>zero-dongle</h2><p><a href=/cmd>Command outputs</a></p>
+<h2 id=t>Zongle</h2><p><a href=/cmd>Command outputs</a></p>
 <h3>Bike</h3><table id=b></table>
 <h3>Dongle</h3><table id=s></table>
 <h3>Files</h3><div id=fs></div><div id=f></div>
@@ -61,7 +61,7 @@ async function bike(){
 }
 let tick=0;
 async function refresh(){
- const s=await j('/api/status'); document.getElementById('t').textContent=s.name;
+ const s=await j('/api/status'); document.getElementById('t').textContent=s.brand;
  try{await bike()}catch(e){}
  const t=document.getElementById('s'); t.textContent=''; for(const [k,v] of Object.entries(s)) row(t,k,v);
  const st=s.store; document.getElementById('fs').textContent=st.files+' file(s), '+(st.bytes/1024).toFixed(0)+' KB on flash of '+(st.fs_total/1024).toFixed(0)+' KB, compressing '+st.ratio+'x since boot'+(st.days_left>=0?', about '+st.days_left+' day(s) of space left at this rate':'');
@@ -87,7 +87,7 @@ refresh();setInterval(refresh,5000);
 static const char SETUP_PAGE[] PROGMEM = R"HTML(<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1,maximum-scale=1"><meta name=color-scheme content="light dark">
 <title>zero-dongle setup</title>
 <style>:root{color-scheme:light dark}html,body{margin:0;max-width:100%;overflow-x:hidden}body{font:16px system-ui,sans-serif;padding:1em;box-sizing:border-box;width:100%;background:Canvas;color:CanvasText}label{display:block;margin:.6em 0}input{width:100%;max-width:100%;padding:.3em;box-sizing:border-box;font-size:16px}button{margin-top:1em;padding:.4em 1em}body,p,label,summary,h2,a,span{overflow-wrap:anywhere;word-break:break-word}.spin{display:inline-block;width:.9em;height:.9em;border:2px solid #ccc;border-top-color:#333;border-radius:50%;vertical-align:middle;animation:s 1s linear infinite}@keyframes s{to{transform:rotate(360deg)}}</style>
-<h2 id=t>zero-dongle setup</h2>
+<h2 id=t>Zongle setup</h2>
 <form id=f>
 <h3>Network</h3>
 <label>WiFi network <input name=ssid autocapitalize=off autofocus enterkeyhint=next></label>
@@ -109,13 +109,13 @@ let busy=0,d0=0,dn=0,typing=0;
 async function w(){const e=document.getElementById('w');try{const s=await (await fetch('/api/status')).json();const n=s.wifi;const up=n.ip&&n.ip!='0.0.0.0';dn=n.disconnects;
  if(up||(busy&&n.disconnects>d0)){busy=0;document.getElementById('a').disabled=false}
  e.textContent='';
- if(up){const t=document.createElement('div');t.textContent='Joined '+n.ssid+' as '+n.ip+'.';e.appendChild(t);const b=document.createElement('button');b.textContent='Open '+s.name+'.local →';b.style.cssText='display:block;width:80%;margin:.8em auto;padding:.8em;font-size:1.15em';b.onclick=()=>{location.href='http://'+s.name+'.local/'};e.appendChild(b);const h=document.createElement('div');h.style.cssText='color:#888;font-size:.85em;text-align:center';h.textContent='Your phone offers to open it in the browser. If it does not load, wait for this sheet to close and the phone to rejoin '+n.ssid+', then tap again.';e.appendChild(h)}
+ if(up){const t=document.createElement('div');t.textContent='Joined '+n.ssid+' as '+n.ip+'.';e.appendChild(t);const b=document.createElement('button');b.textContent='Open '+s.brand+' →';b.style.cssText='display:block;width:80%;margin:.8em auto;padding:.8em;font-size:1.15em';b.onclick=()=>{location.href='http://'+s.name+'.local/'};e.appendChild(b);const h=document.createElement('div');h.style.cssText='color:#888;font-size:.85em;text-align:center';h.textContent='Your phone offers to open it in the browser. If it does not load, wait for this sheet to close and the phone to rejoin '+n.ssid+', then tap again.';e.appendChild(h)}
  else e.textContent='Network: '+(busy?'joining':n.last_reason&&!typing?'not joined, last attempt: '+(R[n.last_reason]||'reason '+n.last_reason):'not joined yet');
  if(busy){e.appendChild(document.createTextNode(' '));const sp=document.createElement('span');sp.className='spin';e.appendChild(sp)}
  }catch(x){e.textContent='Network: no answer; rejoin '+location.hostname+' if the phone dropped it'}}
 w();setInterval(w,3000);
 fetch('/api/settings').then(r=>r.json()).then(s=>{for(const k of ['tz','ntp','sleep','sleep_days','poll']) document.querySelector('[name='+k+']').value=s[k]}).catch(()=>{});
-fetch('/api/status').then(r=>r.json()).then(s=>{document.getElementById('t').textContent=s.name+' setup'}).catch(()=>{});
+fetch('/api/status').then(r=>r.json()).then(s=>{document.getElementById('t').textContent=s.brand+' setup'}).catch(()=>{});
 const F=document.getElementById('f');
 F.elements.ssid.addEventListener('keydown',e=>{if(e.key=='Enter'){e.preventDefault();F.elements.pass.focus()}});
 for(const k of ['ssid','pass']) F.elements[k].addEventListener('focus',()=>{typing=1;w()});
@@ -172,7 +172,7 @@ static String statusJson() {   // a health check is not use: a watcher must not 
     storeStats(total, used);
     String s;
     s.reserve(900);
-    s += "{\"name\":\"" + String(sysNodeName()) + "\",\"mac\":\"" + wifiMac() + "\",\"fw\":\"" FW_VERSION "\"";
+    s += "{\"name\":\"" + String(sysNodeName()) + "\",\"brand\":\"" DONGLE_BRAND "\",\"mac\":\"" + wifiMac() + "\",\"fw\":\"" FW_VERSION "\"";
     s += ",\"uptime_s\":" + String(millis() / 1000);
     s += ",\"boot\":" + String(storeBootCount());
     s += ",\"reset_reason\":\"" + String(sysResetReason()) + "\"";

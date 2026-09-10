@@ -8,6 +8,15 @@ Which board is which, and how a change is verified, are in
 
 ## To do
 
+- **Test the setup SSID naming on a second unit.** The setup network is now
+  named `Zongle`, or the lowest free `Zongle N` when another `Zongle*` is in
+  range (`wlan.cpp` `zongleSsid`), and the pages show the brand while the host
+  keeps its MAC. Untested with two units and a phone: iOS remembers a captive
+  SSID it has joined and may mark it succeeded, so a second unit needs checking,
+  whether the captive sheet still appears, whether iOS treats `Zongle 2` as new,
+  and whether re-provisioning the first unit is confused by the remembered join.
+  Also confirm the ~2 s scan at setup does not bother the boot path.
+
 - **The network wedge (the "went dark" bug).** Under some marginal pin-8
   condition the board floods `mbb: awake` on the console at ~120 KB/s and the
   loop task starves until HTTP and the network go dark; it does not self-recover

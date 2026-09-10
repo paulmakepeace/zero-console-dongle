@@ -94,6 +94,25 @@ static void staQuiet(bool quiet) {
     if (quiet) esp_wifi_disconnect();
 }
 
+// The setup network's name: friendly DONGLE_BRAND ("Zongle") when no other is
+// in range, else the lowest free "Zongle N", so a lone dongle stays clean and
+// two are told apart in the phone's WiFi list. A one-time scan at setup; the
+// host (mDNS, sysNodeName) keeps its MAC and does not move, so bookmarks hold.
+static String zongleSsid() {
+    static const char prefix[] = DONGLE_BRAND " ";   // "Zongle "
+    int n = WiFi.scanNetworks();
+    bool taken[16] = {false};   // ordinal 1 is the bare brand, k is "Zongle k"
+    for (int i = 0; i < n; i++) {
+        String s = WiFi.SSID(i);
+        if (s == DONGLE_BRAND) taken[1] = true;
+        else if (s.startsWith(prefix)) { int k = s.substring(sizeof prefix - 1).toInt(); if (k >= 2 && k < 16) taken[k] = true; }
+    }
+    WiFi.scanDelete();
+    for (int k = 1; k < 16; k++)
+        if (!taken[k]) return k == 1 ? String(DONGLE_BRAND) : String(DONGLE_BRAND) + " " + String(k);
+    return String(sysNodeName());   // absurdly many Zongles in range: fall back to the unique MAC name
+}
+
 static void startSetup(const char* why) {
     if (setupUp) return;
     setupUp = true;
@@ -101,13 +120,16 @@ static void startSetup(const char* why) {
     staQuiet(true);
     setupRaisedMs = millis() ? millis() : 1;
     WiFi.mode(WIFI_AP_STA);
+    sysFeedWatchdog();
+    String ssid = zongleSsid();   // scan for other Zongles first, about two seconds
+    sysFeedWatchdog();
     IPAddress ap(192, 168, 4, 1);
     WiFi.softAPConfig(ap, ap, IPAddress(255, 255, 255, 0), IPAddress(192, 168, 4, 2), ap);   // the board is the DNS it hands out, so a phone's probe lands here
-    WiFi.softAP(sysNodeName());   // open: it is up for minutes, on a bike, and goes down at the join
+    WiFi.softAP(ssid.c_str());   // open: it is up for minutes, on a bike, and goes down at the join
     setupDns.setTTL(0);
     setupDns.start(53, "*", ap);
     httpStart();   // the setup page; the console waits for the home network
-    Serial.printf("wifi: setup network %s up at %s (%s)\n", sysNodeName(), WiFi.softAPIP().toString().c_str(), why);
+    Serial.printf("wifi: setup network %s up at %s (%s)\n", ssid.c_str(), WiFi.softAPIP().toString().c_str(), why);
 }
 
 static void stopSetup() {

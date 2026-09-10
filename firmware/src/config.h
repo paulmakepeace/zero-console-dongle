@@ -1,7 +1,8 @@
 #pragma once
 
 #define FW_VERSION      "0.11.8"
-#define DONGLE_NAME     "zero-dongle"      // base of the hostname, mDNS name and setup AP name; the last four hex digits of the MAC are appended
+#define DONGLE_NAME     "zero-dongle"      // base of the hostname and mDNS name; the last four hex digits of the MAC are appended, and this stays MAC-stable so bookmarks hold
+#define DONGLE_BRAND    "Zongle"           // the friendly display name: shown on the pages and used for the setup network SSID; the MAC host name is in the browser's address bar, so the pages do not repeat it
 // The setup network's password defaults to "zero-" plus the last six hex digits
 // of the MAC, printed at boot, and can be replaced from the setup page.
 
