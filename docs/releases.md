@@ -4,6 +4,19 @@ Reverse chronological. Each heading is the firmware tag; the date beneath it is
 the tagged commit's date. This tracks feature work and significant bug fixes;
 minor goofs and one-off tidy-ups are left to the tag bodies.
 
+## 0.11.12
+September 10, 2026
+
+- The log reclaim runs in a single directory walk and without a full-filesystem
+  traversal after every delete. A bench measurement found the old path took up
+  to seven directory walks per pass plus a `usedBytes()` traversal per delete
+  (a deep reclaim measured 4.3 s at 150 files, under the store lock the capture
+  stage takes). `dictCollect` folds three walks into one, and `ensureSpace` sums
+  deleted file sizes (a lower bound on space freed, since blocks round up) and
+  confirms with a single `usedBytes()` rather than one per delete. The same deep
+  reclaim now measures 1.4 s; deletion behaviour and the safety bails are
+  unchanged.
+
 ## 0.11.11
 September 10, 2026
 

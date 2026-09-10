@@ -115,24 +115,53 @@ void storeForEachFile(void (*fn)(void*, const char*, size_t, bool), void* ctx) {
     forEachFile([&](const char* n, size_t size) { if (!houseFile(n)) fn(ctx, n, size, activeName == n); }, true);
 }
 
-static size_t freeBytes() { return totalBytes() - LittleFS.usedBytes(); }
+static size_t freeBytes() { return totalBytes() - LittleFS.usedBytes(); }   // usedBytes is a full-filesystem block traversal: ask it rarely
 
-static void dictCollect();
+static size_t fileSizeOf(const char* name) {   // one directory lookup, far cheaper than a freeBytes traversal
+    const char* mp = LittleFS.mountpoint();
+    if (!mp) return 0;
+    char path[160];
+    snprintf(path, sizeof path, "%s%s/%s", mp, LOG_DIR, name);
+    struct stat st;
+    return stat(path, &st) == 0 ? (size_t)st.st_size : 0;
+}
 
-// Delete oldest first until the reserve is back. One walk collects the eight
-// oldest deletable names, then they go in order until the filesystem says
-// the reserve is back; a name that will not delete is skipped from then on,
-// and three refusals in a row end the attempt. The walk is name-only now (the
-// dictionary id is in the file name), measured ~1 ms/file, so a large
-// directory no longer stalls the capture stage the way it did with a header
-// open per file.
+// The flash the delete actually gives back: a file's data rounded up to whole
+// erase blocks, and at least one block, whatever a byte count says. A lower
+// bound (metadata frees on top), so a tally of these never overstates the space
+// returned, but tight enough that the reclaim stops at the minimum files rather
+// than over-deleting the oldest to make a raw-byte sum catch up. The block is
+// the ESP32 flash sector; a larger real block only makes the bound safer.
+static const size_t FS_BLOCK = 4096;
+static size_t blockBytes(size_t sz) { return sz ? ((sz + FS_BLOCK - 1) & ~(FS_BLOCK - 1)) : FS_BLOCK; }
+
+static size_t dictCollect();   // returns the bytes the collected dictionaries freed
+
+// Delete oldest first until the reserve is back, without a full-filesystem
+// traversal after every delete. Stale dictionaries go first (dictCollect, whose
+// walk is name-only). Then a name-only walk picks the eight oldest deletable
+// sessions and they go in order; deleting a file frees at least its own size,
+// since the flash rounds up to whole blocks, so summing the raw sizes is a lower
+// bound on the space returned, and only once that bound covers the shortfall is
+// a single freeBytes() spent to confirm it, rather than one per delete (each is
+// a full-filesystem block traversal, which was the bulk of a deep reclaim's
+// time). A name that will not delete is skipped from then on, three refusals in
+// a row end the attempt, and a second round is the rare case where eight was
+// not enough.
 static bool ensureSpace() {
-    if (freeBytes() >= FS_MIN_FREE) return false;
-    dictCollect();   // dictionaries nothing names cost nothing to drop, and go first
-    if (freeBytes() >= FS_MIN_FREE) return true;
+    size_t free = freeBytes();
+    if (free >= FS_MIN_FREE) return false;
+    size_t need = FS_MIN_FREE - free;   // bytes still to free
+    size_t freed = dictCollect();       // stale dictionaries cost nothing to keep off, and go first; their bytes join the tally
     char floor[65] = "";   // names at or below this were tried and refused
     int refusals = 0;
     for (int round = 0; round < 4; round++) {
+        if (freed >= need) {   // the deletes so far are a lower bound that covers the shortfall: confirm once, since block rounding could leave a little
+            free = freeBytes();
+            if (free >= FS_MIN_FREE) return true;
+            need = FS_MIN_FREE - free;
+            freed = 0;
+        }
         sysFeedWatchdog();
         KeepSmallest<8, 65> oldest;   // names sort by creation, so the smallest are the oldest
         forEachFile([&](const char* name, size_t) {
@@ -142,19 +171,21 @@ static bool ensureSpace() {
         }, false);
         size_t n = oldest.n;
         if (n == 0) break;
-        for (size_t i = 0; i < n; i++) {
+        for (size_t i = 0; i < n && freed < need; i++) {
             sysFeedWatchdog();
             strlcpy(floor, oldest.item[i], sizeof floor);
+            size_t sz = fileSizeOf(oldest.item[i]);
             if (!LittleFS.remove(pathOf(oldest.item[i]))) {
                 Serial.printf("store: cannot delete %s\n", oldest.item[i]);
                 if (++refusals >= 3) { Serial.println("store: giving up on the reclaim for now"); return false; }
                 continue;
             }
             refusals = 0;
+            freed += blockBytes(sz);
             Serial.printf("store: deleted %s for space\n", oldest.item[i]);
-            if (freeBytes() >= FS_MIN_FREE) return true;   // the filesystem counts in blocks; ask it, do not guess
         }
     }
+    if (freeBytes() >= FS_MIN_FREE) return true;
     Serial.println("store: the reserve is not back; every file is active, being read, or will not delete");
     return false;
 }
@@ -204,39 +235,39 @@ bool storeBegin(const char* resetReason) {
     return true;
 }
 
-// The dictionary files a session file still needs are found by the id in
-// its name; the rest go, except the one in use. Directory walks over names
-// only, with fixed arrays; with more ids in play than fit, nothing goes.
-static void dictCollect() {
-    // Nothing to do unless a dictionary other than the one in use exists.
-    bool candidate = false;
-    forEachFile([&](const char* n, size_t) {
-        if (strncmp(n, "dict-", 5) != 0) return;
-        uint32_t id = strtoul(n + 5, nullptr, 16);
-        if (!(dictId && id == dictId)) candidate = true;
-    }, false);
-    if (!candidate) return;
+// The dictionary files a session file still needs are found by the id in its
+// name; the rest go, except the one in use. One name-only walk gathers both the
+// ids the sessions still name and the dictionary files themselves, then the
+// unnamed ones are deleted. With more distinct ids in use than the array holds,
+// nothing goes: a needed dictionary could be in the overflow.
+static size_t dictCollect() {
     uint32_t inUse[32];
     int nInUse = 0;
-    bool tooMany = false;   // more distinct dictionaries in use than fit: then nothing goes
+    bool overflow = false;
+    struct { char name[24]; uint32_t id; } dicts[32];   // as many as inUse can hold; beyond that a needed one might be missed, and inUse overflows first anyway
+    int nDicts = 0;
     forEachFile([&](const char* n, size_t) {
+        if (strncmp(n, "dict-", 5) == 0) {
+            if (nDicts < 32) { strlcpy(dicts[nDicts].name, n, sizeof dicts[nDicts].name); dicts[nDicts].id = strtoul(n + 5, nullptr, 16); nDicts++; }
+            return;
+        }
         uint32_t id = logDictId(n, strlen(n));   // the dictionary named in the file's own name, no open needed
         if (id == 0) return;   // not a session file, or one that names no dictionary
         for (int i = 0; i < nInUse; i++) if (inUse[i] == id) return;
-        if (nInUse < 32) inUse[nInUse++] = id; else tooMany = true;
+        if (nInUse < 32) inUse[nInUse++] = id; else overflow = true;
     }, false);
-    if (tooMany) { Serial.println("store: dictionaries not collected: more than 32 in use"); return; }
-    char victims[8][24];
-    int nVictims = 0;
-    forEachFile([&](const char* n, size_t) {
-        if (strncmp(n, "dict-", 5) != 0 || nVictims >= 8) return;
-        uint32_t id = strtoul(n + 5, nullptr, 16);
-        if ((dictId && id == dictId) || isOpenForRead(n)) return;
-        for (int i = 0; i < nInUse; i++) if (inUse[i] == id) return;
-        strlcpy(victims[nVictims++], n, 24);
-    }, false);
-    for (int i = 0; i < nVictims; i++)
-        if (LittleFS.remove(pathOf(victims[i]))) Serial.printf("store: dictionary %s no longer needed\n", victims[i]);
+    if (overflow) { Serial.println("store: dictionaries not collected: more than 32 in use"); return 0; }
+    size_t freed = 0;
+    for (int i = 0; i < nDicts; i++) {
+        if (dictId && dicts[i].id == dictId) continue;
+        if (isOpenForRead(dicts[i].name)) continue;
+        bool used = false;
+        for (int j = 0; j < nInUse; j++) if (inUse[j] == dicts[i].id) { used = true; break; }
+        if (used) continue;
+        size_t sz = fileSizeOf(dicts[i].name);
+        if (LittleFS.remove(pathOf(dicts[i].name))) { freed += blockBytes(sz); Serial.printf("store: dictionary %s no longer needed\n", dicts[i].name); }
+    }
+    return freed;
 }
 
 // At a session's end with the MBB asleep: if the session taught enough,

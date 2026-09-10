@@ -45,37 +45,28 @@ Which board is which, and how a change is verified, are in
   and bound the flash side (`storeSessionClose()` runs per asleep edge) if the
   storm turns out to toggle rather than desync.
 
-- **Reclaim: the per-file open is gone, but the walk count is not, and it can
-  still stall ~1 s near capacity.** The name-parse walk replaced the header
-  open per file (the old ~33 ms/file, 1158 ms over 35 files), which was the big
-  win. But a real measurement at a hundred files on the bench (2026-09-10, a
-  temporary `/api/debug/reclaimbench` since reverted) contradicts the earlier
-  single-point extrapolation of "~120 ms at 100 files":
+- **Reclaim: optimised in 0.11.12, measured end to end.** A real measurement at
+  a hundred-plus files on the bench (2026-09-10, temporary debug endpoints since
+  reverted) first showed the earlier "~120 ms at 100 files" extrapolation was
+  optimistic: one directory walk is ~1.4 ms/file (138 ms at 100, 188 ms at 130,
+  slightly super-linear as `readdir` scans a fuller directory), and the old
+  reclaim walked the directory up to seven times per pass (`dictCollect`'s
+  up-to-three, plus one per delete round) with a full-filesystem `usedBytes()`
+  traversal after every delete. A deep reclaim (free 18 files at 150) measured
+  4.3 s. Two changes fixed it: `dictCollect` folded to one walk, and the delete
+  loop sums raw file sizes (a lower bound on space freed, since blocks round up)
+  so `usedBytes()` is spent about twice per reclaim instead of once per delete.
+  The same deep reclaim now measures 1.4 s, and the common case (a file or two
+  at ~100 files) is about two walks and two `usedBytes()`, a few hundred ms. If
+  the per-round walk ever becomes the bottleneck, the next lever is an in-RAM
+  catalog (`{name, dictId, size}`) rebuilt by one walk at boot and kept
+  incrementally, which removes the walk and the size stats without a persisted
+  catalog's crash-sync burden.
 
-  | files | one directory walk | worst-case reclaim (~7 walks) |
-  |------:|--------------------:|------------------------------:|
-  |    57 |               51 ms |                        353 ms |
-  |   100 |              138 ms |                      ~970 ms |
-  |   130 |              188 ms |                       ~1.3 s |
-
-  One walk is ~1.4 ms/file (slightly super-linear as `readdir` scans a fuller
-  directory), but `ensureSpace` walks the directory up to seven times per
-  reclaim (`dictCollect`'s up-to-three walks, plus one per delete round, up to
-  four), all under the store lock the capture stage takes. Worst case crosses a
-  second around 130 files, and the bike reaches ~100 in about four days without
-  a pull. So the reclaim is faster than before but not sub-second worst-case at
-  the file counts this will actually see. The fix at the right depth is to cut
-  the walk count (one pass that both collects dictionaries and finds the oldest,
-  rather than three-plus-one-per-round), or to cap the directory so the walk is
-  never long; the removed file-count cap was a blunt version of the latter. The
-  code comment at `store.cpp` "measured ~1 ms/file, so a large directory no
-  longer stalls the capture stage" now overstates the result and should be
-  corrected with these numbers.
-
-  Also still open: have `bench.py` clear old sessions above a file threshold so
-  a long bench day does not accrete a huge directory, and, when this first
-  reaches the bike, drain it with `tools/pull-logs.py` before flashing since
-  old-format names carry no dictionary id.
+  Still open: have `bench.py` clear old sessions above a file threshold so a
+  long bench day does not accrete a huge directory, and, when this first reaches
+  the bike, drain it with `tools/pull-logs.py` before flashing since old-format
+  names carry no dictionary id.
 
 - **The clock decoupling: deferred, pending an actual problem.** The sleep
   planner reads wall time (`time(nullptr)`), so it depends on the MBB/NTP sync
