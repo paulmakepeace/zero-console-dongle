@@ -58,3 +58,14 @@ agent minutes earlier, and described in the same sentence as "free". A research
 query on why written corrections of this class do not stick is open; until it
 returns, this is a forcing function rather than a principle: the sentence with
 the number in it has to be written before the choice is made.
+
+## Keep it short, and apply a correction everywhere at once
+
+A code comment defaults to one line; a release-note bullet to two or three.
+Mechanism goes in the commit or tag body, not inline. And a correction is a
+standing rule, not a one-off edit: apply it to everything already written and
+about to be shown, in one pass.
+
+**Why:** in one session the same over-long comment was written three times
+after a clear correction that carried an example. Redundancy is a cost to
+every reader, human and machine.
