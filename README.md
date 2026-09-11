@@ -36,8 +36,6 @@ characterised and the CAN and buck parts are on order. See
 - [docs/compression.md](docs/compression.md): how the session files are
   compressed, the learned dictionary, before-and-after figures, flash wear.
 - [docs/sources.md](docs/sources.md): references.
-- [docs/handoff.md](docs/handoff.md): the state of the two boards, the threads
-  left half finished, and how a change is verified here.
 - [docs/dev-process.md](docs/dev-process.md): the change cycle from edit to
   bike, which board is which, and how to read a bench failure without
   thrashing.
@@ -66,8 +64,8 @@ characterised and the CAN and buck parts are on order. See
    There is no count cap in the firmware any more: the reclaim reads each
    file's dictionary id from its name rather than opening it, runs in one
    directory walk, and measures 1.4 s for a deep reclaim at 150 files and a
-   few hundred milliseconds for the common one (the figures are in
-   [docs/handoff.md](docs/handoff.md)), all of it under the store's lock. The
+   few hundred milliseconds for the common one, all of it under the store's
+   lock. The
    bike reaches a hundred files in about four days without a pull.
 2. Keep the dongle on the bike collecting wakes, and ride and pull the files
    with [`tools/pull-logs.py`](tools/pull-logs.py). Two captures are still

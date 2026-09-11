@@ -2,8 +2,7 @@
 
 The loop for changing this firmware, and how to tell a real failure from bench
 noise before reacting to it. The verification rules behind the steps are in
-[../CLAUDE.md](../CLAUDE.md); the board and thread state is in
-[handoff.md](handoff.md).
+[../CLAUDE.md](../CLAUDE.md).
 
 ## The cycle
 
