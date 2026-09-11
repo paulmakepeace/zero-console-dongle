@@ -144,6 +144,41 @@ Tools:
 | `live_status`, `live_readings`, `live_command` | the dongle now |
 | `ingest` | load new pulled files |
 
+### Questions it answers today
+
+Tried against the archive as it stands (66 sessions, 6 to 11 September, the
+poller's readings from the 10th on), each run through the server over the
+protocol and checked against the raw files, and each mapped to an owner ask in
+[owner-asks.md](owner-asks.md) or an open question:
+
+1. **Is the 12 V battery healthy?** `series("12V_Battery", step_s=3600)`,
+   with `DC-DC` and `Total_Current` beside it. 134 samples so far, resting
+   between 12.87 and 13.22 V, and the wake-time sag against the DC-DC rail is
+   the health figure the OEM app hides.
+2. **Did the hourly wakes do anything last night?** `sessions(since="-24h")`
+   reads the states: `STRT>PWSU, PWSU>HIB` with `Timed out in PW Startup` is a
+   wake that found no cell module; a top-up shows as a charge state. Nine of
+   nine wakes on the 10th timed out, and `series("connected_to_starcom")` is
+   zero in all 132 samples, which is the open cellular question, answered
+   nightly.
+3. **How balanced is the pack?** `series("lowest_cell_voltage_mv")` against
+   `series("pack_voltage_mv")`; the pack is 28 cells in series, so the gap
+   between the pack average and the lowest cell is the imbalance. It reads
+   4 mV at 54 % on the 10th. A derived tool once the arithmetic is settled.
+4. **What did the last charge look like?** `sessions()` finds `STOP>CHRG`;
+   `series("State_of_Charge")`, `pack_current_ma` and `max_pack_temp_c`
+   inside that window are the charge curve. The two charges in the archive
+   predate the poller, so today this names them and shows their events; the
+   next charge fills in the curve.
+5. **Has the bike set any faults?** `events(pattern="Fault set")` and
+   `events(pattern="Fault cleared")` for the MBB's own record, `snapshot("faults")`
+   for what is active now, `series("Active_DTCs")` for the stored count. The
+   archive shows the controller-warning faults of the 7th setting and clearing
+   within seconds, one stored DTC, MIL off.
+
+State of health, the most-asked figure, is `series("pack_capacity_ah")`: flat
+at 84 Ah so far, a question for months of data rather than days.
+
 `.mcp.json` at the repo root registers it for Claude Code; `tools/mcp/run.sh`
 creates the server's Python 3.10+ venv on first run and installs the `mcp`
 SDK, so the checkout needs nothing else. The server never sends the dongle

@@ -31,8 +31,8 @@ DEFAULT_LOGS = os.path.join(ROOT, "logs", "dongle")
 DEFAULT_TZ = "America/Los_Angeles"   # the firmware's TZ_DEFAULT, PST8PDT
 
 ISO = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}$")
-BOOT = re.compile(r"^u\d{6}\.\d{3}$")
-MBB = re.compile(r"^(?:DEBUG:)?\s*(\d\d)/(\d\d)/(\d{4}) (\d\d):(\d\d):(\d\d)\.(\d{3}) - ?(.*)$")
+# The MBB's own stamp: "MM/DD/YYYY hh:mm:ss.mmm - text", or the DEBUG form with a source path and line before the text.
+MBB = re.compile(r"^(?:DEBUG:)?\s*(\d\d)/(\d\d)/(\d{4}) (\d\d):(\d\d):(\d\d)\.(\d{3})\s")
 PROMPT = "ZERO MBB>"
 COMMANDS = ("status", "charging", "bms", "pdu", "in", "faults", "bms interface", "controller",
             "msc", "dash info", "ccm", "obd", "performance", "state", "stats", "config")
@@ -119,9 +119,9 @@ def load_units():
 
 
 def split_stamp(raw):
-    """(stamp, text) for a log line; stamp None when the line has no recognisable one."""
+    """(stamp, text) for a log line; stamp None when the line does not start with an ISO one."""
     stamp, _, text = raw.partition(" ")
-    if ISO.match(stamp) or BOOT.match(stamp):
+    if ISO.match(stamp):
         return stamp, text
     return None, raw
 
@@ -139,12 +139,12 @@ class Ingester:
             dt = dt.replace(tzinfo=self.zone)
         return dt.timestamp()
 
-    def ingest_file(self, path):
-        """Load one file. Returns 'loaded', 'reloaded' or 'unchanged'."""
+    def ingest_file(self, path, force=False):
+        """Load one file. Returns 'loaded', 'reloaded' or 'unchanged'; force reloads an unchanged file."""
         name = os.path.basename(path)
         size = os.path.getsize(path)
         old = self.db.execute("SELECT id, size FROM sessions WHERE file=?", (name,)).fetchone()
-        if old and old["size"] == size:
+        if old and old["size"] == size and not force:
             return "unchanged"
         if old:
             self.db.execute("DELETE FROM sessions WHERE id=?", (old["id"],))
@@ -162,7 +162,7 @@ class Ingester:
         clock = "boot"
         batch = None          # current batch id
         batch_seq = 0
-        cmd = None            # (name, start line id, stamp, [output lines])
+        cmd = None            # (name, stamp, [(line id, text, stamp)]) for the command being answered
         await_echo = False    # a prompt just closed a command; the next line is an echo or the batch is over
         n_events = 0
 
@@ -171,12 +171,12 @@ class Ingester:
             if cmd and batch:
                 name, stamp, out = cmd
                 cid = db.execute("INSERT INTO commands(session, batch, name, t, epoch, output) VALUES(?,?,?,?,?,?)",
-                                 (sid, batch, name, stamp, self.epoch(stamp), "\n".join(l for _, l in out) + "\n")).lastrowid
+                                 (sid, batch, name, stamp, self.epoch(stamp), "\n".join(l for _, l, _ in out) + "\n")).lastrowid
                 rows = []
-                for line_id, text in out:
+                for line_id, text, lt in out:
                     r = parse_row(text)
                     if r:
-                        rows.append((sid, batch, name, line_id, stamp, self.epoch(stamp), r[0], r[1], int(r[2])))
+                        rows.append((sid, batch, name, line_id, lt, self.epoch(lt), r[0], r[1], int(r[2])))
                 if rows:
                     db.executemany("INSERT INTO readings(session, batch, command, line, t, epoch, name, value, valid) VALUES(?,?,?,?,?,?,?,?,?)", rows)
                 db.execute("UPDATE batches SET commands=commands+1 WHERE id=?", (batch,))
@@ -197,12 +197,10 @@ class Ingester:
 
         for seq, raw in enumerate(raw_lines, 1):
             stamp, text = split_stamp(raw)
-            if stamp and ISO.match(stamp):
+            if stamp:
                 clock = "wall"
                 started = started or stamp
                 ended = stamp
-            else:
-                stamp = None   # a boot-relative uSSSSSS.mmm stamp is not a time; it must not sort into ranges
             s = text.strip()
             kind = "mbb"
             mbb_t = None
@@ -257,7 +255,7 @@ class Ingester:
                 (sid, seq, stamp, self.epoch(stamp), kind, batch if kind in ("echo", "output", "prompt") else None,
                  in_batch_cmd or (cmd[0] if kind == "echo" and cmd else None), mbb_t, text)).lastrowid
             if kind == "output":
-                cmd[2].append((line_id, text))
+                cmd[2].append((line_id, text, stamp))
         end_batch()
 
         db.execute("""UPDATE sessions SET board=?, session_id=?, part=?, boot=?, boot_reason=?, fw=?, clock=?,
@@ -266,8 +264,8 @@ class Ingester:
                     meta.get("fw"), clock, started, ended, len(raw_lines), batch_seq, n_events, sid))
 
 
-def ingest(db, paths, tz=DEFAULT_TZ):
-    """Load every .log under the given files and directories. Returns counts by outcome."""
+def ingest(db, paths, tz=DEFAULT_TZ, force=False):
+    """Load every .log under the given files and directories. Returns counts by outcome. force reloads everything, for a parser change."""
     files = []
     for p in paths:
         if os.path.isdir(p):
@@ -280,7 +278,7 @@ def ingest(db, paths, tz=DEFAULT_TZ):
     counts = {"loaded": 0, "reloaded": 0, "unchanged": 0, "dropped": 0}
     for f in files:
         with db:
-            counts[ing.ingest_file(f)] += 1
+            counts[ing.ingest_file(f, force)] += 1
     if any(os.path.isdir(p) for p in paths):   # a directory is the whole truth: a session whose file is gone goes too
         present = {os.path.basename(f) for f in files}
         with db:
@@ -467,12 +465,13 @@ def main(argv=None):
     ap.add_argument("--until")
     ap.add_argument("--limit", type=int, default=50)
     ap.add_argument("--step", type=int, default=0, help="series: seconds per point")
+    ap.add_argument("--force", action="store_true", help="ingest: reload files already loaded, after a parser change")
     ap.add_argument("verb", choices=["ingest", "sessions", "names", "events", "series", "search", "snapshot"])
     ap.add_argument("args", nargs="*")
     a = ap.parse_args(argv)
     db = open_db(a.db)
     if a.verb == "ingest":
-        print(json.dumps(ingest(db, a.args or [DEFAULT_LOGS], a.tz)))
+        print(json.dumps(ingest(db, a.args or [DEFAULT_LOGS], a.tz, a.force)))
         return 0
     if a.verb == "sessions":
         out = sessions(db, a.since, a.until, a.limit)
