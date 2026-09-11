@@ -108,7 +108,7 @@ def live_command(name: str) -> str:
 
 @server.tool()
 def ingest(directory: str | None = None) -> dict:
-    """Load pulled .log files not yet in the archive (default: the puller's directory). Returns counts loaded, reloaded, unchanged."""
+    """Load pulled .log files not yet in the archive (default: the puller's directory), dropping sessions whose file is gone. Returns counts loaded, reloaded, unchanged, dropped."""
     return logdb.ingest(db(), [directory or LOGS], TZ)
 
 

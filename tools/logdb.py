@@ -277,11 +277,18 @@ def ingest(db, paths, tz=DEFAULT_TZ):
             files.append(p)
     files.sort(key=os.path.basename)
     ing = Ingester(db, tz)
-    counts = {"loaded": 0, "reloaded": 0, "unchanged": 0}
+    counts = {"loaded": 0, "reloaded": 0, "unchanged": 0, "dropped": 0}
     for f in files:
         with db:
             counts[ing.ingest_file(f)] += 1
-    if counts["loaded"] or counts["reloaded"]:
+    if any(os.path.isdir(p) for p in paths):   # a directory is the whole truth: a session whose file is gone goes too
+        present = {os.path.basename(f) for f in files}
+        with db:
+            for r in db.execute("SELECT id, file FROM sessions").fetchall():
+                if r["file"] not in present:
+                    db.execute("DELETE FROM sessions WHERE id=?", (r["id"],))
+                    counts["dropped"] += 1
+    if counts["loaded"] or counts["reloaded"] or counts["dropped"]:
         with db:
             db.execute("INSERT INTO lines_fts(lines_fts) VALUES('rebuild')")
     return counts

@@ -100,7 +100,8 @@ on the phase 2 list is the seam that keeps that move cheap if it ever comes.
 ## The archive schema
 
 `tools/logdb.py` reads the pulled `.log` files and writes `logs/dongle.db`.
-Ingest is idempotent per file, keyed on name and size. Tables:
+Ingest is idempotent per file, keyed on name and size, and a session whose
+file has been deleted from the directory is dropped. Tables:
 
 - `sessions`: one per file; board, session id and part, boot count and reason,
   firmware, first and last stamp, line and batch counts.
