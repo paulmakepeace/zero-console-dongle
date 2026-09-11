@@ -28,6 +28,13 @@ struct String {
     void concat(const char* p, size_t n) { s.append(p, n); }
     bool endsWith(const char* p) const { size_t n = strlen(p); return s.size() >= n && s.compare(s.size() - n, n, p) == 0; }
     bool startsWith(const char* p) const { return s.rfind(p, 0) == 0; }
+    String substring(unsigned from, unsigned to) const {
+        if (from > s.size()) from = s.size();
+        if (to > s.size()) to = s.size();
+        return String(from < to ? s.substr(from, to - from) : std::string());
+    }
+    String substring(unsigned from) const { return substring(from, s.size()); }
+    int indexOf(char c) const { size_t p = s.find(c); return p == std::string::npos ? -1 : (int)p; }
     String& operator+=(const char* p) { s += p; return *this; }
     String& operator+=(char c) { s += c; return *this; }
     String& operator+=(const String& o) { s += o.s; return *this; }
@@ -51,3 +58,21 @@ inline size_t strlcpy(char* d, const char* s, size_t n) {
     return l;
 }
 #endif
+
+// The USB console, swallowed: the tests assert on state, not on prints.
+struct SerialStub {
+    int printf(const char*, ...) { return 0; }
+    void println(const char*) {}
+    void println() {}
+    void print(const char*) {}
+    void flush() {}
+};
+inline SerialStub Serial;
+
+// FreeRTOS's recursive mutex on one thread: a handle that is never null, so
+// the store's Lock takes the same path it takes on the board.
+typedef void* SemaphoreHandle_t;
+#define portMAX_DELAY 0xffffffffUL
+inline SemaphoreHandle_t xSemaphoreCreateRecursiveMutex() { static int m; return &m; }
+inline int xSemaphoreTakeRecursive(SemaphoreHandle_t, unsigned long) { return 1; }
+inline int xSemaphoreGiveRecursive(SemaphoreHandle_t) { return 1; }

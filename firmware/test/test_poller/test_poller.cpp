@@ -58,7 +58,7 @@ static void resetModule() {
 void setUp() {
     testMillis = 1000; clockOk = true;
     sent.clear(); logged.clear(); txHeld = false; lastByteMs = 0;
-    LittleFS.files.clear(); LittleFS.full = false;
+    LittleFS.clear(); LittleFS.full = false;
     resetModule();
     // The schedule off by default: a test that wants a batch asks for one, so
     // nothing starts behind its back. The board's own schedule is the subject
@@ -252,13 +252,25 @@ void test_a_full_flash_keeps_the_previous_save() {
     startBatch();
     runWholeBatch("first");
     tick(false);
-    std::string good = LittleFS.files[std::string("/") + POLL_SAVE_NAME];
+    std::string good = LittleFS.readAll(String("/") + POLL_SAVE_NAME);
     TEST_ASSERT_TRUE(good.size() > 0);
     LittleFS.full = true;
     startBatch();
     runWholeBatch("second");
     tick(false);
-    TEST_ASSERT_EQUAL_STRING(good.c_str(), LittleFS.files[std::string("/") + POLL_SAVE_NAME].c_str());
+    TEST_ASSERT_EQUAL_STRING(good.c_str(), LittleFS.readAll(String("/") + POLL_SAVE_NAME).c_str());
+}
+
+void test_a_save_the_flash_refused_is_tried_again_at_the_next_edge() {
+    startBatch();
+    runWholeBatch("first");
+    LittleFS.full = true;
+    tick(false);   // the asleep edge: the save fails, nothing is on the flash
+    TEST_ASSERT_FALSE(LittleFS.exists(String("/") + POLL_SAVE_NAME));
+    LittleFS.full = false;
+    tick(true);    // the next session, with no batch of its own
+    tick(false);   // its asleep edge saves what the last one could not
+    TEST_ASSERT_TRUE(LittleFS.readAll(String("/") + POLL_SAVE_NAME).find("first") != std::string::npos);
 }
 
 void test_an_unsolicited_line_inside_an_answer_is_not_kept_as_output() {
@@ -287,6 +299,7 @@ int main() {
     RUN_TEST(test_a_request_repeated_while_a_batch_runs_does_not_queue_another);
     RUN_TEST(test_the_saved_batch_round_trips_including_names_with_a_space);
     RUN_TEST(test_a_full_flash_keeps_the_previous_save);
+    RUN_TEST(test_a_save_the_flash_refused_is_tried_again_at_the_next_edge);
     RUN_TEST(test_an_unsolicited_line_inside_an_answer_is_not_kept_as_output);
     return UNITY_END();
 }
