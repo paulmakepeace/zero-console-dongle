@@ -11,6 +11,8 @@ logs/*
 *.txt
 *.csv
 *.tsv
+# The partition table is source, not a capture; a fresh clone cannot build without it.
+!firmware/partitions.csv
 
 # PlatformIO build output
 firmware/.pio/
