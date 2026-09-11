@@ -14,28 +14,18 @@ September 10, 2026
 ## 0.11.12
 September 10, 2026
 
-- The log reclaim runs in a single directory walk and without a full-filesystem
-  traversal after every delete. A bench measurement found the old path took up
-  to seven directory walks per pass plus a `usedBytes()` traversal per delete
-  (a deep reclaim measured 4.3 s at 150 files, under the store lock the capture
-  stage takes). `dictCollect` folds three walks into one, and `ensureSpace` sums
-  deleted file sizes (a lower bound on space freed, since blocks round up) and
-  confirms with a single `usedBytes()` rather than one per delete. The same deep
-  reclaim now measures 1.4 s; deletion behaviour and the safety bails are
-  unchanged.
+- The log reclaim runs in a single directory walk, without a full-filesystem
+  traversal per delete. A deep reclaim at 150 files drops from 4.3 s to 1.4 s;
+  deletion behaviour and the safety bails are unchanged.
 
 ## 0.11.11
 September 10, 2026
 
-- Network-wedge groundwork so the next flood is diagnosable without a console.
-  `/api/status` now reports `uart.awake_edges` (awake edges the capture task
-  posts) beside the loop's `awake_count`: in a flood the two discriminate the
-  mechanism, tracking together when the awake edge is really toggling, or the
-  delivery count racing past the posts when the event stream has desynced.
-- The `onState` console print is coalesced to at most one line a second (a
-  suppressed-count summary), which bounds the loop starvation on the 115200
-  console drain and keeps HTTP reachable so those counters can be read live
-  during the storm.
+- Network-wedge groundwork: `/api/status` reports `uart.awake_edges` beside the
+  loop's `awake_count`, so a flood's mechanism (real toggling versus an
+  event-stream desync) is readable without a console.
+- The `onState` console print is coalesced to at most one line a second, keeping
+  the loop and HTTP responsive during a flood so those counters can be read live.
 
 ## 0.11.10
 September 10, 2026
