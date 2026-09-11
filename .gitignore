@@ -27,3 +27,8 @@ firmware/dependencies.lock
 # The bench's fake MBB answers are the bike's own outputs, scrubbed and gated;
 # the bench needs them, so they are tracked despite the rule above.
 !tools/mbb-answers/*.txt
+
+# Per-project standing context, re-injected by the SessionStart/compact hook.
+# Local and per-checkout like .private-patterns, so it never conflicts on a
+# rebase the way the tracked handoff.md did.
+.claude/standing-context.md
