@@ -63,7 +63,9 @@ bool wifiBusy() {
 
 String wifiStatusJson() {
     return "{\"ssid\":\"" + jsonEscape(WiFi.SSID()) + "\",\"rssi\":" + String(WiFi.RSSI()) +
-           ",\"ip\":\"" + WiFi.localIP().toString() + "\",\"disconnects\":" + String(wifiDisconnects) +
+           ",\"ip\":\"" + WiFi.localIP().toString() + "\"" +
+           ",\"ipv6_ll\":\"" + WiFi.STA.linkLocalIPv6().toString() + "\",\"ipv6\":\"" + WiFi.STA.globalIPv6().toString() + "\"" +
+           ",\"disconnects\":" + String(wifiDisconnects) +
            ",\"last_reason\":" + String(lastReason) +
            ",\"mdns\":" + (mdnsUp ? "true" : "false") + ",\"setup_network\":" + (setupUp ? "true" : "false") +
            ",\"resume_failures\":" + String(resumeFailures) + "}";
@@ -153,6 +155,7 @@ static void startServices() {
         consoleStart();
         Serial.printf("wifi: services up on %s\n", WiFi.localIP().toString().c_str());
     }
+    WiFi.enableIPv6();   // per-join (the setup AP re-makes the netif); lets mDNS answer AAAA
     startMdns();
 }
 
@@ -226,6 +229,11 @@ void wifiBegin() {
         Serial.printf("wifi: disconnected, reason %d\n", r);
     }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
     WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t) { ipEvents.fetch_add(1); }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
+    // IPv6 up (startServices) so mDNS answers AAAA; else a .local lookup stalls ~5 s.
+    WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t) {
+        Serial.printf("wifi: IPv6 link-local %s, global %s\n",
+                      WiFi.STA.linkLocalIPv6().toString().c_str(), WiFi.STA.globalIPv6().toString().c_str());
+    }, ARDUINO_EVENT_WIFI_STA_GOT_IP6);
     WiFi.mode(WIFI_STA);
     credsSaved = driverHasNetwork();
     pinMode(PIN_BOOT_BUTTON, INPUT_PULLUP);

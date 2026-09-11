@@ -4,6 +4,13 @@ Reverse chronological. Each heading is the firmware tag; the date beneath it is
 the tagged commit's date. This tracks feature work and significant bug fixes;
 minor goofs and one-off tidy-ups are left to the tag bodies.
 
+## 0.11.13
+September 10, 2026
+
+- IPv6 enabled on the station so mDNS answers AAAA. Without it a dual-stack
+  `.local` lookup stalled about five seconds on the missing answer every
+  request; now about ten milliseconds.
+
 ## 0.11.12
 September 10, 2026
 
