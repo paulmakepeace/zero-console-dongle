@@ -159,8 +159,7 @@ its [README](../firmware/README.md):
    real one, so the remainder it reads is too long by the timer's error
    and a second sleep would land on or after the MBB. For the same reason
    a sleep makes the NTP fix stale, so the MBB's stamps may put the clock
-   right before NTP does, and the NTP note in the log carries the size of
-   its step, which is that error measured. Pin 8 rising wakes it
+   right before NTP does. Pin 8 rising wakes it
    regardless, for
    wakes it did not schedule, at the cost of the first bytes of the banner,
    because the UART runs from the APB clock, which stops in light sleep;
@@ -338,10 +337,11 @@ owner state and runs on the host.
 - Awake means the MBB's console block is powered: real bytes arriving with
   the line idling high behind them, or the line high for 60 ms with nothing
   arriving. A lone byte on a dead line is noise and does not count.
-- Loss is marked in the file where it happened: a FIFO overrun (bytes lost)
-  and a frame error (a nearby line may be corrupt) each write a marker line
-  and count in the status; the driver's buffer-full event is back-pressure,
-  counted but not a loss; the break the MBB makes as it sleeps is expected
-  and silent.
+- Loss is marked in the file where it happened: a FIFO overrun (bytes lost),
+  a frame error (a nearby line may be corrupt) and a capture stream reset (the
+  loop found a record that could not be right and drained what was queued)
+  each write a marker line and count in the status; the driver's buffer-full
+  event is back-pressure, counted but not a loss; the break the MBB makes as
+  it sleeps is expected and silent.
 - The sniffer never ACKs or transmits on the bike's bus. TWAI listen-only in
   the driver, and the transceiver's driver input tied recessive in hardware.

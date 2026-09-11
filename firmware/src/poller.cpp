@@ -57,7 +57,6 @@ static char bikeState[16] = "";
 // bike's last known state before the MBB's next wake.
 static void saveOutputs() {
     if (!clockValid()) return;   // an output with no wall time is no use after a reboot; the flag stays, the next edge tries again
-    saveDue = false;
     String path = String("/") + POLL_SAVE_NAME, tmp = path + ".new";
     File f = LittleFS.open(tmp, "w");
     if (!f) return;
@@ -71,8 +70,10 @@ static void saveOutputs() {
     bool whole = f.getWriteError() == 0;
     f.close();
     // The old save is only replaced once the new one is whole: a flash that
-    // fills partway through must not cost both.
-    if (whole) { LittleFS.remove(path); LittleFS.rename(tmp, path); }
+    // fills partway through must not cost both. The flag clears only once the
+    // new one is in place, so a save the flash refused is tried again at the
+    // next asleep edge rather than waiting on the next batch.
+    if (whole) { LittleFS.remove(path); if (LittleFS.rename(tmp, path)) saveDue = false; }
     else LittleFS.remove(tmp);
 }
 

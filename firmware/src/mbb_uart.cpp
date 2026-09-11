@@ -30,7 +30,9 @@ static volatile uint32_t txHoldUntilMs = 0;
 static volatile bool txHeld = false;   // a batch in progress: the timed hold does not end it
 static volatile uint32_t overflows = 0, backpressure = 0, frameErrors = 0;
 static std::atomic<uint32_t> queueDrops{0};   // added on the capture task, taken on the loop task
-static std::atomic<uint32_t> awakeEdges{0};   // awake edges as the capture task posts them; compared with the loop's awake_count, a gap is an event-stream desync, not a real flap
+static std::atomic<uint32_t> awakeEdges{0};   // awake edges the capture task posted, a dropped one not among them: any gap from the loop's awake_count is an event-stream desync alone, not a real flap
+static std::atomic<uint32_t> edgeDrops{0};    // edges of either kind the queue had no room for; silent before, and counted in awake_edges anyway, which put it ahead of awake_count with no desync behind it
+static uint32_t streamResets = 0;             // loop task only: records that could not be right, on which the stream was drained and resynced
 static TaskHandle_t captureHandle;
 static SemaphoreHandle_t txMtx;
 static QueueHandle_t uartQueue;
@@ -116,14 +118,15 @@ static void checkHold() {
     }
 }
 
-static void post(uint8_t type, const char* payload, size_t len) {
+static bool post(uint8_t type, const char* payload, size_t len) {   // false: no room, and the record is counted as dropped
     uint8_t hdr[3] = {type, (uint8_t)(len & 0xff), (uint8_t)(len >> 8)};
     // Lines leave headroom so the awake and asleep edges, which carry no
     // payload, are never the records that get dropped.
     size_t need = 3 + len + (len ? 16 : 0);
-    if (xStreamBufferSpacesAvailable(events) < need) { if (len) queueDrops.fetch_add(1); return; }
+    if (xStreamBufferSpacesAvailable(events) < need) { if (len) queueDrops.fetch_add(1); else edgeDrops.fetch_add(1); return false; }
     xStreamBufferSend(events, hdr, 3, 0);
     if (len) xStreamBufferSend(events, payload, len, 0);
+    return true;
 }
 
 // A line at the wrong baud, or a noisy one, reports an error per frame. The
@@ -199,8 +202,7 @@ static void captureTask(void*) {
             awake = nowAwake;
             if (!awake && !wakeOn()) txDetach();   // a wake drives pin 9 precisely while the console block is down
             xSemaphoreGive(txMtx);
-            if (nowAwake) awakeEdges.fetch_add(1);
-            post(nowAwake ? EV_AWAKE : EV_ASLEEP, nullptr, 0);
+            if (post(nowAwake ? EV_AWAKE : EV_ASLEEP, nullptr, 0) && nowAwake) awakeEdges.fetch_add(1);   // counted once posted, so awake_edges less awake_count is the desync alone and edge_drops the drops
         }
         checkHold();
         if (n > 0) {
@@ -250,11 +252,43 @@ void mbbTick(LineHandler onLine, StateHandler onState) {
     if (!events) return;
     static char payload[1100];
     uint8_t hdr[3];
+    size_t discarded = 0;   // bytes thrown away this pass to get back onto a record boundary
     while (xStreamBufferBytesAvailable(events) >= 3) {
         xStreamBufferReceive(events, hdr, 3, 0);
         size_t len = hdr[1] | (hdr[2] << 8);
+        // A header that cannot be right means the reader is off the record
+        // boundary: read from line text, the length runs to 65535 against a
+        // 1100-byte payload. So does a payload that never comes, since the
+        // writer follows every header with its payload at once. Rather than
+        // overflow the payload and eat every record after it, drain what is
+        // buffered and start clean, mark the bytes in the log as lost, and
+        // count it: during a flood the count is the desync seen directly. The
+        // drain is a reader-only walk of the tail, not xStreamBufferReset: the
+        // reset re-initialises the head inside a critical section while the
+        // capture task's non-blocking send moves the head outside one, so on
+        // the two cores they would race and corrupt the queue, and a flood is
+        // when the writer is busiest. A snapshot of what is buffered bounds
+        // the drain so a fast writer cannot spin the loop; a record it was
+        // half-way through lands in the emptied buffer and is caught the same
+        // way on the next pass.
+        bool bad = hdr[0] < EV_LINE || hdr[0] > EV_ASLEEP || len > sizeof payload - 1;
         size_t got = 0;
-        while (got < len) got += xStreamBufferReceive(events, payload + got, len - got, pdMS_TO_TICKS(5));
+        for (int tries = 0; !bad && got < len; tries++) {
+            if (tries == 40) { bad = true; break; }   // 200 ms and no payload: nobody is writing this record
+            got += xStreamBufferReceive(events, payload + got, len - got, pdMS_TO_TICKS(5));
+        }
+        if (bad) {
+            streamResets++;
+            discarded += 3 + got;
+            size_t avail = xStreamBufferBytesAvailable(events);
+            while (avail) {
+                size_t k = xStreamBufferReceive(events, payload, avail < sizeof payload ? avail : sizeof payload, 0);
+                if (!k) break;
+                avail -= k;
+                discarded += k;
+            }
+            break;
+        }
         payload[len] = 0;
         switch (hdr[0]) {
             case EV_LINE: case EV_MARK: if (onLine) onLine(payload, len); break;
@@ -268,6 +302,11 @@ void mbbTick(LineHandler onLine, StateHandler onState) {
         int n = snprintf(msg, sizeof msg, "dongle: %lu line(s) lost, capture queue full", (unsigned long)d);
         if (onLine) onLine(msg, n);
     }
+    if (discarded && onLine) {   // loss is marked where it happened, as an overrun is
+        char msg[80];
+        int n = snprintf(msg, sizeof msg, "dongle: capture stream reset, %u byte(s) discarded", (unsigned)discarded);
+        onLine(msg, n);
+    }
 }
 
 bool mbbOk() { return driverOk; }
@@ -279,6 +318,8 @@ uint32_t mbbBackpressure() { return backpressure; }
 uint32_t mbbFrameErrors() { return frameErrors; }
 uint32_t mbbQueueDrops() { return queueDrops.load(); }
 uint32_t mbbAwakeEdges() { return awakeEdges.load(); }
+uint32_t mbbEdgeDrops() { return edgeDrops.load(); }
+uint32_t mbbStreamResets() { return streamResets; }
 bool mbbLineHigh() { return lineHigh; }
 
 void mbbTxHold(bool on) {

@@ -88,12 +88,12 @@ static void onState(bool awake) {
     // console drain, which is a large part of how the board goes dark. Rate-limited
     // it stays reachable, so /api/status uart.awake_edges is readable during the
     // storm; a summary line reports the burst instead of thousands of identical ones.
-    static uint32_t lastPrintMs = 0, suppressed = 0;
+    static uint32_t lastPrintMs = (uint32_t)0 - 1000, suppressed = 0;   // a second in the past at boot, so the first edge prints whenever it lands
     uint32_t now = millis();
     if (now - lastPrintMs >= 1000) {
-        if (suppressed) Serial.printf("mbb: %s (+%lu more edges in the last second)\n", awake ? "awake" : "asleep", (unsigned long)suppressed);
+        if (suppressed) Serial.printf("mbb: %s (+%lu more edges since the last line)\n", awake ? "awake" : "asleep", (unsigned long)suppressed);
         else Serial.printf("mbb: %s\n", awake ? "awake" : "asleep");
-        lastPrintMs = now ? now : 1;
+        lastPrintMs = now;
         suppressed = 0;
     } else suppressed++;
     storeNoteEdge(awake);

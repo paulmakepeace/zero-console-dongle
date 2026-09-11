@@ -41,7 +41,19 @@ Which board is which, and how a change is verified, are in
   `onState` console print is now coalesced to at most one line a second (a
   suppressed-count summary), which both bounds the loop starvation on the 115200
   console drain and keeps HTTP reachable so those counters can be read live during
-  the storm. Still to do once a repro is in hand: fix the identified mechanism,
+  the storm. Two more counters close the blind spots in that reading. An edge
+  the event queue has no room for was dropped silently before, and counted in
+  `awake_edges` anyway, so that figure could sit ahead of `awake_count` with no
+  desync behind it; now an awake edge is counted only once posted, and
+  `uart.edge_drops` counts the drops of either kind, so `awake_edges` and
+  `awake_count` differ only by a desync. And `uart.stream_resets` counts
+  records that could not be right (a type outside the four, a length past the
+  1100-byte payload, or a payload that never arrives), on which the loop drains
+  the stream from its own side and resyncs, rather than overflowing the payload
+  buffer into the statics beside it; the log gets a `dongle: capture stream
+  reset` line with the bytes discarded. A non-zero `stream_resets` during a
+  flood is the desync, seen directly.
+  Still to do once a repro is in hand: fix the identified mechanism,
   and bound the flash side (`storeSessionClose()` runs per asleep edge) if the
   storm turns out to toggle rather than desync.
 

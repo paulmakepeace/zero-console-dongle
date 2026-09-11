@@ -20,6 +20,8 @@ uint32_t mbbOverflows();       // FIFO overruns: bytes were lost
 uint32_t mbbBackpressure();    // ring buffer full: bytes were held, none lost
 uint32_t mbbFrameErrors();
 uint32_t mbbQueueDrops();         // lines the loop task was too slow to take
-uint32_t mbbAwakeEdges();         // awake edges posted by the capture task; a gap below the loop's awake_count is an event-stream desync
+uint32_t mbbAwakeEdges();         // awake edges the capture task posted, dropped ones not among them; any gap from the loop's awake_count is an event-stream desync
+uint32_t mbbEdgeDrops();          // edges of either kind the event queue had no room for
+uint32_t mbbStreamResets();       // records that could not be right, the stream drained each time: a desync, counted and marked in the log rather than overflowed
 bool mbbLineHigh();               // pin 8 as of the last sample, the transmit gate
 uint32_t mbbCaptureStackFree();

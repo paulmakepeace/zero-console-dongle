@@ -63,13 +63,11 @@ characterised and the CAN and buck parts are on order. See
    by hand: [`tools/pull-logs.py`](tools/pull-logs.py) deletes each file from
    the dongle once it is safely stored, so a scheduled run (a cron or launchd
    job on the workstation, whenever the bike answers) holds the count down.
-   The firmware now caps the count at `FS_MAX_FILES` as a backstop and the
-   status page urges a pull as it climbs, and the space reclaim no longer
-   opens every file to find its dictionary (the id is in the file name), which
-   was the bulk of the ten-second stall measured past a hundred files. That
-   stall is the background in [docs/open-questions.md](docs/open-questions.md);
-   the walk still holds the store's lock, so re-measure it on the bench at a
-   hundred files to confirm it is now sub-second before calling it closed. The
+   There is no count cap in the firmware any more: the reclaim reads each
+   file's dictionary id from its name rather than opening it, runs in one
+   directory walk, and measures 1.4 s for a deep reclaim at 150 files and a
+   few hundred milliseconds for the common one (the figures are in
+   [docs/handoff.md](docs/handoff.md)), all of it under the store's lock. The
    bike reaches a hundred files in about four days without a pull.
 2. Keep the dongle on the bike collecting wakes, and ride and pull the files
    with [`tools/pull-logs.py`](tools/pull-logs.py). Two captures are still

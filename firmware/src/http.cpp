@@ -191,7 +191,8 @@ static String statusJson() {   // a health check is not use: a watcher must not 
     s += ",\"dropped_lines\":" + String(storeDroppedLines());
     s += ",\"uart\":{\"ok\":" + String(mbbOk() ? "true" : "false") + ",\"overflows\":" + String(mbbOverflows()) +
          ",\"backpressure\":" + String(mbbBackpressure()) + ",\"frame_errors\":" + String(mbbFrameErrors()) +
-         ",\"queue_drops\":" + String(mbbQueueDrops()) + ",\"awake_edges\":" + String(mbbAwakeEdges()) + "}";
+         ",\"queue_drops\":" + String(mbbQueueDrops()) + ",\"awake_edges\":" + String(mbbAwakeEdges()) +
+         ",\"edge_drops\":" + String(mbbEdgeDrops()) + ",\"stream_resets\":" + String(mbbStreamResets()) + "}";
     s += ",\"console\":" + consoleStatusJson();
     {
         long soc, mv, ma, ah, hi, lo;

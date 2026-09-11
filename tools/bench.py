@@ -313,8 +313,10 @@ def clear_old_sessions(host, keep):
     # A long bench day accretes session files the way the bike would over days,
     # which is realistic but slows every reclaim walk and every listing. Trim to
     # the newest `keep` before a run so the directory does not grow without
-    # bound; the dongle's own reclaim is what the storage scenario exercises, not
-    # this. Names sort by creation, so the smallest names are the oldest.
+    # bound. This is housekeeping, not a test: the dongle's own reclaim is
+    # covered by the host store suite (firmware/test/test_store), and no bench
+    # scenario fills the flash. Names sort by creation, so the smallest names
+    # are the oldest.
     try:
         code, listing = get(host, "/logs")
         files = json.loads(listing) if code == 200 else []

@@ -26,8 +26,9 @@ inline int sessionName(char* out, size_t cap, unsigned long boot, int seq, const
 }
 
 // The dictionary id from a log name, the 8 hex digits before ".log.z"; 0 when
-// the name carries none (a file written with no dictionary, or one named
-// before this suffix existed, both of which name no dictionary to protect).
+// the name carries none: a file written with no dictionary, or one named before
+// this suffix existed (0.11.7). The latter may still name a dictionary in its
+// zlib header, which nothing reads any more; see dictCollect in store.cpp.
 inline uint32_t logDictId(const char* n, size_t len) {
     static const char suf[] = ".log.z";
     const size_t sl = sizeof(suf) - 1;

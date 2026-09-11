@@ -54,7 +54,12 @@ headers: the MBB stamp parser and the two-stamp agreement rule, the line
 framer, the file-name rules, the JSON escaper, the zlib stream, the
 dictionary keeper, the sleep plan with the hibernate, attended and
 storage-mode lines, and the prompt, pack-row and bike-state parsers.
-The modules wrap them; the tests run them on the host:
+The modules wrap them; the tests run them on the host. Two stateful modules
+are compiled whole into suites of their own against stubs: the poller against
+a scripted MBB with time as a variable, and the store against a temporary
+directory on the host, so the reclaim's directory walk runs the same `readdir`
+and `stat` it runs on the board and the space arithmetic is checked against
+LittleFS's block accounting rather than a byte count:
 
 ```bash
 ~/.platformio/penv/bin/pio test -e native -d firmware
@@ -127,7 +132,7 @@ credentials.
 | Path                 | Method | What                                      |
 |----------------------|--------|-------------------------------------------|
 | `/`                  | GET    | status page                               |
-| `/api/status`        | GET    | JSON: board name, MAC, firmware version, uptime, boot count and reset reason, awake, pin 8 level, TX attached, last awake and asleep stamps and the awake count, the active file, time and its source and NTP age, WiFi with mDNS and setup-network state, filesystem, dropped lines, the UART's overrun, back-pressure, frame-error and queue-drop counts, console clients and dropped bytes, the pack's state of charge, voltage, current, capacity and temperatures and the bike state from the last poll, the poll interval and whether a batch is running, the sleep state (on or off, the days rule and the seconds since the bike was last seen attended, storage mode as the MBB last reported it, armed, the count, the last wake's source and length, the seconds until the MBB is due and whether that announcement has had its sleep), the store's file count and bytes on flash, its compression since boot and the days of space left at that rate, the ESP32's die temperature, the longest pass of each stage of the loop task, heap and stack headroom, watchdog |
+| `/api/status`        | GET    | JSON: board name, MAC, firmware version, uptime, boot count and reset reason, awake, pin 8 level, TX attached, last awake and asleep stamps and the awake count, the active file, time and its source and NTP age, WiFi with mDNS and setup-network state, filesystem, dropped lines, the UART's overrun, back-pressure, frame-error, queue-drop, edge-drop and stream-reset counts and the awake edges the capture task posted, console clients and dropped bytes, the pack's state of charge, voltage, current, capacity and temperatures and the bike state from the last poll, the poll interval and whether a batch is running, the sleep state (on or off, the days rule and the seconds since the bike was last seen attended, storage mode as the MBB last reported it, armed, the count, the last wake's source and length, the seconds until the MBB is due and whether that announcement has had its sleep), the store's file count and bytes on flash, its compression since boot and the days of space left at that rate, the ESP32's die temperature, the longest pass of each stage of the loop task, heap and stack headroom, watchdog. A health check, not use, so it does not hold the dongle awake |
 | `/logs`              | GET    | JSON list of files with size and active flag, streamed one file at a time |
 | `/logs/NAME`         | GET    | the file; 409 while active, 503 when all four readers are busy, 404 if absent |
 | `/logs/NAME`         | DELETE | remove it; 409 while active or being read, or for a bad name. The puller never deletes `dict-*` files |
@@ -142,7 +147,6 @@ credentials.
 | `/api/cmd`           | GET    | JSON list of the polled commands: age and size of the last good output, whether the last attempt succeeded, age of the last failure |
 | `/api/cmd/NAME`      | GET    | the last output of that command, from the poller or from a console client that typed it, text, with an `X-Age-Seconds` header; 503 until polled, 404 if unknown |
 | `/api/cmd/poll`      | POST   | start the batch: at once with the MBB awake and no console client, skipping the 20 s settle, otherwise at its next wake; a batch already running is the answer; 409 once the MBB has announced its hibernation |
-| `/api/status`        | GET    | the whole-board health JSON: firmware and boot, reset reason, MBB awake and line state, WiFi, clock and its source, filesystem and store metrics, poller and sleep state, heap and the loop-stage maxima. A health check, not use, so it does not hold the dongle awake |
 | `/api/readings`      | GET    | JSON list of the figures owners asked for, by name with group, value, unit and age, kept from whatever line carried them; the main page's Bike table |
 | `/api/wake?hold=S`   | POST   | drive pin 9 high for S seconds (1 to 900, default 120), which wakes a hibernating MBB and keeps it awake for the hold; `wake_hold_s` in the status counts it down. 409 when the MBB is already awake, since a reset landing on the hourly 12 V top-up abandons it. The session it provokes does not count as the bike being attended. For the cellular check-in experiment (`tools/ccm-wake-experiment.py`). This is the one route with a hardware consequence and, like every other, the header is a cross-site guard rather than authentication: anyone on the home network can hold the MBB awake |
 
@@ -180,9 +184,11 @@ TCP keepalive within about 90 s.
 
 ## Files
 
-One zlib file per MBB session, `bBBBB-SSS-YYYYMMDD-HHMMSS.log.z` with the
-boot count and a sequence number first so that names sort by creation, and
-`nosync` in place of the time when the clock was not yet known. Lines are
+One zlib file per MBB session, `bBBBB-SSS-YYYYMMDD-HHMMSS-DDDDDDDD.log.z`
+with the boot count and a sequence number first so that names sort by
+creation, `nosync` in place of the time when the clock was not yet known,
+and the dictionary's id last, so the reclaim can tell which dictionaries
+are still needed without opening a file. Lines are
 compressed as they arrive, against the file's own history and against a
 dictionary of the lines this bike keeps printing, which the dongle learns
 from its sessions and keeps on the flash as `dict-<id>.txt`; the file's

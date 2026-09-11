@@ -126,14 +126,19 @@ static size_t fileSizeOf(const char* name) {   // one directory lookup, far chea
     return stat(path, &st) == 0 ? (size_t)st.st_size : 0;
 }
 
-// The flash the delete actually gives back: a file's data rounded up to whole
-// erase blocks, and at least one block, whatever a byte count says. A lower
-// bound (metadata frees on top), so a tally of these never overstates the space
-// returned, but tight enough that the reclaim stops at the minimum files rather
-// than over-deleting the oldest to make a raw-byte sum catch up. The block is
-// the ESP32 flash sector; a larger real block only makes the bound safer.
+// The flash a delete actually gives back, as a lower bound: a file's data
+// rounded up to whole blocks (the metadata it frees comes on top), and nothing
+// at all for a file LittleFS kept inline in its directory metadata, which is
+// any file up to the cache size (CONFIG_LITTLEFS_CACHE_SIZE, 512 in this core)
+// and occupies no data block. A tally of these never overstates the space
+// returned, so the confirming freeBytes() is spent only once the deletes so far
+// can really have covered the shortfall; on a directory of tiny sessions, the
+// bench's, an overstated tally would burn the four rounds confirming nothing.
+// The block is the ESP32 flash sector; a larger real block only makes the
+// bound safer.
 static const size_t FS_BLOCK = 4096;
-static size_t blockBytes(size_t sz) { return sz ? ((sz + FS_BLOCK - 1) & ~(FS_BLOCK - 1)) : FS_BLOCK; }
+static const size_t FS_INLINE_MAX = 512;
+static size_t blockBytes(size_t sz) { return sz <= FS_INLINE_MAX ? 0 : ((sz + FS_BLOCK - 1) & ~(FS_BLOCK - 1)); }
 
 static size_t dictCollect();   // returns the bytes the collected dictionaries freed
 
@@ -240,6 +245,12 @@ bool storeBegin(const char* resetReason) {
 // ids the sessions still name and the dictionary files themselves, then the
 // unnamed ones are deleted. With more distinct ids in use than the array holds,
 // nothing goes: a needed dictionary could be in the overflow.
+// Known hazard: a session file from before 0.11.7 names its dictionary only in
+// its zlib header, which this walk no longer reads, so that dictionary is not
+// protected here and can go while the file still needs it. The bike was pulled
+// empty before it was flashed past that line; a board upgraded with such files
+// on its flash should be pulled first, or the puller keeps those files raw and
+// undecodable unless it already holds the dictionary.
 static size_t dictCollect() {
     uint32_t inUse[32];
     int nInUse = 0;
@@ -630,7 +641,7 @@ String storeMetricsJson() {
     if (ok && (cachedAtMs == 0 || millis() - cachedAtMs > 10000)) {   // a directory walk: not on every status call
         cachedAtMs = millis() ? millis() : 1;
         files = 0;
-        forEachFile([&](const char*, size_t) { files++; }, false);
+        forEachFile([&](const char* n, size_t) { if (!houseFile(n)) files++; }, false);   // the bike's files, as the listing counts them; the dictionaries and the saved batch are the board's own
     }
     size_t total = ok ? totalBytes() : 0, used = ok ? LittleFS.usedBytes() : 0;
     bytes = used;   // the files, plus a little metadata; a stat per file would cost a directory lookup each

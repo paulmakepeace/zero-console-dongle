@@ -84,8 +84,9 @@ String readingsJson() {
         if (x.value < 0 && whole == 0) s += "-";
         s += String(whole);
         if (x.decimals) {
-            char f[8];
-            snprintf(f, sizeof f, ".%0*ld", (int)x.decimals, frac < 0 ? -frac : frac);
+            char f[24];
+            int d = x.decimals < 3 ? x.decimals : 3;   // parseNumber keeps at most three; the bound is what lets the compiler size the buffer
+            snprintf(f, sizeof f, ".%0*ld", d, frac < 0 ? -frac : frac);
             s += f;
         }
         s += ",\"u\":\"" + String(DEFS[i].unit) + "\",\"age_s\":" + String(ageS(x)) + "}";

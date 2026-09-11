@@ -123,6 +123,7 @@ static void startSetup(const char* why) {
     sysFeedWatchdog();
     String ssid = zongleSsid();   // scan for other Zongles first, about two seconds
     sysFeedWatchdog();
+    sysNetUntimed();   // the scan is a deliberate wait, not a stall: keep it out of the net stage's maximum
     IPAddress ap(192, 168, 4, 1);
     WiFi.softAPConfig(ap, ap, IPAddress(255, 255, 255, 0), IPAddress(192, 168, 4, 2), ap);   // the board is the DNS it hands out, so a phone's probe lands here
     WiFi.softAP(ssid.c_str());   // open: it is up for minutes, on a bike, and goes down at the join
