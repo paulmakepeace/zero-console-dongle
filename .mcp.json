@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "zongle": {
+      "command": "tools/mcp/run.sh",
+      "args": []
+    }
+  }
+}

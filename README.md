@@ -35,6 +35,9 @@ characterised and the CAN and buck parts are on order. See
   adds, the Arduino choice and the design rules.
 - [docs/compression.md](docs/compression.md): how the session files are
   compressed, the learned dictionary, before-and-after figures, flash wear.
+- [docs/data-model.md](docs/data-model.md): what the log is for, the
+  events, readings and snapshots in it, where the data lives once pulled,
+  the SQLite archive and the MCP server over it.
 - [docs/sources.md](docs/sources.md): references.
 - [docs/dev-process.md](docs/dev-process.md): the change cycle from edit to
   bike, which board is which, and how to read a bench failure without
@@ -48,7 +51,9 @@ characterised and the CAN and buck parts are on order. See
   the air; [`tools/bench.py`](tools/bench.py) is the regression through the adapter; [`tools/test.sh`](tools/test.sh)
   runs the host suites, no hardware; [`tools/log-clean.sh`](tools/log-clean.sh)
   strips a raw capture for reading; [`tools/check-private.sh`](tools/check-private.sh) is the pre-commit
-  gate against the VIN and serials; [`tools/tests/`](tools/tests/) is the pull script's suite.
+  gate against the VIN and serials; [`tools/tests/`](tools/tests/) is the pull script's suite;
+  [`tools/logdb.py`](tools/logdb.py) loads pulled sessions into a SQLite archive and
+  [`tools/mcp/`](tools/mcp/) serves that archive and the live board to Claude as MCP tools.
   The firmware's host tests are under [`firmware/test/`](firmware/test/).
 - `logs/`: session captures, ignored by git because they carry the VIN and
   serial numbers. `.private-patterns` at the root, also ignored, holds the

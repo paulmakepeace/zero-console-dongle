@@ -32,3 +32,7 @@ firmware/dependencies.lock
 # Local and per-checkout like .private-patterns, so it never conflicts on a
 # rebase the way the tracked handoff.md did.
 .claude/standing-context.md
+
+# The MCP server's venv (tools/mcp/run.sh makes it) and the SQLite archive.
+tools/mcp/.venv/
+*.db

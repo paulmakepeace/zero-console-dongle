@@ -128,6 +128,7 @@ one 6 KB fetch, cached by id.
 With the text matched, what is left in a compressed wake is the stamps:
 the dongle's and the MBB's, two per line, about 45 characters of mostly
 unique digits on the 80 lines of a wake without poll batches. They are
-about a quarter of the compressed bytes. A delta-encoded stamp in a structured record would take that out;
-it is the next step if the flash ever needs one, and it is a format
-change, so it waits for a reason.
+about a quarter of the compressed bytes. With the poller on, though, the
+bulk of a session is the poll tables, and the flash is better spent by not
+writing those as text at all; that decision, and what replaces them, is in
+[data-model.md](data-model.md).
