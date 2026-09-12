@@ -233,8 +233,8 @@ Phase 2, in likely order:
 - **CAN as a second stream.** TWAI in listen-only mode, frames stamped and
   written raw in a candump-style line format for SavvyCAN or a script. Which
   bus is on pins 6 and 14, and at what rate, is the first thing it tells us.
-- **Push instead of pull**, MQTT to the homelab, once pull has proven the
-  files.
+- **Push instead of pull**, an HTTP upload on every WiFi join, now that pull
+  has proven the files; the design is [archive-service.md](archive-service.md).
 - **A fixed firmware other owners can flash** from a browser with
   esp-web-tools, provisioned over the USB cable with Improv WiFi beside
   the setup network.

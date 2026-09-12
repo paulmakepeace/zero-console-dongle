@@ -94,8 +94,9 @@ Three tiers, not alternatives:
   open.
 
 A hosted service enters only with other owners' data and a reason to carry
-auth, uptime and the exposure noted in [sources.md](sources.md). The MQTT push
-on the phase 2 list is the seam that keeps that move cheap if it ever comes.
+auth, uptime and the exposure noted in [sources.md](sources.md). The push on
+the phase 2 list is the seam that keeps that move cheap if it ever comes; how
+the archive tier is served and fed is [archive-service.md](archive-service.md).
 
 ## The archive schema
 
