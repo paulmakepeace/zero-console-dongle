@@ -7,7 +7,7 @@ services:
       dockerfile: server/Dockerfile
     image: zongle-archive
     ports:
-      - "8765:8765"
+      - "${ZONGLE_BIND:-0.0.0.0}:8765:8765"   # ZONGLE_BIND in .env pins it to one interface
     volumes:
       - ./data:/data
     environment:
