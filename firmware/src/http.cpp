@@ -410,8 +410,7 @@ void httpBegin() {
             }
         },
         []() {
-            sysTickCapture();   // a slow link can take minutes; feed even while refusing
-            if (pollerActive()) pollerTick(mbbAwake(), consoleClients() > 0);   // the timeout that ends a stuck batch lives here: without it the transmit pin stays attached for the whole upload
+            sysPumpTransfer();   // a slow link can take minutes; feed even while refusing
             sysNetUntimed();
             if (http.header("X-Dongle") != "1") return;
             // The server hands a body that is not multipart to this same

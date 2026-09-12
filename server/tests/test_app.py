@@ -74,7 +74,7 @@ def test_the_same_file_again_is_unchanged_and_a_different_one_gets_a_suffix(clie
     other = compress(LOG.replace("54", "55"), DICT)
     assert put(client, NAME, other).text == "variant"   # kept as evidence, not a second session
     day = client.archive / BOARD / "202609" / "11"
-    assert {p.name for p in day.iterdir()} == {NAME, NAME[:-6] + "-2.log.z"}
+    assert {p.name for p in day.iterdir()} == {NAME, NAME + ".variant2"}
     assert put(client, NAME, other).text == "variant"   # again: still not ingested
     assert json.loads(client.get("/health").text)["sessions"] == 1
     assert put(client, "dict-%08x.txt" % DICT_ID, DICT).text == "unchanged"

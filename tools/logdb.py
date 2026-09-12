@@ -152,7 +152,8 @@ class Ingester:
     def ingest_file(self, path, force=False):
         """Load one file, plain or compressed with its dictionary found beside it. Returns 'loaded', 'reloaded',
         'unchanged' or 'skipped' (a compressed file whose dictionary is missing); force reloads an unchanged file.
-        A file is keyed on its plain name and its size on disk, so the unchanged case costs a stat."""
+        A file is keyed on its plain name and its size on disk, so the unchanged case costs a stat; a session held
+        both plain and compressed in different trees reloads when the other tree is ingested, so feed one tree."""
         name = zlog.plain_name(os.path.basename(path))
         size = os.path.getsize(path)
         old = self.db.execute("SELECT id, size FROM sessions WHERE file=?", (name,)).fetchone()

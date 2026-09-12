@@ -12,6 +12,7 @@
 
 static String url;
 static PushUrl target;
+static bool requested = false;   // a round is asked for; taken at the top of a pass, never inside a transfer
 static bool due = false;
 static String sessionCursor;   // the last session handled this round; a rejected file waits for the next request
 static uint32_t sentDict = 0;  // the dictionary the server has been sent this round
@@ -21,29 +22,25 @@ static uint32_t pushed = 0, pushedBytes = 0, rejected = 0;
 static String lastNote;
 static uint32_t lastMs = 0;
 
-void pushBegin(const char* u) { pushSetUrl(String(u)); }
+void pushBegin(const char* u) {
+    if (!pushSetUrl(String(u))) Serial.printf("push: the saved URL %s is refused; push off\n", u);
+}
 
 bool pushSetUrl(const String& u) {
-    if (u.length() == 0) { url = ""; due = false; return true; }
+    if (u.length() == 0) { url = ""; due = false; requested = false; return true; }
     PushUrl t;
     if (u.length() > PUSH_URL_MAX || !parsePushUrl(u.c_str(), u.length(), t)) return false;
     url = u;
     target = t;
     failures = 0;
-    pushRequest();
+    nextTryMs = millis();
+    requested = true;
     return true;
 }
 
-void pushRequest() {   // a join, a session end or a new URL: whatever the flash holds goes, dictionary first
-    if (url.length() == 0) return;
-    due = true;
-    sessionCursor = "";
-    sentDict = 0;
-    if (failures >= PUSH_MAX_FAILURES) failures = 0;
-    nextTryMs = millis();
-}
+void pushRequest() { if (url.length()) requested = true; }   // a join or a session end: whatever the flash holds goes, dictionary first
 
-bool pushBusy() { return due && WiFi.status() == WL_CONNECTED; }   // off the network nothing can move, so nothing holds the board up
+bool pushBusy() { return (due || requested) && WiFi.status() == WL_CONNECTED; }   // off the network nothing can move, so nothing holds the board up
 
 // The oldest session above the cursor; the walk holds the store's lock and only compares names.
 struct Pick { const String* cursor; String name; };
@@ -60,7 +57,7 @@ static String nextSession() {
 }
 
 // PUT one file. Returns the HTTP status; 0 for no connection, no answer or no free reader; -1 for a file that is not there.
-static int put(String name, size_t& sent) {   // by value: the capture pumped below can change what a caller's reference names
+static int put(const String& name, size_t& sent) {
     sent = 0;
     bool busy = false;
     File f = storeOpenRead(name, &busy);
@@ -100,10 +97,17 @@ static void backoff(int status, const String& name) {
     failures++;
     lastNote = (status ? String(status) + " " : String("no answer ")) + name;
     nextTryMs = millis() + PUSH_BACKOFF_MS * failures;
-    if (failures >= PUSH_MAX_FAILURES) { due = false; lastNote += ", giving up until the next join"; }
+    if (failures >= PUSH_MAX_FAILURES) { due = false; lastNote += ", giving up until the next request"; }
 }
 
 void pushTick() {
+    if (requested) {
+        requested = false;
+        due = true;
+        sessionCursor = "";
+        sentDict = 0;
+        if (failures >= PUSH_MAX_FAILURES) { failures = 0; nextTryMs = millis(); }   // a request ends a give-up; a backoff in progress stands
+    }
     if (!due || WiFi.status() != WL_CONNECTED) return;
     if ((int32_t)(millis() - nextTryMs) < 0) return;
     String name = nextSession();
@@ -113,10 +117,11 @@ void pushTick() {
     if (id && id != sentDict) {   // the store keeps a dictionary while any session names it
         char d[24];
         snprintf(d, sizeof d, "dict-%08lx.txt", (unsigned long)id);
-        int st = put(String(d), sent);
+        String dict(d);
+        int st = put(dict, sent);
         lastMs = millis();
-        if (st == 200) { failures = 0; pushed++; pushedBytes += sent; sentDict = id; lastNote = "200 " + String(d); return; }
-        if (st == 0 || st >= 500) { backoff(st, String(d)); return; }
+        if (st == 200) { failures = 0; pushed++; pushedBytes += sent; sentDict = id; lastNote = "200 " + dict; return; }
+        if (st == 0 || st >= 500) { backoff(st, dict); return; }
         sentDict = id;   // not there or not wanted: the session goes without it and the server says
     }
     int status = put(name, sent);
@@ -134,7 +139,7 @@ void pushTick() {
 }
 
 String pushStatusJson() {
-    return String("{\"url\":\"") + jsonEscape(url) + "\",\"due\":" + (due ? "true" : "false") +
+    return String("{\"url\":\"") + jsonEscape(url) + "\",\"due\":" + (due || requested ? "true" : "false") +
            ",\"pushed\":" + String(pushed) + ",\"bytes\":" + String(pushedBytes) + ",\"rejected\":" + String(rejected) +
            ",\"failures\":" + String(failures) + ",\"last\":\"" + jsonEscape(lastNote) + "\",\"last_age_s\":" +
            String(lastMs ? (long)((millis() - lastMs) / 1000) : -1) + "}";

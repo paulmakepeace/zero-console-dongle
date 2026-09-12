@@ -19,7 +19,7 @@ inline bool parsePushUrl(const char* s, size_t len, PushUrl& out) {
     size_t i = sl, h = i;
     for (; i < len && s[i] != ':' && s[i] != '/'; i++) {   // a host name or address, nothing that could end a header line
         char c = s[i];
-        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '.' || c == '-')) return false;
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '.' || c == '-' || c == '_')) return false;
     }
     size_t hl = i - h;
     if (hl == 0 || hl >= sizeof out.host) return false;

@@ -55,22 +55,17 @@ def _same(path, data):
 
 
 def store(path, data):
-    """Write data at path unless it is already there. A different file of the same name is kept beside it with a
-    -2 suffix as evidence and is not ingested: a session name is unique, so this is damage, not a second session.
-    Returns (outcome, path): stored, unchanged or variant."""
+    """Write data at path unless it is already there. A different file of the same name is kept beside it as
+    NAME.variantN, evidence that no ingest walk picks up: a session name is unique, so this is damage, not a second
+    session. Returns (outcome, path): stored, unchanged or variant."""
     if _same(path, data):
         return "unchanged", path
     if not os.path.exists(path):
         zlog.write_atomic(path, data)
         return "stored", path
-    stem, ext = path, ""
-    for e in (".log.z", ".log.gz", ".log", ".txt"):
-        if path.endswith(e):
-            stem, ext = path[:-len(e)], e
-            break
     n = 2
     while True:
-        cand = "%s-%d%s" % (stem, n, ext)
+        cand = "%s.variant%d" % (path, n)
         if not os.path.exists(cand):
             zlog.write_atomic(cand, data)
             log.warning("%s differs from the file stored under that name; kept as %s, not ingested", path, cand)
