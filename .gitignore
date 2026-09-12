@@ -8,7 +8,6 @@ logs/*
 !logs/.gitkeep
 *.bin
 *.log
-*.txt
 *.csv
 *.tsv
 # The partition table is source, not a capture; a fresh clone cannot build without it.
@@ -23,10 +22,6 @@ firmware/dependencies.lock
 
 # Private identifier patterns for tools/check-private.sh: the VIN and serials live here, never in a tracked file.
 .private-patterns
-
-# The bench's fake MBB answers are the bike's own outputs, scrubbed and gated;
-# the bench needs them, so they are tracked despite the rule above.
-!tools/mbb-answers/*.txt
 
 # Per-project standing context, re-injected by the SessionStart/compact hook.
 # Local and per-checkout like .private-patterns, so it never conflicts on a

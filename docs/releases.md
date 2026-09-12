@@ -8,13 +8,11 @@ minor goofs and one-off tidy-ups are left to the tag bodies.
 September 11, 2026
 
 - The dongle pushes its session files to an archive service on every WiFi
-  join and every session end. `push_url` in the settings names it; each file
-  is PUT as the flash holds it and deleted on the server's 200, and a
-  dictionary the server lacks is sent on demand. Off with no URL set.
-- `server/` is that service for the NAS: one container holding the push
-  endpoint, the ingest into SQLite and the MCP server over HTTP.
-  `tools/zlog.py` is the session-file library the puller, the ingest and the
-  service share.
+  join and every session end, each deleted from the flash on the server's
+  200. `push_url` in the settings names it; `off` stops it.
+- `server/` is that service for the NAS: one container with the push
+  endpoint, the ingest into SQLite and the MCP server over HTTP, sharing
+  `tools/zlog.py` with the puller.
 
 ## 0.11.13
 September 10, 2026

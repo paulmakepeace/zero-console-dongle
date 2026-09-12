@@ -99,7 +99,7 @@ static const char SETUP_PAGE[] PROGMEM = R"HTML(<!doctype html><meta charset=utf
 <label>Sleep between MBB sessions, 1 or 0 <input name=sleep></label>
 <label>Sleep only after N days unattended, 0 for always <input name=sleep_days></label>
 <label>Poll the MBB every N seconds, 0 for never <input name=poll></label>
-<label>Push logs to this http URL on every WiFi join, blank for off <input name=push_url autocapitalize=off placeholder="http://nas:8765/push"></label>
+<label>Push logs to this http URL on every WiFi join; off to stop <input name=push_url autocapitalize=off placeholder="http://nas:8765/push"></label>
 </details>
 <button id=a>Apply</button>
 <p id=m></p>
@@ -168,6 +168,8 @@ async function pick(name){
 }
 tabs().then(()=>pick(cur)); setInterval(()=>{if(!want) show()},15000);
 </script>)HTML";
+
+static const char SETTINGS_REFUSED[] = "a value was refused, nothing applied: tz 63 and ntp 64 characters at most; push_url http://host[:port][/path] of at most 127, or off";
 
 static String statusJson() {   // a health check is not use: a watcher must not keep the dongle awake
     size_t total, used;
@@ -278,9 +280,7 @@ static void handleFile() {
             size_t n = f.read(buf, sizeof buf);
             if (n == 0) { whole = false; break; }   // a bad block: do not spin on it
             if (c.write(buf, n) != n) { whole = false; break; }
-            sysTickCapture();
-            consoleTick();
-            if (pollerActive()) pollerTick(mbbAwake(), consoleClients() > 0);   // a batch in flight ends; a transfer is no moment to start one
+            sysPumpTransfer();
         }
         if (!whole) c.stop();   // the promised length will not arrive; say so by closing
         f.close();
@@ -335,12 +335,8 @@ void httpBegin() {
         if (!tokenOk()) return;
         touch();
         if (!settingsApply(http.arg("tz"), http.arg("ntp"), http.arg("sleep"), http.arg("poll"), http.arg("sleep_days"),
-                           http.arg("sleep_grace"), http.arg("use_s"))) {
-            http.send(400, "text/plain", "a value is too long: tz 63, ntp 64 characters at most");
-            return;
-        }
-        if (http.hasArg("push_url") && !settingsApplyPushUrl(http.arg("push_url"))) {
-            http.send(400, "text/plain", "push_url must be http://host[:port][/path], at most 127 characters; the rest is applied");
+                           http.arg("sleep_grace"), http.arg("use_s"), http.arg("push_url"))) {
+            http.send(400, "text/plain", SETTINGS_REFUSED);
             return;
         }
         http.send(200, "text/plain", "applied");
@@ -350,12 +346,9 @@ void httpBegin() {
     http.on("/setup", HTTP_POST, []() {   // the setup page's form: a network to join, if given, and the settings
         if (!tokenOk()) return;
         touch();
-        if (!settingsApply(http.arg("tz"), http.arg("ntp"), http.arg("sleep"), http.arg("poll"), http.arg("sleep_days"))) {
-            http.send(400, "text/plain", "a value is too long: tz 63, ntp 64 characters at most");
-            return;
-        }
-        if (http.hasArg("push_url") && !settingsApplyPushUrl(http.arg("push_url"))) {
-            http.send(400, "text/plain", "push_url must be http://host[:port][/path], at most 127 characters; the rest is applied");
+        if (!settingsApply(http.arg("tz"), http.arg("ntp"), http.arg("sleep"), http.arg("poll"), http.arg("sleep_days"),
+                           String(), String(), http.arg("push_url"))) {
+            http.send(400, "text/plain", SETTINGS_REFUSED);
             return;
         }
         String ssid = http.arg("ssid");

@@ -152,15 +152,17 @@ class Ingester:
     def ingest_file(self, path, force=False):
         """Load one file, plain or compressed with its dictionary found beside it. Returns 'loaded', 'reloaded',
         'unchanged' or 'skipped' (a compressed file whose dictionary is missing); force reloads an unchanged file.
-        A compressed file is keyed on its plain name and inflated size, so the same session pulled or pushed is one row."""
+        A file is keyed on its plain name and its size on disk, so the unchanged case costs a stat."""
         name = zlog.plain_name(os.path.basename(path))
-        data, _, note = zlog.inflate_file(path)
-        if not data and note:
-            return "skipped"
-        size = len(data)
+        size = os.path.getsize(path)
         old = self.db.execute("SELECT id, size FROM sessions WHERE file=?", (name,)).fetchone()
         if old and old["size"] == size and not force:
             return "unchanged"
+        data, complete, note = zlog.inflate_file(path)
+        if not data and note:
+            return "skipped"
+        if not complete:
+            print("logdb: %s: %s" % (name, note or "the stream ends before its trailer"), file=sys.stderr)
         if old:
             self.db.execute("DELETE FROM sessions WHERE id=?", (old["id"],))
         raw_lines = data.decode("utf-8", "replace").split("\n")
@@ -281,9 +283,6 @@ class Ingester:
                     meta.get("fw"), clock, started, ended, len(raw_lines), batch_seq, n_events, sid))
 
 
-SESSION_EXT = (".log", ".log.z", ".log.gz")
-
-
 def ingest(db, paths, tz=DEFAULT_TZ, force=False):
     """Load every session file (.log, .log.z, .log.gz) under the given files and directories. Returns counts by
     outcome. force reloads everything, for a parser change, and rebuilds the text index."""
@@ -291,12 +290,14 @@ def ingest(db, paths, tz=DEFAULT_TZ, force=False):
     for p in paths:
         if os.path.isdir(p):
             for root, _, names in os.walk(p):
-                files += [os.path.join(root, n) for n in names if n.endswith(SESSION_EXT)]
-        elif p.endswith(SESSION_EXT):
+                files += [os.path.join(root, n) for n in names if n.endswith(zlog.SESSION_EXT)]
+        elif p.endswith(zlog.SESSION_EXT):
             files.append(p)
     files.sort(key=os.path.basename)
-    seen = set()   # a session both pulled plain and pushed compressed is one session: the plain name sorts first
-    files = [f for f in files if not (zlog.plain_name(os.path.basename(f)) in seen or seen.add(zlog.plain_name(os.path.basename(f))))]
+    by_name = {}
+    for f in files:   # a session both pulled plain and pushed compressed is one session: the plain name sorts first and wins
+        by_name.setdefault(zlog.plain_name(os.path.basename(f)), f)
+    files = list(by_name.values())
     ing = Ingester(db, tz)
     counts = {"loaded": 0, "reloaded": 0, "unchanged": 0, "skipped": 0, "dropped": 0}
     for f in files:

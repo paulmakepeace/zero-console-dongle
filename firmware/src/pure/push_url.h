@@ -17,7 +17,10 @@ inline bool parsePushUrl(const char* s, size_t len, PushUrl& out) {
     const size_t sl = sizeof(scheme) - 1;
     if (len <= sl || memcmp(s, scheme, sl) != 0) return false;
     size_t i = sl, h = i;
-    while (i < len && s[i] != ':' && s[i] != '/') i++;
+    for (; i < len && s[i] != ':' && s[i] != '/'; i++) {   // a host name or address, nothing that could end a header line
+        char c = s[i];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '.' || c == '-')) return false;
+    }
     size_t hl = i - h;
     if (hl == 0 || hl >= sizeof out.host) return false;
     memcpy(out.host, s + h, hl);

@@ -75,7 +75,12 @@ Two constraints, both bought by earlier defects:
   stage commits needs the same care as the 2026-09-09 capture-tick revert.
 
 Each file is PUT as the flash holds it and deleted on the server's 200, oldest
-first, which is what makes it retry-safe. The ingest runs on arrival. GPS is not the trigger, since WiFi
+first, which is what makes it retry-safe. A session's dictionary, named in its
+file name and kept on the flash while any session names it, goes first once
+per round; a session the server cannot inflate is kept raw and refused, and
+the dongle moves on. The ingest runs on arrival. One archive and database
+serve one board: session names carry no board, so the bench pushes to a
+test server on the laptop, never to the bike's. GPS is not the trigger, since WiFi
 is a prerequisite anyway, but `ccm` already prints it as radians times ten to
 the eighth and the archive already parses those five rows, so a ride becomes
 a track with a derived series and no firmware change.

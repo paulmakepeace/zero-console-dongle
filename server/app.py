@@ -17,7 +17,6 @@ import logging
 import os
 import sys
 import threading
-import zlib
 
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
@@ -49,31 +48,36 @@ def _mcp():
 
 
 def _same(path, data):
-    if not os.path.isfile(path):
+    if not os.path.isfile(path) or os.path.getsize(path) != len(data):
         return False
     with open(path, "rb") as f:
         return f.read() == data
 
 
 def store(path, data):
-    """Write data at path unless it is already there; a different file of the same name gets a -2 suffix.
-    Returns (outcome, path)."""
+    """Write data at path unless it is already there. A different file of the same name is kept beside it with a
+    -2 suffix as evidence and is not ingested: a session name is unique, so this is damage, not a second session.
+    Returns (outcome, path): stored, unchanged or variant."""
     if _same(path, data):
         return "unchanged", path
-    if os.path.exists(path):
-        stem, ext = path, ""
-        for e in (".log.z", ".log.gz", ".log", ".txt"):
-            if path.endswith(e):
-                stem, ext = path[:-len(e)], e
-                break
-        n = 2
-        while os.path.exists("%s-%d%s" % (stem, n, ext)) and not _same("%s-%d%s" % (stem, n, ext), data):
-            n += 1
-        path = "%s-%d%s" % (stem, n, ext)
-        if _same(path, data):
-            return "unchanged", path
-    zlog.write_atomic(path, data)
-    return "stored", path
+    if not os.path.exists(path):
+        zlog.write_atomic(path, data)
+        return "stored", path
+    stem, ext = path, ""
+    for e in (".log.z", ".log.gz", ".log", ".txt"):
+        if path.endswith(e):
+            stem, ext = path[:-len(e)], e
+            break
+    n = 2
+    while True:
+        cand = "%s-%d%s" % (stem, n, ext)
+        if not os.path.exists(cand):
+            zlog.write_atomic(cand, data)
+            log.warning("%s differs from the file stored under that name; kept as %s, not ingested", path, cand)
+            return "variant", cand
+        if _same(cand, data):
+            return "variant", cand   # seen before, and still not the session under that name
+        n += 1
 
 
 def ingest_path(path):
@@ -95,14 +99,16 @@ async def push(request):
         return PlainTextResponse("too large", 413)
     did = zlog.dict_id_of_name(name)
     if did is not None:
-        if zlib.adler32(body) & 0xFFFFFFFF != did:
+        if not zlog.dict_matches(body, did):
             return PlainTextResponse("dictionary does not match its id", 400)
         outcome, _ = await run_in_threadpool(store, os.path.join(ARCHIVE, board, "dicts", "%08x.txt" % did), body)
         return PlainTextResponse(outcome, 200)
-    if not name.endswith(logdb.SESSION_EXT):
+    if not name.endswith(zlog.SESSION_EXT):
         return PlainTextResponse("not a session file", 400)
     path = os.path.join(ARCHIVE, board, zlog.archive_relpath(name))
     outcome, path = await run_in_threadpool(store, path, body)   # the raw bytes first, whatever else happens
+    if outcome == "variant":
+        return PlainTextResponse(outcome, 200)
     if name.endswith(".z"):
         needed = zlog.dictionary_id(body)
         if needed is not None and zlog.load_dict(os.path.join(ARCHIVE, board, "dicts"), needed) is None:

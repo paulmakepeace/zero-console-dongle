@@ -7,5 +7,6 @@ const char* sysResetReason();
 bool sysWatchdogArmed();
 void sysFeedWatchdog();
 void sysTickCapture();
+void sysPumpTransfer();   // what a long transfer keeps alive between its chunks: the capture, the console, a poll batch's end
 void sysNetUntimed();   // the net stage's pass covered a transfer or an upload: not a stall, do not record it     // capture housekeeping, safe to call from an HTTP handler
 String sysLoopMaxJson();   // the longest single loop pass of each stage since boot, in ms

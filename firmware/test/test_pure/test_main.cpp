@@ -532,6 +532,9 @@ void test_push_url_rejects() {
     TEST_ASSERT_FALSE(purl("http://nas:99999/x", u));
     TEST_ASSERT_FALSE(purl("http://nas/x?y=1", u));
     TEST_ASSERT_FALSE(purl("http://nas/a b", u));
+    TEST_ASSERT_FALSE(purl("http://na s/x", u));
+    TEST_ASSERT_FALSE(purl("http://nas\r\nX-Evil: 1/x", u));   // the host goes into a header line verbatim
+    TEST_ASSERT_FALSE(purl("http://nas_1/x", u));
     std::string longHost = "http://" + std::string(70, 'h') + "/x";
     TEST_ASSERT_FALSE(purl(longHost.c_str(), u));
 }

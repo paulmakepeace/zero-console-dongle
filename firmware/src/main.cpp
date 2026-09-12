@@ -121,6 +121,12 @@ void sysTickCapture() {
     if (d > stageMaxMs[ST_CAPTURE]) stageMaxMs[ST_CAPTURE] = d;
 }
 
+void sysPumpTransfer() {
+    sysTickCapture();
+    consoleTick();
+    if (pollerActive()) pollerTick(mbbAwake(), consoleClients() > 0);   // a batch in flight ends; a transfer is no moment to start one
+}
+
 void setup() {
     mbbPinsSafe();   // before anything slow: pin 9 is the MBB's wake pin
     Serial.begin(CONSOLE_BAUD);

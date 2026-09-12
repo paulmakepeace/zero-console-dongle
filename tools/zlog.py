@@ -10,6 +10,7 @@ import zlib
 NAME_OK = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")   # what the firmware accepts, see firmware/src/pure/names.h
 SESSION = re.compile(r"^b\d{4}-\d{2,3}-(\d{8})-\d{6}(?:-[0-9a-f]{8})?\.log(?:\.z|\.gz)?\Z")
 DICT = re.compile(r"^dict-([0-9a-f]{8})\.txt\Z")
+SESSION_EXT = (".log", ".log.z", ".log.gz")
 
 
 def name_ok(name):
@@ -23,6 +24,11 @@ def dictionary_id(data):
     return None
 
 
+def dict_matches(data, did):
+    """Whether these bytes are the dictionary with this id."""
+    return zlib.adler32(data) & 0xFFFFFFFF == did
+
+
 def dict_id_of_name(name):
     """The id a dict-XXXXXXXX.txt name carries, or None."""
     m = DICT.match(name)
@@ -34,12 +40,17 @@ def inflate(data, zdict=None):
     stream cut off before its trailer still yields everything up to the last
     flush; a stream that fails part-way (a flash bit error) yields what
     decoded before the error, with a note saying so."""
-    if data[:2] == b"\x1f\x8b":
-        d = zlib.decompressobj(31)
-    elif zdict is not None:
-        d = zlib.decompressobj(15, zdict=zdict)
-    else:
-        d = zlib.decompressobj(15)
+    def fresh():
+        if data[:2] == b"\x1f\x8b":
+            return zlib.decompressobj(31)
+        return zlib.decompressobj(15, zdict=zdict) if zdict is not None else zlib.decompressobj(15)
+    d = fresh()
+    try:
+        out = d.decompress(data)   # one pass, the case every good file is
+        return out, d.eof, "bytes after the gzip trailer" if d.unused_data else ""
+    except zlib.error:
+        pass
+    d = fresh()
     out = b""
     for k in range(0, len(data), 512):   # in pieces, so a late error keeps the early bytes
         before = d.copy()
@@ -90,7 +101,7 @@ def load_dict(dicts_dir, did):
         return None
     with open(path, "rb") as f:
         d = f.read()
-    return d if zlib.adler32(d) & 0xFFFFFFFF == did else None
+    return d if dict_matches(d, did) else None
 
 
 def inflate_file(path):
