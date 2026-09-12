@@ -180,7 +180,10 @@ protocol and checked against the raw files, and each mapped to an owner ask in
 State of health, the most-asked figure, is `series("pack_capacity_ah")`: flat
 at 84 Ah so far, a question for months of data rather than days.
 
-`.mcp.json` at the repo root registers it for Claude Code; `tools/mcp/run.sh`
+`.mcp.json` at the repo root registers it for Claude Code as `zongle-local`, the
+development server over stdio against this checkout's archive; `zongle` is the
+NAS service over HTTP, registered at user scope so it appears in every session
+(see [archive-service.md](archive-service.md)). `tools/mcp/run.sh`
 creates the server's Python 3.10+ venv on first run and installs the `mcp`
 SDK, so the checkout needs nothing else. The server never sends the dongle
 anything but GETs and a poll request.
