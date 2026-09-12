@@ -1,8 +1,8 @@
 # The archive service: the dongle pushes, the NAS keeps, MCP answers
 
-Built on 2026-09-11: the push in `firmware/src/push.cpp`, the service in
-`server/`, validated on the bench. The NAS deployment and the bike come next.
-It follows from [data-model.md](data-model.md), which
+Built 2026-09-11 as firmware 0.12.0: the push in `firmware/src/push.cpp`,
+the service in `server/`, validated on the bench and flashed to the bike with
+the push off until the service runs on the NAS. It follows from [data-model.md](data-model.md), which
 settles what the data is and that the homelab is the archive; this note
 settles how the data gets there and how it is asked for. Decided 2026-09-11
 from a demo of the five questions in that doc against the archive.
