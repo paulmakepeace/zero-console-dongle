@@ -30,7 +30,6 @@ import glob
 import http.client
 import json
 import os
-import re
 import socket
 import sys
 import time
@@ -38,7 +37,8 @@ import urllib.error
 import urllib.request
 import zlib
 
-NAME_OK = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")   # what the firmware accepts
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from zlog import NAME_OK, dictionary_id, inflate   # noqa: E402
 
 
 def warn(text):
@@ -67,43 +67,6 @@ def fetch(url, method="GET", timeout=60, tries=2):
                 raise
             warn("pull-logs: %s %s: %s; retrying" % (method, url, exc))
             time.sleep(2)
-
-
-def dictionary_id(data):
-    """The dictionary a zlib stream names in its header, or None."""
-    if len(data) >= 6 and data[0] == 0x78 and data[1] & 0x20:
-        return int.from_bytes(data[2:6], "big")
-    return None
-
-
-def inflate(data, zdict=None):
-    """A gzip or zlib stream to its bytes. Returns (bytes, complete, note): a
-    stream cut off before its trailer still yields everything up to the last
-    flush; a stream that fails part-way (a flash bit error) yields what
-    decoded before the error, with a note saying so."""
-    if data[:2] == b"\x1f\x8b":
-        d = zlib.decompressobj(31)
-    elif zdict is not None:
-        d = zlib.decompressobj(15, zdict=zdict)
-    else:
-        d = zlib.decompressobj(15)
-    out = b""
-    for k in range(0, len(data), 512):   # in pieces, so a late error keeps the early bytes
-        before = d.copy()
-        try:
-            out += d.decompress(data[k:k + 512])
-        except zlib.error as exc:
-            d = before   # back to the last good state, then byte by byte up to the error
-            for b in range(k, min(k + 512, len(data))):
-                try:
-                    out += d.decompress(data[b:b + 1])
-                except zlib.error:
-                    break
-            if "data check" in str(exc):
-                return out, False, "%d byte(s) decoded but the trailer's check failed, so the content may be wrong anywhere: %s" % (len(out), exc)
-            return out, False, "%d byte(s) decoded, then the stream fails: %s" % (len(out), exc)
-    note = "bytes after the gzip trailer" if d.unused_data else ""
-    return out, d.eof, note
 
 
 def dictionary(base, dest, did):

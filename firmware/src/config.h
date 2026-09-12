@@ -1,6 +1,6 @@
 #pragma once
 
-#define FW_VERSION      "0.11.13"
+#define FW_VERSION      "0.12.0"
 #define DONGLE_NAME     "zero-dongle"      // base of the hostname and mDNS name; the last four hex digits of the MAC are appended, and this stays MAC-stable so bookmarks hold
 #define DONGLE_BRAND    "Zongle"           // the friendly display name: shown on the pages and used for the setup network SSID; the MAC host name is in the browser's address bar, so the pages do not repeat it
 // The setup network's password defaults to "zero-" plus the last six hex digits
@@ -38,6 +38,13 @@
 #define SLEEP_MIN_S      30       // shorter than this is not worth the WiFi round trip
 #define SLEEP_FALLBACK_S MBB_HIB_S   // with no announcement seen, plan on the interval this bike announces
 #define SLEEP_AFTER_DAYS 3        // sleep only once the bike has gone this long without a 12 V top-up, a cellular answer or a key-on; 0 for always
+
+// The push: files uploaded to the archive on a join or a session end.
+#define PUSH_URL_MAX     127
+#define PUSH_CONNECT_MS  5000
+#define PUSH_REPLY_MS    20000   // the server ingests before it answers
+#define PUSH_BACKOFF_MS  30000   // times the failure count
+#define PUSH_MAX_FAILURES 5      // then wait for the next join or session end
 
 #define LOG_DIR         "/logs"
 #define FS_MIN_FREE     (96 * 1024)   // delete the oldest file below this much free space

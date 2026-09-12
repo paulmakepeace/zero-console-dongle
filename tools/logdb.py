@@ -19,6 +19,9 @@ import sys
 import time
 from datetime import datetime, timedelta
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import zlog  # noqa: E402
+
 try:
     from zoneinfo import ZoneInfo
 except ImportError:   # Python < 3.9
@@ -62,14 +65,21 @@ CREATE TABLE IF NOT EXISTS readings (
     batch INTEGER, command TEXT, line INTEGER, t TEXT, epoch REAL, name TEXT NOT NULL, value REAL NOT NULL, valid INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS readings_name_t ON readings(name, t);
 CREATE VIRTUAL TABLE IF NOT EXISTS lines_fts USING fts5(text, content='lines', content_rowid='id');
+CREATE TRIGGER IF NOT EXISTS lines_ai AFTER INSERT ON lines BEGIN
+    INSERT INTO lines_fts(rowid, text) VALUES (new.id, new.text);
+END;
+CREATE TRIGGER IF NOT EXISTS lines_ad AFTER DELETE ON lines BEGIN
+    INSERT INTO lines_fts(lines_fts, rowid, text) VALUES ('delete', old.id, old.text);
+END;
 """
 
 
 def open_db(path=DEFAULT_DB):
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    db = sqlite3.connect(path)
+    db = sqlite3.connect(path, timeout=10)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys=ON")
+    db.execute("PRAGMA journal_mode=WAL")   # the service reads while an ingest writes
     db.executescript(SCHEMA)
     return db
 
@@ -140,16 +150,23 @@ class Ingester:
         return dt.timestamp()
 
     def ingest_file(self, path, force=False):
-        """Load one file. Returns 'loaded', 'reloaded' or 'unchanged'; force reloads an unchanged file."""
-        name = os.path.basename(path)
-        size = os.path.getsize(path)
+        """Load one file, plain or compressed with its dictionary found beside it. Returns 'loaded', 'reloaded',
+        'unchanged' or 'skipped' (a compressed file whose dictionary is missing); force reloads an unchanged file.
+        A compressed file is keyed on its plain name and inflated size, so the same session pulled or pushed is one row."""
+        name = zlog.plain_name(os.path.basename(path))
+        data, _, note = zlog.inflate_file(path)
+        if not data and note:
+            return "skipped"
+        size = len(data)
         old = self.db.execute("SELECT id, size FROM sessions WHERE file=?", (name,)).fetchone()
         if old and old["size"] == size and not force:
             return "unchanged"
         if old:
             self.db.execute("DELETE FROM sessions WHERE id=?", (old["id"],))
-        with open(path, encoding="utf-8", errors="replace") as f:
-            raw_lines = [l.rstrip("\r\n") for l in f]
+        raw_lines = data.decode("utf-8", "replace").split("\n")
+        if raw_lines and raw_lines[-1] == "":
+            raw_lines.pop()
+        raw_lines = [l.rstrip("\r") for l in raw_lines]
         sid = self.db.execute("INSERT INTO sessions(file, size, ingested) VALUES(?,?,?)",
                               (name, size, time.time())).lastrowid
         self._load_lines(sid, raw_lines)
@@ -264,29 +281,35 @@ class Ingester:
                     meta.get("fw"), clock, started, ended, len(raw_lines), batch_seq, n_events, sid))
 
 
+SESSION_EXT = (".log", ".log.z", ".log.gz")
+
+
 def ingest(db, paths, tz=DEFAULT_TZ, force=False):
-    """Load every .log under the given files and directories. Returns counts by outcome. force reloads everything, for a parser change."""
+    """Load every session file (.log, .log.z, .log.gz) under the given files and directories. Returns counts by
+    outcome. force reloads everything, for a parser change, and rebuilds the text index."""
     files = []
     for p in paths:
         if os.path.isdir(p):
             for root, _, names in os.walk(p):
-                files += [os.path.join(root, n) for n in names if n.endswith(".log")]
-        elif p.endswith(".log"):
+                files += [os.path.join(root, n) for n in names if n.endswith(SESSION_EXT)]
+        elif p.endswith(SESSION_EXT):
             files.append(p)
     files.sort(key=os.path.basename)
+    seen = set()   # a session both pulled plain and pushed compressed is one session: the plain name sorts first
+    files = [f for f in files if not (zlog.plain_name(os.path.basename(f)) in seen or seen.add(zlog.plain_name(os.path.basename(f))))]
     ing = Ingester(db, tz)
-    counts = {"loaded": 0, "reloaded": 0, "unchanged": 0, "dropped": 0}
+    counts = {"loaded": 0, "reloaded": 0, "unchanged": 0, "skipped": 0, "dropped": 0}
     for f in files:
         with db:
             counts[ing.ingest_file(f, force)] += 1
     if any(os.path.isdir(p) for p in paths):   # a directory is the whole truth: a session whose file is gone goes too
-        present = {os.path.basename(f) for f in files}
+        present = {zlog.plain_name(os.path.basename(f)) for f in files}
         with db:
             for r in db.execute("SELECT id, file FROM sessions").fetchall():
                 if r["file"] not in present:
                     db.execute("DELETE FROM sessions WHERE id=?", (r["id"],))
                     counts["dropped"] += 1
-    if counts["loaded"] or counts["reloaded"] or counts["dropped"]:
+    if force:   # the triggers keep the index current; a parser change is the one time it is rebuilt whole
         with db:
             db.execute("INSERT INTO lines_fts(lines_fts) VALUES('rebuild')")
     return counts

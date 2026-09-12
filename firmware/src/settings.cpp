@@ -6,26 +6,39 @@
 #include "sleep.h"
 #include "poller.h"
 #include "http.h"
+#include "push.h"
 #include "util.h"
 #include "sys.h"
 #include <Preferences.h>
 
-static String tzSetting, ntpSetting;
+static String tzSetting, ntpSetting, pushSetting;
 
 void settingsBegin() {
     Preferences p;
     p.begin("dongle", true);
     tzSetting = p.isKey("tz") ? p.getString("tz") : String(TZ_DEFAULT);
     ntpSetting = p.isKey("ntp") ? p.getString("ntp") : String(NTP_SERVER);
+    pushSetting = p.isKey("push") ? p.getString("push") : String();
     p.end();
 }
 
 const char* settingsTz() { return tzSetting.c_str(); }
 const char* settingsNtp() { return ntpSetting.c_str(); }
+const char* settingsPushUrl() { return pushSetting.c_str(); }
+
+bool settingsApplyPushUrl(const String& u) {
+    if (!pushSetUrl(u)) return false;
+    if (u == pushSetting) return true;
+    pushSetting = u;
+    Preferences p;
+    if (p.begin("dongle", false)) { p.putString("push", u); p.end(); }
+    Serial.printf("settings: push %s\n", u.length() ? u.c_str() : "off");
+    return true;
+}
 
 String settingsJson() {
     return "{\"tz\":\"" + jsonEscape(tzSetting) + "\",\"ntp\":\"" + jsonEscape(ntpSetting) +
-           "\",\"sleep\":" + (sleepEnabled() ? "1" : "0") + ",\"sleep_days\":" + String(sleepAfterDays()) + ",\"poll\":" + String(pollerInterval()) +
+           "\",\"push_url\":\"" + jsonEscape(pushSetting) + "\",\"sleep\":" + (sleepEnabled() ? "1" : "0") + ",\"sleep_days\":" + String(sleepAfterDays()) + ",\"poll\":" + String(pollerInterval()) +
            ",\"sleep_grace\":" + String(sleepGraceMs() / 1000) + ",\"use_s\":" + String(httpUseMs() / 1000) + "}";
 }
 

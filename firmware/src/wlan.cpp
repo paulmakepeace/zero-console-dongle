@@ -10,6 +10,7 @@
 #include "settings.h"
 #include "http.h"
 #include "console.h"
+#include "push.h"
 #include "sys.h"
 #include "util.h"
 #include <WiFi.h>
@@ -258,6 +259,7 @@ void wifiTick() {
         keyProven = true;
         clockNetworkUp();    // on every join, so NTP is not left on a backoff
         startServices();
+        pushRequest();       // every join: what the flash holds goes to the archive
         Serial.printf("wifi: connected to %s, %s\n", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
     }
     bool connected = WiFi.status() == WL_CONNECTED;

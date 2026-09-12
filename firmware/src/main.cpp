@@ -15,6 +15,7 @@
 #include "poller.h"
 #include "readings.h"
 #include "sleep.h"
+#include "push.h"
 #include "esp_task_wdt.h"
 #include "esp_system.h"
 #include "esp_mac.h"
@@ -97,7 +98,7 @@ static void onState(bool awake) {
         suppressed = 0;
     } else suppressed++;
     storeNoteEdge(awake);
-    if (!awake) storeSessionClose();   // a session opens on its first line, not on the edge
+    if (!awake) { storeSessionClose(); pushRequest(); }   // a session opens on its first line, not on the edge; a closed one is ready to push
 }
 
 static void onClockNote(const char* note) {
@@ -150,6 +151,7 @@ void setup() {
     uint32_t pollS = p.isKey("poll") ? p.getUInt("poll") : POLL_INTERVAL_S;
     p.end();
     settingsBegin();
+    pushBegin(settingsPushUrl());
     sleepBegin(sleepOn, sleepDays, attended);
     pollerBegin(pollS);
     clockBegin(settingsTz(), settingsNtp(), onClockNote);
@@ -162,8 +164,8 @@ void setup() {
 
 void loop() {
     sysTickCapture();   // lines, markers and edges, in order, on this task; it times itself
-    timed(ST_NET, []() { wifiTick(); httpTick(); consoleTick(); });
+    timed(ST_NET, []() { wifiTick(); httpTick(); consoleTick(); pushTick(); });
     timed(ST_POLLER, []() { pollerTick(mbbAwake(), consoleClients() > 0); });
-    timed(ST_SLEEP, []() { sleepTick(mbbAwake(), consoleClients() > 0 || httpBusy() || wifiBusy() || pollerActive() || mbbTxAttached()); });
+    timed(ST_SLEEP, []() { sleepTick(mbbAwake(), consoleClients() > 0 || httpBusy() || wifiBusy() || pollerActive() || mbbTxAttached() || pushBusy()); });
     delay(2);
 }

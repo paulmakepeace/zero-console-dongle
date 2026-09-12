@@ -139,8 +139,8 @@ credentials.
 | `/live`              | GET    | the last lines received                    |
 | `/update`            | POST   | firmware image as `firmware` in a multipart body; the status page has the form |
 | `/api/wifi/reset`    | POST   | forget WiFi and reboot into setup          |
-| `/api/settings`      | GET    | JSON: timezone, NTP server, sleep on or off, days unattended before sleeping, poll interval, and the two bench knobs in seconds, the grace before a sleep and the use window |
-| `/api/settings`      | POST   | form fields `tz`, `ntp`, `sleep` (0 or 1), `sleep_days` (0 for always), `poll` (seconds, 0 for never), any subset, applied at once; 400 with nothing applied when a value is over its length (tz 63, ntp 64 characters), and a `sleep_days` over 999, a `poll` over 99999 or a knob under 5 s is ignored with the rest applied; `sleep_grace` and `use_s` (seconds) are bench knobs, applied but not saved |
+| `/api/settings`      | GET    | JSON: timezone, NTP server, push URL, sleep on or off, days unattended before sleeping, poll interval, and the two bench knobs in seconds, the grace before a sleep and the use window |
+| `/api/settings`      | POST   | form fields `tz`, `ntp`, `sleep` (0 or 1), `sleep_days` (0 for always), `poll` (seconds, 0 for never), any subset, applied at once; 400 with nothing applied when a value is over its length (tz 63, ntp 64 characters), and a `sleep_days` over 999, a `poll` over 99999 or a knob under 5 s is ignored with the rest applied; `sleep_grace` and `use_s` (seconds) are bench knobs, applied but not saved; `push_url` (http://host[:port][/path], blank for off) sets where session files are pushed on every WiFi join and session end, 400 if it is not such a URL |
 | `/cmd`               | GET    | tabbed page of the polled command outputs  |
 | `/setup`             | GET    | the setup page: a network to join and the settings |
 | `/setup`             | POST   | its form: `ssid` and `pass` to join, if given, plus the settings fields of `/api/settings`; the reply goes out before the join starts |

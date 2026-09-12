@@ -4,6 +4,18 @@ Reverse chronological. Each heading is the firmware tag; the date beneath it is
 the tagged commit's date. This tracks feature work and significant bug fixes;
 minor goofs and one-off tidy-ups are left to the tag bodies.
 
+## 0.12.0
+September 11, 2026
+
+- The dongle pushes its session files to an archive service on every WiFi
+  join and every session end. `push_url` in the settings names it; each file
+  is PUT as the flash holds it and deleted on the server's 200, and a
+  dictionary the server lacks is sent on demand. Off with no URL set.
+- `server/` is that service for the NAS: one container holding the push
+  endpoint, the ingest into SQLite and the MCP server over HTTP.
+  `tools/zlog.py` is the session-file library the puller, the ingest and the
+  service share.
+
 ## 0.11.13
 September 10, 2026
 

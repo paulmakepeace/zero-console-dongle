@@ -13,6 +13,7 @@
 #include "settings.h"
 #include "wlan.h"
 #include "console.h"
+#include "push.h"
 #include "sys.h"
 #include <WiFi.h>
 #include <WebServer.h>
@@ -98,6 +99,7 @@ static const char SETUP_PAGE[] PROGMEM = R"HTML(<!doctype html><meta charset=utf
 <label>Sleep between MBB sessions, 1 or 0 <input name=sleep></label>
 <label>Sleep only after N days unattended, 0 for always <input name=sleep_days></label>
 <label>Poll the MBB every N seconds, 0 for never <input name=poll></label>
+<label>Push logs to this http URL on every WiFi join, blank for off <input name=push_url autocapitalize=off placeholder="http://nas:8765/push"></label>
 </details>
 <button id=a>Apply</button>
 <p id=m></p>
@@ -114,7 +116,7 @@ async function w(){const e=document.getElementById('w');try{const s=await (await
  if(busy){e.appendChild(document.createTextNode(' '));const sp=document.createElement('span');sp.className='spin';e.appendChild(sp)}
  }catch(x){e.textContent='Network: no answer; rejoin '+location.hostname+' if the phone dropped it'}}
 w();setInterval(w,3000);
-fetch('/api/settings').then(r=>r.json()).then(s=>{for(const k of ['tz','ntp','sleep','sleep_days','poll']) document.querySelector('[name='+k+']').value=s[k]}).catch(()=>{});
+fetch('/api/settings').then(r=>r.json()).then(s=>{for(const k of ['tz','ntp','sleep','sleep_days','poll','push_url']) document.querySelector('[name='+k+']').value=s[k]}).catch(()=>{});
 fetch('/api/status').then(r=>r.json()).then(s=>{document.getElementById('t').textContent=s.brand+' setup'}).catch(()=>{});
 const F=document.getElementById('f');
 F.elements.ssid.addEventListener('keydown',e=>{if(e.key=='Enter'){e.preventDefault();F.elements.pass.focus()}});
@@ -207,6 +209,7 @@ static String statusJson() {   // a health check is not use: a watcher must not 
     s += ",\"esp_temp_c\":" + String(temperatureRead(), 1);   // the die, not the air: it runs some 15 to 20 C above ambient
     s += ",\"poll\":{\"interval_s\":" + String(pollerInterval()) + ",\"active\":" + (pollerActive() ? "true" : "false") + "}";
     s += ",\"sleep\":" + sleepStatusJson();
+    s += ",\"push\":" + pushStatusJson();
     s += ",\"heap_free\":" + String(ESP.getFreeHeap()) + ",\"heap_min_free\":" + String(ESP.getMinFreeHeap()) +
          ",\"heap_max_alloc\":" + String(ESP.getMaxAllocHeap());
     s += ",\"loop_max_ms\":" + sysLoopMaxJson();
@@ -336,6 +339,10 @@ void httpBegin() {
             http.send(400, "text/plain", "a value is too long: tz 63, ntp 64 characters at most");
             return;
         }
+        if (http.hasArg("push_url") && !settingsApplyPushUrl(http.arg("push_url"))) {
+            http.send(400, "text/plain", "push_url must be http://host[:port][/path], at most 127 characters; the rest is applied");
+            return;
+        }
         http.send(200, "text/plain", "applied");
     });
     http.on("/cmd", HTTP_GET, []() { touch(); http.send_P(200, "text/html", CMD_PAGE); });
@@ -345,6 +352,10 @@ void httpBegin() {
         touch();
         if (!settingsApply(http.arg("tz"), http.arg("ntp"), http.arg("sleep"), http.arg("poll"), http.arg("sleep_days"))) {
             http.send(400, "text/plain", "a value is too long: tz 63, ntp 64 characters at most");
+            return;
+        }
+        if (http.hasArg("push_url") && !settingsApplyPushUrl(http.arg("push_url"))) {
+            http.send(400, "text/plain", "push_url must be http://host[:port][/path], at most 127 characters; the rest is applied");
             return;
         }
         String ssid = http.arg("ssid");

@@ -1,6 +1,8 @@
 # The archive service: the dongle pushes, the NAS keeps, MCP answers
 
-Design, not built. It follows from [data-model.md](data-model.md), which
+Built on 2026-09-11: the push in `firmware/src/push.cpp`, the service in
+`server/`, validated on the bench. The NAS deployment and the bike come next.
+It follows from [data-model.md](data-model.md), which
 settles what the data is and that the homelab is the archive; this note
 settles how the data gets there and how it is asked for. Decided 2026-09-11
 from a demo of the five questions in that doc against the archive.
@@ -72,8 +74,8 @@ Two constraints, both bought by earlier defects:
 - **The store lock.** Reading a session file for upload while the capture
   stage commits needs the same care as the 2026-09-09 capture-tick revert.
 
-Each file is POSTed and marked pushed on a 200; the mark is what makes it
-retry-safe. The ingest runs on arrival. GPS is not the trigger, since WiFi
+Each file is PUT as the flash holds it and deleted on the server's 200, oldest
+first, which is what makes it retry-safe. The ingest runs on arrival. GPS is not the trigger, since WiFi
 is a prerequisite anyway, but `ccm` already prints it as radians times ten to
 the eighth and the archive already parses those five rows, so a ride becomes
 a track with a derived series and no firmware change.

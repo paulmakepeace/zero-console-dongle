@@ -11,6 +11,7 @@
 #include "rows.h"
 #include "keep.h"
 #include "dictkeeper.h"
+#include "push_url.h"
 
 void setUp() {}
 void tearDown() {}
@@ -505,6 +506,36 @@ void test_utf8_rejects_what_utf8_forbids() {
 }
 
 
+// --- push_url ---------------------------------------------------------------
+static bool purl(const char* s, PushUrl& u) { return parsePushUrl(s, strlen(s), u); }
+
+void test_push_url_forms() {
+    PushUrl u;
+    TEST_ASSERT_TRUE(purl("http://nas:8765/push", u));
+    TEST_ASSERT_EQUAL_STRING("nas", u.host); TEST_ASSERT_EQUAL(8765, u.port); TEST_ASSERT_EQUAL_STRING("/push", u.path);
+    TEST_ASSERT_TRUE(purl("http://192.168.0.5", u));
+    TEST_ASSERT_EQUAL_STRING("192.168.0.5", u.host); TEST_ASSERT_EQUAL(80, u.port); TEST_ASSERT_EQUAL_STRING("", u.path);
+    TEST_ASSERT_TRUE(purl("http://nas.lan/a/b/", u));   // the trailing slash goes, so /board/name can follow
+    TEST_ASSERT_EQUAL_STRING("/a/b", u.path);
+    TEST_ASSERT_TRUE(purl("http://nas:80/", u));
+    TEST_ASSERT_EQUAL_STRING("", u.path);
+}
+
+void test_push_url_rejects() {
+    PushUrl u;
+    TEST_ASSERT_FALSE(purl("", u));
+    TEST_ASSERT_FALSE(purl("https://nas/push", u));   // no TLS on the board
+    TEST_ASSERT_FALSE(purl("nas:8765/push", u));
+    TEST_ASSERT_FALSE(purl("http://", u));
+    TEST_ASSERT_FALSE(purl("http://nas:", u));
+    TEST_ASSERT_FALSE(purl("http://nas:0/x", u));
+    TEST_ASSERT_FALSE(purl("http://nas:99999/x", u));
+    TEST_ASSERT_FALSE(purl("http://nas/x?y=1", u));
+    TEST_ASSERT_FALSE(purl("http://nas/a b", u));
+    std::string longHost = "http://" + std::string(70, 'h') + "/x";
+    TEST_ASSERT_FALSE(purl(longHost.c_str(), u));
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_stamp_plain_and_debug_prefixed);
@@ -543,5 +574,7 @@ int main() {
     RUN_TEST(test_row_valid_column);
     RUN_TEST(test_row_pdu_current);
     RUN_TEST(test_row_rejects_what_is_not_a_figure);
+    RUN_TEST(test_push_url_forms);
+    RUN_TEST(test_push_url_rejects);
     return UNITY_END();
 }

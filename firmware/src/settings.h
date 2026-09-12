@@ -9,6 +9,8 @@
 void settingsBegin();
 bool settingsApply(const String& tz, const String& ntp, const String& sleep, const String& poll, const String& days,
                    const String& grace = String(), const String& use = String());   // false: a value too long, nothing applied
+bool settingsApplyPushUrl(const String& url);   // empty turns the push off; false: not an http URL, nothing applied
 String settingsJson();
 const char* settingsTz();
 const char* settingsNtp();
+const char* settingsPushUrl();

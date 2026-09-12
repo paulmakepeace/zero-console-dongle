@@ -1,0 +1,16 @@
+# docker compose -f server/compose.yaml up -d --build
+# The archive and the database live under server/data on the host.
+services:
+  zongle:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    image: zongle-archive
+    ports:
+      - "8765:8765"
+    volumes:
+      - ./data:/data
+    environment:
+      DONGLE_HOST: ${DONGLE_HOST:-zero-dongle-a12c.local}
+      DONGLE_TZ: ${DONGLE_TZ:-America/Los_Angeles}
+    restart: unless-stopped
